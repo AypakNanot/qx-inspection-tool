@@ -31,12 +31,18 @@ public class InspectionService {
     private final InspectionRoundRepository inspectionRoundRepository;
     private final OpticalPowerInspectionRepository powerRecordRepository;
     private final DmNeRepository dmNeRepository;
+    private final ThresholdService thresholdService;
 
     @Value("${app.inspection.concurrency:10}")
     private int concurrency;
 
     @Value("${app.inspection.max-rounds:10}")
     private int maxRounds;
+
+    @jakarta.annotation.PostConstruct
+    public void init() {
+        thresholdService.initDefaultGlobalRule();
+    }
 
     /** 当前运行中的轮次（用于进度查询） */
     private volatile InspectionRound currentRound;
@@ -95,7 +101,7 @@ public class InspectionService {
      * 查询最新轮次的巡检结果
      */
     public List<OpticalPowerInspection> getLatestResults(String network) {
-        return inspectionRoundRepository.findFirstByOrderByStartTimeDesc()
+        List<OpticalPowerInspection> results = inspectionRoundRepository.findFirstByOrderByStartTimeDesc()
                 .map(r -> {
                     if (network != null && !network.isEmpty()) {
                         return powerRecordRepository.findByRoundIdAndNetworkName(r.getId(), network);
@@ -103,25 +109,30 @@ public class InspectionService {
                     return powerRecordRepository.findByRoundId(r.getId());
                 })
                 .orElse(Collections.emptyList());
+        return thresholdService.applyThresholds(results);
     }
 
     /**
      * 查询指定轮次的巡检结果
      */
     public List<OpticalPowerInspection> getResultsByRound(Long roundId, String network) {
+        List<OpticalPowerInspection> results;
         if (network != null && !network.isEmpty()) {
-            return powerRecordRepository.findByRoundIdAndNetworkName(roundId, network);
+            results = powerRecordRepository.findByRoundIdAndNetworkName(roundId, network);
+        } else {
+            results = powerRecordRepository.findByRoundId(roundId);
         }
-        return powerRecordRepository.findByRoundId(roundId);
+        return thresholdService.applyThresholds(results);
     }
 
     /**
      * 查询指定网元的巡检结果（最新轮次）
      */
     public List<OpticalPowerInspection> getResultsByNe(String neId) {
-        return inspectionRoundRepository.findFirstByOrderByStartTimeDesc()
+        List<OpticalPowerInspection> results = inspectionRoundRepository.findFirstByOrderByStartTimeDesc()
                 .map(r -> powerRecordRepository.findByRoundIdAndNeId(r.getId(), neId))
                 .orElse(Collections.emptyList());
+        return thresholdService.applyThresholds(results);
     }
 
     /**
@@ -146,7 +157,7 @@ public class InspectionService {
     }
 
     /**
-     * 获取越限异常汇总（按网元分组）
+     * 获取越限异常汇总（按网元分组）- 门限实时计算
      */
     public List<Map<String, Object>> getAnomalySummary(Long roundId) {
         InspectionRound round;
@@ -157,22 +168,36 @@ public class InspectionService {
         }
         if (round == null) return Collections.emptyList();
 
-        List<Object[]> rows = powerRecordRepository.countOverThresholdGroupByNe(round.getId());
-        List<Map<String, Object>> result = new ArrayList<>();
-        for (Object[] row : rows) {
-            Map<String, Object> item = new LinkedHashMap<>();
-            item.put("neId", row[0]);
-            item.put("neName", row[1]);
-            item.put("overThresholdCount", row[2]);
-            result.add(item);
+        List<OpticalPowerInspection> all = thresholdService.applyThresholds(
+                powerRecordRepository.findByRoundId(round.getId()));
+
+        // 按网元分组统计越限
+        Map<String, Map<String, Object>> grouped = new LinkedHashMap<>();
+        for (OpticalPowerInspection r : all) {
+            boolean over = (r.getTxPowerStatus() != null && r.getTxPowerStatus() > 0)
+                    || (r.getRxPowerStatus() != null && r.getRxPowerStatus() > 0);
+            if (!over) continue;
+
+            String key = r.getNeId();
+            grouped.computeIfAbsent(key, k -> {
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("neId", r.getNeId());
+                m.put("neName", r.getNeName());
+                m.put("overThresholdCount", 0L);
+                return m;
+            });
+            Map<String, Object> m = grouped.get(key);
+            m.put("overThresholdCount", (long) m.get("overThresholdCount") + 1);
         }
+
+        List<Map<String, Object>> result = new ArrayList<>(grouped.values());
         result.sort((a, b) -> Long.compare(
                 (long) b.get("overThresholdCount"), (long) a.get("overThresholdCount")));
         return result;
     }
 
     /**
-     * 获取越限详细记录
+     * 获取越限详细记录 - 门限实时计算
      */
     public List<OpticalPowerInspection> getOverThresholdRecords(Long roundId) {
         InspectionRound round;
@@ -182,7 +207,13 @@ public class InspectionService {
             round = inspectionRoundRepository.findFirstByOrderByStartTimeDesc().orElse(null);
         }
         if (round == null) return Collections.emptyList();
-        return powerRecordRepository.findOverThresholdByRoundId(round.getId());
+
+        List<OpticalPowerInspection> all = thresholdService.applyThresholds(
+                powerRecordRepository.findByRoundId(round.getId()));
+        return all.stream()
+                .filter(r -> (r.getTxPowerStatus() != null && r.getTxPowerStatus() > 0)
+                        || (r.getRxPowerStatus() != null && r.getRxPowerStatus() > 0))
+                .toList();
     }
 
     /**
@@ -204,7 +235,8 @@ public class InspectionService {
         summary.put("doneDevices", latest.getDoneCount());
         summary.put("failDevices", latest.getFailCount());
 
-        List<OpticalPowerInspection> records = powerRecordRepository.findByRoundId(latest.getId());
+        List<OpticalPowerInspection> records = thresholdService.applyThresholds(
+                powerRecordRepository.findByRoundId(latest.getId()));
         List<OpticalPowerInspection> supported = records.stream()
                 .filter(r -> Boolean.TRUE.equals(r.getSupported())).toList();
 
@@ -424,9 +456,6 @@ public class InspectionService {
         r.setTxPower((double) laser.getTranLaserPower());
         r.setRxPower((double) laser.getRecvLaserPower());
 
-        // 门限判定（默认值，后续可配置化）
-        evaluateThreshold(r);
-
         return r;
     }
 
@@ -448,26 +477,6 @@ public class InspectionService {
         return r;
     }
 
-    /**
-     * 门限判定（默认: -27dBm ~ +3dBm）
-     */
-    private void evaluateThreshold(OpticalPowerInspection r) {
-        double lowThreshold = -27.0;
-        double highThreshold = 3.0;
-        r.setLowThreshold(lowThreshold);
-        r.setHighThreshold(highThreshold);
-
-        if (r.getTxPower() != null) {
-            if (r.getTxPower() < lowThreshold) r.setTxPowerStatus(1);
-            else if (r.getTxPower() > highThreshold) r.setTxPowerStatus(2);
-            else r.setTxPowerStatus(0);
-        }
-        if (r.getRxPower() != null) {
-            if (r.getRxPower() < lowThreshold) r.setRxPowerStatus(1);
-            else if (r.getRxPower() > highThreshold) r.setRxPowerStatus(2);
-            else r.setRxPowerStatus(0);
-        }
-    }
 
     private void cleanupOldRounds() {
         try {

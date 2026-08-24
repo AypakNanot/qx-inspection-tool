@@ -2,8 +2,11 @@ package com.optel.qxinspection.controller;
 
 import com.optel.qxinspection.entity.sqlite.InspectionRound;
 import com.optel.qxinspection.entity.sqlite.OpticalPowerInspection;
+import com.optel.qxinspection.entity.sqlite.ThresholdRule;
+import com.optel.qxinspection.repository.sqlite.ThresholdRuleRepository;
 import com.optel.qxinspection.service.InspectionScheduler;
 import com.optel.qxinspection.service.InspectionService;
+import com.optel.qxinspection.service.ThresholdService;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.apache.poi.ss.usermodel.*;
@@ -24,6 +27,8 @@ public class InspectionController {
 
     private final InspectionService inspectionService;
     private final InspectionScheduler inspectionScheduler;
+    private final ThresholdService thresholdService;
+    private final ThresholdRuleRepository thresholdRuleRepository;
 
     private static final DateTimeFormatter DT_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
@@ -267,5 +272,52 @@ public class InspectionController {
     public List<OpticalPowerInspection> getAnomalyDetails(
             @RequestParam(required = false) Long roundId) {
         return inspectionService.getOverThresholdRecords(roundId);
+    }
+
+    // ========== 门限管理 ==========
+
+    /**
+     * 查询所有门限规则
+     */
+    @GetMapping("/thresholds")
+    public List<ThresholdRule> listThresholds() {
+        return thresholdRuleRepository.findAll();
+    }
+
+    /**
+     * 获取门限快照（用于导出）
+     */
+    @GetMapping("/thresholds/snapshot")
+    public Map<String, Object> getThresholdSnapshot() {
+        return thresholdService.getThresholdSnapshot();
+    }
+
+    /**
+     * 创建或更新门限规则
+     */
+    @PostMapping("/thresholds")
+    public ThresholdRule saveThreshold(@RequestBody ThresholdRule rule) {
+        // 查找已有的同级别同key规则
+        ThresholdRule existing = thresholdRuleRepository
+                .findByLevelTypeAndMatchKey(rule.getLevelType(), rule.getMatchKey())
+                .orElse(null);
+        if (existing != null) {
+            existing.setTxLow(rule.getTxLow());
+            existing.setTxHigh(rule.getTxHigh());
+            existing.setRxLow(rule.getRxLow());
+            existing.setRxHigh(rule.getRxHigh());
+            existing.setDescription(rule.getDescription());
+            return thresholdRuleRepository.save(existing);
+        }
+        return thresholdRuleRepository.save(rule);
+    }
+
+    /**
+     * 删除门限规则
+     */
+    @DeleteMapping("/thresholds/{id}")
+    public Map<String, Object> deleteThreshold(@PathVariable Long id) {
+        thresholdRuleRepository.deleteById(id);
+        return Map.of("success", true);
     }
 }
