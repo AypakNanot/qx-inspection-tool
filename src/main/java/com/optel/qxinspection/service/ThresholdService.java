@@ -34,13 +34,17 @@ public class ThresholdService {
         List<ThresholdRule> allRules = thresholdRuleRepository.findAll();
         Map<String, ThresholdRule> ruleMap = new HashMap<>();
         for (ThresholdRule rule : allRules) {
-            ruleMap.put(rule.getLevelType() + ":" + rule.getMatchKey(), rule);
+            String key = rule.getLevelType() + ":" + rule.getMatchKey();
+            ThresholdRule prev = ruleMap.put(key, rule);
+            if (prev != null) {
+                log.warn("重复门限规则: {}:{}, 使用id={}", rule.getLevelType(), rule.getMatchKey(), rule.getId());
+            }
         }
 
         ThresholdRule globalRule = ruleMap.get("GLOBAL:GLOBAL");
 
         for (OpticalPowerInspection r : records) {
-            if (!Boolean.TRUE.equals(r.getSupported()) || r.getTxPower() == null) {
+            if (!Boolean.TRUE.equals(r.getSupported())) {
                 continue;
             }
             ThresholdRule matched = matchRule(ruleMap, globalRule, r);
@@ -80,6 +84,8 @@ public class ThresholdService {
 
         r.setLowThreshold(rxLow);
         r.setHighThreshold(rxHigh);
+        r.setTxLowThreshold(txLow);
+        r.setTxHighThreshold(txHigh);
 
         if (r.getTxPower() != null) {
             if (r.getTxPower() < txLow) r.setTxPowerStatus(1);

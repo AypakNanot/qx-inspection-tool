@@ -108,11 +108,6 @@
     <script>
         const API = '/qx-inspection/api';
 
-        function esc(str) {
-            if (str == null) return '';
-            return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-        }
-
         function createEl(tag, text, className) {
             const el = document.createElement(tag);
             if (text != null) el.textContent = text;
@@ -309,10 +304,12 @@
         }
 
         async function pollProgress() {
+            var pollErrors = 0;
             var interval = setInterval(async function() {
                 try {
                     var res = await fetch(API + '/inspection/progress');
                     var d = await res.json();
+                    pollErrors = 0;
                     if (!d.running) {
                         clearInterval(interval);
                         document.getElementById('btnStart').disabled = false;
@@ -326,7 +323,15 @@
                     document.getElementById('progressNum').textContent = d.done + '/' + d.total;
                     document.getElementById('progressText').textContent = '巡检中... 失败: ' + d.failures;
                     document.getElementById('progressNe').textContent = d.currentNe ? '当前: ' + d.currentNe : '';
-                } catch (e) { console.error('poll failed', e); }
+                } catch (e) {
+                    console.error('poll failed', e);
+                    if (++pollErrors > 10) {
+                        clearInterval(interval);
+                        document.getElementById('btnStart').disabled = false;
+                        document.getElementById('btnStart').textContent = '开始巡检';
+                        document.getElementById('progressCard').classList.add('hidden');
+                    }
+                }
             }, 2000);
         }
 

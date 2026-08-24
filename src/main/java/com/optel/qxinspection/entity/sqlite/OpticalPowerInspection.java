@@ -99,13 +99,21 @@ public class OpticalPowerInspection implements Serializable {
     @Column(name = "rx_power_status")
     private Integer rxPowerStatus = 0;
 
-    /** 低光功率门限（dBm） */
+    /** 接收低光功率门限（dBm） */
     @Column(name = "low_threshold")
     private Double lowThreshold;
 
-    /** 高光功率门限（dBm） */
+    /** 接收高光功率门限（dBm） */
     @Column(name = "high_threshold")
     private Double highThreshold;
+
+    /** 发送低光功率门限（dBm） */
+    @Column(name = "tx_low_threshold")
+    private Double txLowThreshold;
+
+    /** 发送高光功率门限（dBm） */
+    @Column(name = "tx_high_threshold")
+    private Double txHighThreshold;
 
     /** 巡检时间 */
     @Column(name = "inspection_time")

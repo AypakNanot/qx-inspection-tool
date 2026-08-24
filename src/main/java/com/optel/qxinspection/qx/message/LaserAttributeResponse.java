@@ -87,6 +87,9 @@ public class LaserAttributeResponse {
     }
 
     public static LaserAttributeResponse decode(byte[] payload) {
+        if (payload == null || payload.length < 86) {
+            throw new IllegalArgumentException("0x2410 payload过短: " + (payload == null ? 0 : payload.length));
+        }
         LaserAttributeResponse resp = new LaserAttributeResponse();
         ByteBuffer buf = ByteBuffer.wrap(payload);
 

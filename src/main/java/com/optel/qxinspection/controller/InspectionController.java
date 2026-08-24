@@ -118,7 +118,8 @@ public class InspectionController {
         String filename = "光功率_" + scope + "_" + timestamp + ".xlsx";
 
         response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-        response.setHeader("Content-Disposition", "attachment; filename=" + java.net.URLEncoder.encode(filename, "UTF-8"));
+        String encodedName = java.net.URLEncoder.encode(filename, "UTF-8").replace("+", "%20");
+        response.setHeader("Content-Disposition", "attachment; filename=\"optical_power.xlsx\"; filename*=UTF-8''" + encodedName);
 
         try (Workbook workbook = new XSSFWorkbook();
              OutputStream out = response.getOutputStream()) {
@@ -130,7 +131,7 @@ public class InspectionController {
             String[] columns = {"网元名称", "网元ID", "所属网络", "设备类型", "槽位", "端口", "支持光功率",
                     "光模块速率", "距离档", "模块型号", "波长",
                     "发送功率(dBm)", "接收功率(dBm)", "发送状态", "接收状态",
-                    "低门限", "高门限", "巡检时间", "备注"};
+                    "发送低门限", "发送高门限", "接收低门限", "接收高门限", "巡检时间", "备注"};
 
             CellStyle headerStyle = workbook.createCellStyle();
             Font headerFont = workbook.createFont();
@@ -191,10 +192,12 @@ public class InspectionController {
                 rxStatusCell.setCellValue(rxStatus);
                 rxStatusCell.setCellStyle(r.getRxPowerStatus() != null && r.getRxPowerStatus() > 0 ? warnStyle : normalStyle);
 
-                row.createCell(15).setCellValue(r.getLowThreshold() != null ? r.getLowThreshold() : 0);
-                row.createCell(16).setCellValue(r.getHighThreshold() != null ? r.getHighThreshold() : 0);
-                row.createCell(17).setCellValue(r.getInspectionTime() != null ? r.getInspectionTime().format(DT_FMT) : "");
-                row.createCell(18).setCellValue(r.getFailReason() != null ? r.getFailReason() : "");
+                row.createCell(15).setCellValue(r.getTxLowThreshold() != null ? r.getTxLowThreshold() : 0);
+                row.createCell(16).setCellValue(r.getTxHighThreshold() != null ? r.getTxHighThreshold() : 0);
+                row.createCell(17).setCellValue(r.getLowThreshold() != null ? r.getLowThreshold() : 0);
+                row.createCell(18).setCellValue(r.getHighThreshold() != null ? r.getHighThreshold() : 0);
+                row.createCell(19).setCellValue(r.getInspectionTime() != null ? r.getInspectionTime().format(DT_FMT) : "");
+                row.createCell(20).setCellValue(r.getFailReason() != null ? r.getFailReason() : "");
             }
 
             // 自动列宽

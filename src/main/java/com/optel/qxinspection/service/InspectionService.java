@@ -81,7 +81,7 @@ public class InspectionService {
     /**
      * 获取当前巡检进度
      */
-    public Map<String, Object> getProgress() {
+    public synchronized Map<String, Object> getProgress() {
         Map<String, Object> progress = new LinkedHashMap<>();
         InspectionRound round = currentRound;
         if (round == null) {
@@ -323,9 +323,22 @@ public class InspectionService {
         progressFailures.clear();
         progressCurrentNe = "";
 
-        // 异步执行巡检
+        // 异步执行巡检（使用专用线程池，捕获异常防止轮次卡在RUNNING）
         final InspectionRound finalRound = saved;
-        CompletableFuture.runAsync(() -> executeInspection(finalRound, targets));
+        ExecutorService inspectionPool = Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r, "inspection-main");
+            t.setDaemon(true);
+            return t;
+        });
+        CompletableFuture.runAsync(() -> executeInspection(finalRound, targets), inspectionPool)
+                .exceptionally(ex -> {
+                    log.error("巡检执行异常: roundId={}, {}", finalRound.getId(), ex.getMessage(), ex);
+                    finalRound.setStatus("FAILED");
+                    finalRound.setEndTime(LocalDateTime.now());
+                    inspectionRoundRepository.save(finalRound);
+                    return null;
+                })
+                .thenRun(inspectionPool::shutdown);
 
         return saved;
     }
@@ -345,30 +358,34 @@ public class InspectionService {
 
     private void executeInspection(InspectionRound round, List<DeviceAccessConfig> targets) {
         ExecutorService pool = Executors.newFixedThreadPool(concurrency);
-        List<CompletableFuture<Void>> futures = new ArrayList<>();
+        try {
+            List<CompletableFuture<Void>> futures = new ArrayList<>();
+            AtomicInteger doneCount = new AtomicInteger(0);
+            AtomicInteger failCount = new AtomicInteger(0);
 
-        for (DeviceAccessConfig device : targets) {
-            CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
-                try {
-                    progressCurrentNe = device.getNeName() + "(" + device.getIpAddr() + ")";
-                    inspectDevice(round, device);
-                    round.setDoneCount(round.getDoneCount() + 1);
-                } catch (Exception e) {
-                    log.error("巡检设备失败: {}({}), {}", device.getNeName(), device.getIpAddr(), e.getMessage());
-                    round.setFailCount(round.getFailCount() + 1);
-                    progressFailures.add(device.getNeName() + "(" + device.getIpAddr() + ")");
-                } finally {
-                    progressCurrent.incrementAndGet();
-                }
-            }, pool);
-            futures.add(future);
-        }
+            for (DeviceAccessConfig device : targets) {
+                CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+                    try {
+                        progressCurrentNe = device.getNeName() + "(" + device.getIpAddr() + ")";
+                        inspectDevice(round, device);
+                        doneCount.incrementAndGet();
+                    } catch (Exception e) {
+                        log.error("巡检设备失败: {}({}), {}", device.getNeName(), device.getIpAddr(), e.getMessage());
+                        failCount.incrementAndGet();
+                        progressFailures.add(device.getNeName() + "(" + device.getIpAddr() + ")");
+                    } finally {
+                        progressCurrent.incrementAndGet();
+                    }
+                }, pool);
+                futures.add(future);
+            }
 
-        // 等待全部完成
-        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
-        pool.shutdown();
+            // 等待全部完成
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
 
         // 更新轮次状态
+        round.setDoneCount(doneCount.get());
+        round.setFailCount(failCount.get());
         round.setStatus("COMPLETED");
         round.setEndTime(LocalDateTime.now());
         inspectionRoundRepository.save(round);
@@ -378,6 +395,9 @@ public class InspectionService {
 
         log.info("巡检完成: roundId={}, 总设备={}, 成功={}, 失败={}",
                 round.getId(), round.getTotalCount(), round.getDoneCount(), round.getFailCount());
+        } finally {
+            pool.shutdown();
+        }
     }
 
     private void inspectDevice(InspectionRound round, DeviceAccessConfig device) {
@@ -482,7 +502,8 @@ public class InspectionService {
         try {
             List<InspectionRound> all = inspectionRoundRepository.findAll();
             if (all.size() > maxRounds) {
-                all.sort(Comparator.comparing(InspectionRound::getStartTime).reversed());
+                all.sort(Comparator.comparing(InspectionRound::getStartTime,
+                    Comparator.nullsLast(Comparator.naturalOrder())).reversed());
                 for (int i = maxRounds; i < all.size(); i++) {
                     InspectionRound old = all.get(i);
                     List<OpticalPowerInspection> oldRecords = powerRecordRepository.findByRoundId(old.getId());

@@ -9,6 +9,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.List;
 
@@ -31,8 +32,8 @@ public class QxCommandService {
         try {
             byte[] reqBytes = new PortQueryRequest().encode();
             byte[] respBytes = sendCommand(ip, port, user, password, (short) 0x2406, reqBytes);
-            if (respBytes == null) {
-                log.warn("0x2406 响应为空: {}:{}", ip, port);
+            if (respBytes == null || respBytes.length <= 4) {
+                log.warn("0x2406 响应为空或过短: {}:{}", ip, port);
                 return Collections.emptyList();
             }
             // 跳过4字节result码，取payload
@@ -62,11 +63,19 @@ public class QxCommandService {
         try {
             byte[] reqBytes = new LaserAttributeRequest(slotId, portType, portSubType, portId).encode();
             byte[] respBytes = sendCommand(ip, port, user, password, (short) 0x2410, reqBytes);
-            if (respBytes == null) {
+            if (respBytes == null || respBytes.length <= 4) {
                 log.warn("0x2410 响应为空: {}:{}, slot={}, port={}", ip, port, slotId, portId);
                 return null;
             }
-            return LaserAttributeResponse.decode(respBytes);
+            // 跳过4字节result码
+            int resultCode = ByteBuffer.wrap(respBytes).getInt();
+            if (resultCode != 0) {
+                log.warn("0x2410 返回错误码: {}, 设备={}:{}, slot={}, port={}", resultCode, ip, port, slotId, portId);
+                return null;
+            }
+            byte[] payload = new byte[respBytes.length - 4];
+            System.arraycopy(respBytes, 4, payload, 0, payload.length);
+            return LaserAttributeResponse.decode(payload);
         } catch (Exception e) {
             log.error("0x2410 查询失败: {}:{}, slot={}, port={}, {}",
                     ip, port, slotId, portId, e.getMessage());
@@ -80,8 +89,8 @@ public class QxCommandService {
     private byte[] sendCommand(String ip, int port, String user, String password,
                                 short cmdCode, byte[] payload) {
         ChannelID chId = new ChannelID(ip, port);
-        byte[] userBytes = user != null ? user.getBytes() : new byte[0];
-        byte[] pswBytes = password != null ? password.getBytes() : new byte[0];
+        byte[] userBytes = user != null ? user.getBytes(StandardCharsets.US_ASCII) : new byte[0];
+        byte[] pswBytes = password != null ? password.getBytes(StandardCharsets.US_ASCII) : new byte[0];
 
         byte[] msgData = qxChannelManager.send(chId, userBytes, pswBytes, payload, cmdCode, DEFAULT_TIMEOUT);
         if (msgData == null || msgData.length <= MsgHead.HEAD_BYTE_LEN) {

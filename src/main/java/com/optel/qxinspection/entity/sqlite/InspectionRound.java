@@ -30,7 +30,7 @@ public class InspectionRound {
 
     /** 状态：RUNNING / COMPLETED / FAILED */
     @Column(name = "status", length = 20, nullable = false)
-    private String status = "RUNNING";
+    private volatile String status = "RUNNING";
 
     /** 目标设备总数 */
     @Column(name = "total_count")
