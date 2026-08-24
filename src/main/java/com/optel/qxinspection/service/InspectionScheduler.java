@@ -48,9 +48,9 @@ public class InspectionScheduler {
         try {
             InspectionRound round;
             if ("NETWORK".equals(scope) && !network.isEmpty()) {
-                round = inspectionService.triggerInspectionByNetwork(network);
+                round = inspectionService.triggerScheduledInspection("NETWORK", network);
             } else {
-                round = inspectionService.triggerInspectionAll();
+                round = inspectionService.triggerScheduledInspection("ALL", null);
             }
             lastRunStatus = "SUCCESS";
             lastRunTime = java.time.LocalDateTime.now().toString();

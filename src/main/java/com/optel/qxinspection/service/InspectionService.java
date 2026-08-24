@@ -48,21 +48,28 @@ public class InspectionService {
      * 手动触发巡检（全网）
      */
     public InspectionRound triggerInspectionAll() {
-        return triggerInspection("ALL", null);
+        return triggerInspection("ALL", null, "MANUAL");
     }
 
     /**
      * 按网络触发巡检
      */
     public InspectionRound triggerInspectionByNetwork(String networkName) {
-        return triggerInspection("NETWORK", networkName);
+        return triggerInspection("NETWORK", networkName, "MANUAL");
     }
 
     /**
      * 按单个网元触发巡检
      */
     public InspectionRound triggerInspectionByNe(String neId) {
-        return triggerInspection("SINGLE", neId);
+        return triggerInspection("SINGLE", neId, "MANUAL");
+    }
+
+    /**
+     * 定时触发巡检（内部用）
+     */
+    public InspectionRound triggerScheduledInspection(String scopeType, String scopeParam) {
+        return triggerInspection(scopeType, scopeParam, "SCHEDULED");
     }
 
     /**
@@ -87,16 +94,24 @@ public class InspectionService {
     /**
      * 查询最新轮次的巡检结果
      */
-    public List<OpticalPowerInspection> getLatestResults() {
+    public List<OpticalPowerInspection> getLatestResults(String network) {
         return inspectionRoundRepository.findFirstByOrderByStartTimeDesc()
-                .map(r -> powerRecordRepository.findByRoundId(r.getId()))
+                .map(r -> {
+                    if (network != null && !network.isEmpty()) {
+                        return powerRecordRepository.findByRoundIdAndNetworkName(r.getId(), network);
+                    }
+                    return powerRecordRepository.findByRoundId(r.getId());
+                })
                 .orElse(Collections.emptyList());
     }
 
     /**
      * 查询指定轮次的巡检结果
      */
-    public List<OpticalPowerInspection> getResultsByRound(Long roundId) {
+    public List<OpticalPowerInspection> getResultsByRound(Long roundId, String network) {
+        if (network != null && !network.isEmpty()) {
+            return powerRecordRepository.findByRoundIdAndNetworkName(roundId, network);
+        }
         return powerRecordRepository.findByRoundId(roundId);
     }
 
@@ -252,7 +267,7 @@ public class InspectionService {
 
     // ========== 内部实现 ==========
 
-    private InspectionRound triggerInspection(String scopeType, String scopeParam) {
+    private synchronized InspectionRound triggerInspection(String scopeType, String scopeParam, String triggerType) {
         // 检查是否有正在运行的巡检
         if (currentRound != null && "RUNNING".equals(currentRound.getStatus())) {
             throw new IllegalStateException("已有巡检任务正在运行，请等待完成后再触发");
@@ -260,7 +275,7 @@ public class InspectionService {
 
         // 创建轮次
         InspectionRound round = new InspectionRound();
-        round.setTriggerType("MANUAL");
+        round.setTriggerType(triggerType);
         round.setScopeType(scopeType);
         round.setScopeParam(scopeParam);
         InspectionRound saved = inspectionRoundRepository.save(round);
@@ -382,6 +397,8 @@ public class InspectionService {
         r.setRoundId(round.getId());
         r.setNeId(device.getNeId());
         r.setNeName(device.getNeName());
+        r.setNetworkName(device.getNetworkName());
+        r.setNeTypeName(device.getNeTypeName());
         r.setSlotNo(port.getSlotId());
         r.setPortNo(port.getPortId());
         r.setPortType(port.getPortType());
@@ -419,6 +436,8 @@ public class InspectionService {
         r.setRoundId(round.getId());
         r.setNeId(device.getNeId());
         r.setNeName(device.getNeName());
+        r.setNetworkName(device.getNetworkName());
+        r.setNeTypeName(device.getNeTypeName());
         r.setSlotNo(port.getSlotId());
         r.setPortNo(port.getPortId());
         r.setPortType(port.getPortType());
@@ -457,7 +476,10 @@ public class InspectionService {
                 all.sort(Comparator.comparing(InspectionRound::getStartTime).reversed());
                 for (int i = maxRounds; i < all.size(); i++) {
                     InspectionRound old = all.get(i);
-                    powerRecordRepository.deleteByRoundIdLessThan(old.getId());
+                    List<OpticalPowerInspection> oldRecords = powerRecordRepository.findByRoundId(old.getId());
+                    if (!oldRecords.isEmpty()) {
+                        powerRecordRepository.deleteAll(oldRecords);
+                    }
                     inspectionRoundRepository.delete(old);
                 }
             }

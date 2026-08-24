@@ -35,6 +35,14 @@ public class OpticalPowerInspection implements Serializable {
     @Column(name = "ne_name", length = 100)
     private String neName;
 
+    /** 所属网络 */
+    @Column(name = "network_name", length = 100)
+    private String networkName;
+
+    /** 设备类型名称 */
+    @Column(name = "ne_type_name", length = 100)
+    private String neTypeName;
+
     /** 槽位号 */
     @Column(name = "slot_no")
     private Integer slotNo;
