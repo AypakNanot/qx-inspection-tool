@@ -222,4 +222,42 @@ public class InspectionController {
         inspectionScheduler.setEnabled(enabled);
         return inspectionScheduler.getStatus();
     }
+
+    // ========== 趋势与异常 ==========
+
+    /**
+     * 单端口历史趋势
+     */
+    @GetMapping("/trend/port")
+    public List<OpticalPowerInspection> getPortTrend(@RequestParam String neId,
+                                                      @RequestParam int slotNo,
+                                                      @RequestParam int portNo) {
+        return inspectionService.getPortTrend(neId, slotNo, portNo);
+    }
+
+    /**
+     * 网元历史趋势
+     */
+    @GetMapping("/trend/ne")
+    public List<OpticalPowerInspection> getNeTrend(@RequestParam String neId) {
+        return inspectionService.getNeTrend(neId);
+    }
+
+    /**
+     * 越限异常汇总（按网元分组）
+     */
+    @GetMapping("/anomaly/summary")
+    public List<Map<String, Object>> getAnomalySummary(
+            @RequestParam(required = false) Long roundId) {
+        return inspectionService.getAnomalySummary(roundId);
+    }
+
+    /**
+     * 越限详细记录
+     */
+    @GetMapping("/anomaly/details")
+    public List<OpticalPowerInspection> getAnomalyDetails(
+            @RequestParam(required = false) Long roundId) {
+        return inspectionService.getOverThresholdRecords(roundId);
+    }
 }

@@ -29,4 +29,22 @@ public interface OpticalPowerInspectionRepository extends JpaRepository<OpticalP
     @Modifying
     @Query("DELETE FROM OpticalPowerInspection o WHERE o.roundId < :minRoundId")
     void deleteByRoundIdLessThan(@Param("minRoundId") Long minRoundId);
+
+    // 趋势查询：指定网元+槽位+端口的历史记录
+    @Query("SELECT o FROM OpticalPowerInspection o WHERE o.neId = :neId AND o.slotNo = :slotNo AND o.portNo = :portNo AND o.supported = true ORDER BY o.roundId DESC")
+    List<OpticalPowerInspection> findTrendByPort(@Param("neId") String neId,
+                                                  @Param("slotNo") int slotNo,
+                                                  @Param("portNo") int portNo);
+
+    // 指定网元的历史记录（所有端口）
+    @Query("SELECT o FROM OpticalPowerInspection o WHERE o.neId = :neId AND o.supported = true ORDER BY o.roundId DESC, o.slotNo, o.portNo")
+    List<OpticalPowerInspection> findTrendByNe(@Param("neId") String neId);
+
+    // 最新轮次中越限的记录
+    @Query("SELECT o FROM OpticalPowerInspection o WHERE o.roundId = :roundId AND (o.txPowerStatus > 0 OR o.rxPowerStatus > 0)")
+    List<OpticalPowerInspection> findOverThresholdByRoundId(@Param("roundId") Long roundId);
+
+    // 指定轮次按网元分组的越限计数
+    @Query("SELECT o.neId, o.neName, COUNT(o) FROM OpticalPowerInspection o WHERE o.roundId = :roundId AND (o.txPowerStatus > 0 OR o.rxPowerStatus > 0) GROUP BY o.neId, o.neName")
+    List<Object[]> countOverThresholdGroupByNe(@Param("roundId") Long roundId);
 }

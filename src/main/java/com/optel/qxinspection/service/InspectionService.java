@@ -117,6 +117,60 @@ public class InspectionService {
     }
 
     /**
+     * 获取单端口历史趋势
+     */
+    public List<OpticalPowerInspection> getPortTrend(String neId, int slotNo, int portNo) {
+        return powerRecordRepository.findTrendByPort(neId, slotNo, portNo);
+    }
+
+    /**
+     * 获取网元历史趋势（所有端口）
+     */
+    public List<OpticalPowerInspection> getNeTrend(String neId) {
+        return powerRecordRepository.findTrendByNe(neId);
+    }
+
+    /**
+     * 获取越限异常汇总（按网元分组）
+     */
+    public List<Map<String, Object>> getAnomalySummary(Long roundId) {
+        InspectionRound round;
+        if (roundId != null) {
+            round = inspectionRoundRepository.findById(roundId).orElse(null);
+        } else {
+            round = inspectionRoundRepository.findFirstByOrderByStartTimeDesc().orElse(null);
+        }
+        if (round == null) return Collections.emptyList();
+
+        List<Object[]> rows = powerRecordRepository.countOverThresholdGroupByNe(round.getId());
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (Object[] row : rows) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("neId", row[0]);
+            item.put("neName", row[1]);
+            item.put("overThresholdCount", row[2]);
+            result.add(item);
+        }
+        result.sort((a, b) -> Long.compare(
+                (long) b.get("overThresholdCount"), (long) a.get("overThresholdCount")));
+        return result;
+    }
+
+    /**
+     * 获取越限详细记录
+     */
+    public List<OpticalPowerInspection> getOverThresholdRecords(Long roundId) {
+        InspectionRound round;
+        if (roundId != null) {
+            round = inspectionRoundRepository.findById(roundId).orElse(null);
+        } else {
+            round = inspectionRoundRepository.findFirstByOrderByStartTimeDesc().orElse(null);
+        }
+        if (round == null) return Collections.emptyList();
+        return powerRecordRepository.findOverThresholdByRoundId(round.getId());
+    }
+
+    /**
      * 获取巡检摘要统计（含劣化/过载按类型分组）
      */
     public Map<String, Object> getSummary() {

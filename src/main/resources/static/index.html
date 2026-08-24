@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QX 设备直连巡检工具</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f0f2f5; color: #333; }
+        .header { background: linear-gradient(135deg, #1a73e8, #0d47a1); color: white; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; }
+        .header h1 { font-size: 20px; font-weight: 600; }
+        .header .status { font-size: 13px; opacity: 0.9; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 16px; }
+        .toolbar { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+        .btn { padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; transition: all 0.2s; }
+        .btn-primary { background: #1a73e8; color: white; }
+        .btn-primary:hover { background: #1557b0; }
+        .btn-primary:disabled { background: #93c5fd; cursor: not-allowed; }
+        .btn-secondary { background: white; color: #333; border: 1px solid #ddd; }
+        .btn-secondary:hover { background: #f5f5f5; }
+        select { padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; }
+        .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 16px; }
+        .card { background: white; border-radius: 8px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .card .label { font-size: 12px; color: #666; margin-bottom: 4px; }
+        .card .value { font-size: 28px; font-weight: 700; }
+        .card .value.green { color: #16a34a; }
+        .card .value.red { color: #dc2626; }
+        .card .value.blue { color: #1a73e8; }
+        .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+        .chart-box { background: white; border-radius: 8px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .chart-box h3 { font-size: 14px; margin-bottom: 12px; color: #555; }
+        .chart-container { width: 100%; height: 320px; }
+        .table-box { background: white; border-radius: 8px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 16px; }
+        .table-box h3 { font-size: 14px; margin-bottom: 12px; color: #555; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th { background: #f8f9fa; padding: 10px 12px; text-align: left; font-weight: 600; border-bottom: 2px solid #e5e7eb; }
+        td { padding: 8px 12px; border-bottom: 1px solid #f0f0f0; }
+        tr:hover td { background: #f8f9fa; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+        .badge-ok { background: #dcfce7; color: #16a34a; }
+        .badge-error { background: #fee2e2; color: #dc2626; }
+        .badge-info { background: #dbeafe; color: #1a73e8; }
+        .progress-bar { width: 100%; height: 6px; background: #e5e7eb; border-radius: 3px; overflow: hidden; margin-top: 8px; }
+        .progress-fill { height: 100%; background: #1a73e8; border-radius: 3px; transition: width 0.3s; }
+        .loading { text-align: center; padding: 40px; color: #999; }
+        .hidden { display: none; }
+        @media (max-width: 768px) { .charts { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>QX 设备直连巡检工具</h1>
+        <div class="status" id="headerStatus">就绪</div>
+    </div>
+
+    <div class="container">
+        <div class="toolbar">
+            <select id="networkFilter"><option value="">全部网络</option></select>
+            <button class="btn btn-primary" id="btnStart" onclick="startInspection()">开始巡检</button>
+            <button class="btn btn-secondary" onclick="refreshAll()">刷新</button>
+            <button class="btn btn-secondary" onclick="exportExcel()">导出 Excel</button>
+            <div style="flex:1"></div>
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;">
+                <input type="checkbox" id="scheduleToggle" onchange="toggleSchedule(this.checked)"> 定时巡检
+            </label>
+        </div>
+
+        <div class="card hidden" id="progressCard">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+                <span id="progressText">巡检中...</span>
+                <span id="progressNum">0/0</span>
+            </div>
+            <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+            <div style="font-size:12px;color:#999;margin-top:4px;" id="progressNe"></div>
+        </div>
+
+        <div class="cards">
+            <div class="card"><div class="label">设备总数</div><div class="value blue" id="statDevices">-</div></div>
+            <div class="card"><div class="label">端口总数</div><div class="value blue" id="statPorts">-</div></div>
+            <div class="card"><div class="label">支持光功率</div><div class="value green" id="statSupported">-</div></div>
+            <div class="card"><div class="label">越限端口</div><div class="value red" id="statOverThreshold">-</div></div>
+            <div class="card"><div class="label">巡检状态</div><div class="value" id="statStatus">-</div></div>
+        </div>
+
+        <div class="charts">
+            <div class="chart-box"><h3>设备类型分布</h3><div class="chart-container" id="chartType"></div></div>
+            <div class="chart-box"><h3>越限异常统计（按网元）</h3><div class="chart-container" id="chartAnomaly"></div></div>
+        </div>
+
+        <div class="table-box">
+            <h3>越限端口明细</h3>
+            <table>
+                <thead><tr><th>网元名称</th><th>槽位</th><th>端口</th><th>模块类型</th><th>发送功率</th><th>接收功率</th><th>状态</th></tr></thead>
+                <tbody id="anomalyTable"><tr><td colspan="7" class="loading">暂无数据</td></tr></tbody>
+            </table>
+        </div>
+
+        <div class="table-box">
+            <h3>最近巡检轮次</h3>
+            <table>
+                <thead><tr><th>轮次ID</th><th>触发方式</th><th>范围</th><th>状态</th><th>设备数</th><th>完成</th><th>失败</th><th>开始时间</th></tr></thead>
+                <tbody id="roundsTable"><tr><td colspan="8" class="loading">暂无数据</td></tr></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        const API = '/qx-inspection/api';
+
+        function esc(str) {
+            if (str == null) return '';
+            return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        }
+
+        function createEl(tag, text, className) {
+            const el = document.createElement(tag);
+            if (text != null) el.textContent = text;
+            if (className) el.className = className;
+            return el;
+        }
+
+        async function loadNetworks() {
+            try {
+                const res = await fetch(API + '/stats/networks');
+                const data = await res.json();
+                const sel = document.getElementById('networkFilter');
+                sel.textContent = '';
+                const opt0 = createEl('option', '全部网络');
+                opt0.value = '';
+                sel.appendChild(opt0);
+                data.forEach(n => {
+                    const opt = createEl('option', n);
+                    opt.value = n;
+                    sel.appendChild(opt);
+                });
+            } catch (e) { console.error('loadNetworks failed', e); }
+        }
+
+        async function loadSummary() {
+            try {
+                const res = await fetch(API + '/inspection/summary');
+                const d = await res.json();
+                document.getElementById('statDevices').textContent = d.hasData ? (d.totalDevices || 0) : '-';
+                document.getElementById('statPorts').textContent = d.hasData ? (d.totalPorts || 0) : '-';
+                document.getElementById('statSupported').textContent = d.hasData ? (d.supportedPorts || 0) : '-';
+                document.getElementById('statOverThreshold').textContent = d.hasData ? (d.overThresholdPorts || 0) : '-';
+                document.getElementById('statStatus').textContent = d.hasData
+                    ? (d.status === 'COMPLETED' ? '已完成' : d.status === 'RUNNING' ? '进行中' : d.status)
+                    : '无数据';
+                if (d.hasData) {
+                    document.getElementById('headerStatus').textContent = '最新轮次 #' + d.roundId + ' | ' + (d.startTime || '');
+                    renderTypeChart(d.byModuleType || {});
+                }
+            } catch (e) { console.error('loadSummary failed', e); }
+        }
+
+        async function loadAnomaly() {
+            try {
+                const res = await fetch(API + '/inspection/anomaly/summary');
+                const data = await res.json();
+                renderAnomalyChart(data);
+
+                const res2 = await fetch(API + '/inspection/anomaly/details');
+                const details = await res2.json();
+                renderAnomalyTable(details);
+            } catch (e) { console.error('loadAnomaly failed', e); }
+        }
+
+        async function loadRounds() {
+            try {
+                const res = await fetch(API + '/inspection/rounds');
+                const data = await res.json();
+                renderRoundsTable(data);
+            } catch (e) { console.error('loadRounds failed', e); }
+        }
+
+        async function loadSchedule() {
+            try {
+                const res = await fetch(API + '/inspection/schedule');
+                const d = await res.json();
+                document.getElementById('scheduleToggle').checked = d.enabled;
+            } catch (e) { console.error('loadSchedule failed', e); }
+        }
+
+        // ===== Charts =====
+        let typeChart, anomalyChart;
+
+        function renderTypeChart(byModuleType) {
+            if (!typeChart) typeChart = echarts.init(document.getElementById('chartType'));
+            const entries = Object.entries(byModuleType || {});
+            if (entries.length === 0) {
+                typeChart.setOption({ title: { text: '暂无数据', left: 'center', top: 'center', textStyle: { color: '#999' } } });
+                return;
+            }
+            typeChart.setOption({
+                tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
+                legend: { orient: 'vertical', right: 10, top: 'center', textStyle: { fontSize: 11 } },
+                series: [{ type: 'pie', radius: ['40%', '70%'], center: ['40%', '50%'],
+                    label: { show: false },
+                    emphasis: { label: { show: true, fontSize: 14, fontWeight: 'bold' } },
+                    data: entries.map(function(e) { return { name: e[0], value: e[1].count }; })
+                }]
+            });
+        }
+
+        function renderAnomalyChart(anomalyData) {
+            if (!anomalyChart) anomalyChart = echarts.init(document.getElementById('chartAnomaly'));
+            if (!anomalyData || anomalyData.length === 0) {
+                anomalyChart.setOption({ title: { text: '暂无越限数据', left: 'center', top: 'center', textStyle: { color: '#999' } } });
+                return;
+            }
+            var top10 = anomalyData.slice(0, 10);
+            anomalyChart.setOption({
+                tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+                grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+                xAxis: { type: 'category', data: top10.map(function(d) { return d.neName || d.neId; }), axisLabel: { rotate: 30, fontSize: 10 } },
+                yAxis: { type: 'value', name: '越限端口数' },
+                series: [{ type: 'bar', data: top10.map(function(d) { return d.overThresholdCount; }),
+                    itemStyle: { color: '#dc2626', borderRadius: [4, 4, 0, 0] }, barWidth: '60%'
+                }]
+            });
+        }
+
+        function makeBadge(text, cls) {
+            var span = document.createElement('span');
+            span.className = 'badge ' + cls;
+            span.textContent = text;
+            return span;
+        }
+
+        function renderAnomalyTable(details) {
+            var tbody = document.getElementById('anomalyTable');
+            tbody.textContent = '';
+            if (!details || details.length === 0) {
+                var tr = document.createElement('tr');
+                var td = createEl('td', '暂无越限数据', 'loading');
+                td.colSpan = 7;
+                tr.appendChild(td);
+                tbody.appendChild(tr);
+                return;
+            }
+            details.slice(0, 50).forEach(function(r) {
+                var tr = document.createElement('tr');
+                tr.appendChild(createEl('td', r.neName || '-'));
+                tr.appendChild(createEl('td', r.slotNo != null ? String(r.slotNo) : '-'));
+                tr.appendChild(createEl('td', r.portNo != null ? String(r.portNo) : '-'));
+                tr.appendChild(createEl('td', r.moduleTypeKey || '--'));
+                tr.appendChild(createEl('td', r.txPower != null ? r.txPower.toFixed(1) + ' dBm' : '--'));
+                tr.appendChild(createEl('td', r.rxPower != null ? r.rxPower.toFixed(1) + ' dBm' : '--'));
+                var statusTd = document.createElement('td');
+                statusTd.appendChild(makeBadge('TX:' + (r.txPowerStatus > 0 ? '越限' : '正常'), r.txPowerStatus > 0 ? 'badge-error' : 'badge-ok'));
+                statusTd.appendChild(document.createTextNode(' '));
+                statusTd.appendChild(makeBadge('RX:' + (r.rxPowerStatus > 0 ? '越限' : '正常'), r.rxPowerStatus > 0 ? 'badge-error' : 'badge-ok'));
+                tr.appendChild(statusTd);
+                tbody.appendChild(tr);
+            });
+        }
+
+        function renderRoundsTable(rounds) {
+            var tbody = document.getElementById('roundsTable');
+            tbody.textContent = '';
+            if (!rounds || rounds.length === 0) {
+                var tr = document.createElement('tr');
+                var td = createEl('td', '暂无巡检记录', 'loading');
+                td.colSpan = 8;
+                tr.appendChild(td);
+                tbody.appendChild(tr);
+                return;
+            }
+            rounds.slice(0, 10).forEach(function(r) {
+                var tr = document.createElement('tr');
+                tr.appendChild(createEl('td', '#' + r.id));
+                tr.appendChild(createEl('td', r.triggerType));
+                tr.appendChild(createEl('td', r.scopeType + (r.scopeParam ? '(' + r.scopeParam + ')' : '')));
+                var statusTd = document.createElement('td');
+                var badgeCls = r.status === 'COMPLETED' ? 'badge-ok' : r.status === 'RUNNING' ? 'badge-info' : 'badge-error';
+                var badgeText = r.status === 'COMPLETED' ? '已完成' : r.status === 'RUNNING' ? '进行中' : '失败';
+                statusTd.appendChild(makeBadge(badgeText, badgeCls));
+                tr.appendChild(statusTd);
+                tr.appendChild(createEl('td', String(r.totalCount || 0)));
+                tr.appendChild(createEl('td', String(r.doneCount || 0)));
+                tr.appendChild(createEl('td', String(r.failCount || 0)));
+                tr.appendChild(createEl('td', r.startTime || '-'));
+                tbody.appendChild(tr);
+            });
+        }
+
+        // ===== Actions =====
+        async function startInspection() {
+            var btn = document.getElementById('btnStart');
+            btn.disabled = true;
+            btn.textContent = '巡检中...';
+            document.getElementById('progressCard').classList.remove('hidden');
+
+            var network = document.getElementById('networkFilter').value;
+            var params = network ? '?network=' + encodeURIComponent(network) : '';
+            try {
+                var res = await fetch(API + '/inspection/start' + params, { method: 'POST' });
+                var d = await res.json();
+                document.getElementById('headerStatus').textContent = '巡检已启动: 轮次 #' + d.roundId + ', ' + d.totalDevices + ' 台设备';
+                pollProgress();
+            } catch (e) {
+                alert('启动巡检失败: ' + e.message);
+                btn.disabled = false;
+                btn.textContent = '开始巡检';
+                document.getElementById('progressCard').classList.add('hidden');
+            }
+        }
+
+        async function pollProgress() {
+            var interval = setInterval(async function() {
+                try {
+                    var res = await fetch(API + '/inspection/progress');
+                    var d = await res.json();
+                    if (!d.running) {
+                        clearInterval(interval);
+                        document.getElementById('btnStart').disabled = false;
+                        document.getElementById('btnStart').textContent = '开始巡检';
+                        document.getElementById('progressCard').classList.add('hidden');
+                        refreshAll();
+                        return;
+                    }
+                    var pct = d.total > 0 ? Math.round((d.done / d.total) * 100) : 0;
+                    document.getElementById('progressFill').style.width = pct + '%';
+                    document.getElementById('progressNum').textContent = d.done + '/' + d.total;
+                    document.getElementById('progressText').textContent = '巡检中... 失败: ' + d.failures;
+                    document.getElementById('progressNe').textContent = d.currentNe ? '当前: ' + d.currentNe : '';
+                } catch (e) { console.error('poll failed', e); }
+            }, 2000);
+        }
+
+        async function toggleSchedule(enabled) {
+            try {
+                await fetch(API + '/inspection/schedule/toggle?enabled=' + enabled, { method: 'POST' });
+            } catch (e) { alert('设置失败: ' + e.message); }
+        }
+
+        function exportExcel() {
+            window.open(API + '/inspection/export', '_blank');
+        }
+
+        function refreshAll() {
+            loadSummary();
+            loadAnomaly();
+            loadRounds();
+        }
+
+        window.addEventListener('resize', function() {
+            typeChart && typeChart.resize();
+            anomalyChart && anomalyChart.resize();
+        });
+
+        loadNetworks();
+        loadSummary();
+        loadAnomaly();
+        loadRounds();
+        loadSchedule();
+    </script>
+</body>
+</html>
