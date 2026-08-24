@@ -117,7 +117,7 @@ public class InspectionService {
     }
 
     /**
-     * 获取巡检摘要统计
+     * 获取巡检摘要统计（含劣化/过载按类型分组）
      */
     public Map<String, Object> getSummary() {
         Map<String, Object> summary = new LinkedHashMap<>();
@@ -136,14 +136,62 @@ public class InspectionService {
         summary.put("failDevices", latest.getFailCount());
 
         List<OpticalPowerInspection> records = powerRecordRepository.findByRoundId(latest.getId());
-        long supportedCount = records.stream().filter(r -> Boolean.TRUE.equals(r.getSupported())).count();
-        long overThreshold = records.stream()
-                .filter(r -> r.getTxPowerStatus() != null && r.getTxPowerStatus() > 0
-                        || r.getRxPowerStatus() != null && r.getRxPowerStatus() > 0)
+        List<OpticalPowerInspection> supported = records.stream()
+                .filter(r -> Boolean.TRUE.equals(r.getSupported())).toList();
+
+        long overThreshold = supported.stream()
+                .filter(r -> (r.getTxPowerStatus() != null && r.getTxPowerStatus() > 0)
+                        || (r.getRxPowerStatus() != null && r.getRxPowerStatus() > 0))
                 .count();
+
         summary.put("totalPorts", records.size());
-        summary.put("supportedPorts", supportedCount);
+        summary.put("supportedPorts", supported.size());
         summary.put("overThresholdPorts", overThreshold);
+
+        // 按模块类型分组统计
+        Map<String, Map<String, Object>> byModuleType = new LinkedHashMap<>();
+        for (OpticalPowerInspection r : supported) {
+            String key = r.getModuleTypeKey() != null ? r.getModuleTypeKey() : "Unknown";
+            byModuleType.computeIfAbsent(key, k -> {
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("count", 0L);
+                m.put("overThreshold", 0L);
+                return m;
+            });
+            Map<String, Object> m = byModuleType.get(key);
+            m.put("count", (long) m.get("count") + 1);
+            if ((r.getTxPowerStatus() != null && r.getTxPowerStatus() > 0)
+                    || (r.getRxPowerStatus() != null && r.getRxPowerStatus() > 0)) {
+                m.put("overThreshold", (long) m.get("overThreshold") + 1);
+            }
+        }
+        summary.put("byModuleType", byModuleType);
+
+        // 按设备类型分组统计（使用 neId 查询 MySQL 获取设备类型）
+        Map<String, Map<String, Object>> byDeviceType = new LinkedHashMap<>();
+        for (OpticalPowerInspection r : records) {
+            String neName = r.getNeName() != null ? r.getNeName() : "Unknown";
+            // 从 neName 提取设备类型（括号前的部分）
+            String deviceType = neName.contains("(") ? neName.substring(0, neName.indexOf("(")) : neName;
+            if (deviceType.isEmpty()) deviceType = "Unknown";
+            byDeviceType.computeIfAbsent(deviceType, k -> {
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("totalPorts", 0L);
+                m.put("supportedPorts", 0L);
+                m.put("overThreshold", 0L);
+                return m;
+            });
+            Map<String, Object> m = byDeviceType.get(deviceType);
+            m.put("totalPorts", (long) m.get("totalPorts") + 1);
+            if (Boolean.TRUE.equals(r.getSupported())) {
+                m.put("supportedPorts", (long) m.get("supportedPorts") + 1);
+                if ((r.getTxPowerStatus() != null && r.getTxPowerStatus() > 0)
+                        || (r.getRxPowerStatus() != null && r.getRxPowerStatus() > 0)) {
+                    m.put("overThreshold", (long) m.get("overThreshold") + 1);
+                }
+            }
+        }
+        summary.put("byDeviceType", byDeviceType);
 
         return summary;
     }

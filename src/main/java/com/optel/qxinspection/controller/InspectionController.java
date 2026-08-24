@@ -2,6 +2,7 @@ package com.optel.qxinspection.controller;
 
 import com.optel.qxinspection.entity.sqlite.InspectionRound;
 import com.optel.qxinspection.entity.sqlite.OpticalPowerInspection;
+import com.optel.qxinspection.service.InspectionScheduler;
 import com.optel.qxinspection.service.InspectionService;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -22,6 +23,7 @@ import java.util.Map;
 public class InspectionController {
 
     private final InspectionService inspectionService;
+    private final InspectionScheduler inspectionScheduler;
 
     private static final DateTimeFormatter DT_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
@@ -200,5 +202,24 @@ public class InspectionController {
             case 2 -> "越上限";
             default -> "未知";
         };
+    }
+
+    // ========== 定时巡检 ==========
+
+    /**
+     * 查询定时巡检状态
+     */
+    @GetMapping("/schedule")
+    public Map<String, Object> getScheduleStatus() {
+        return inspectionScheduler.getStatus();
+    }
+
+    /**
+     * 启用/禁用定时巡检
+     */
+    @PostMapping("/schedule/toggle")
+    public Map<String, Object> toggleSchedule(@RequestParam boolean enabled) {
+        inspectionScheduler.setEnabled(enabled);
+        return inspectionScheduler.getStatus();
     }
 }
