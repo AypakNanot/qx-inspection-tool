@@ -7,117 +7,110 @@ import java.time.LocalDateTime;
 
 /**
  * 光功率巡检记录实体类（SQLite本地存储）
- * 
- * @author Rwj
- * @since 2026-08-20
  */
 @Data
 @Entity
-@Table(name = "optical_power_inspection")
+@Table(name = "optical_power_inspection", indexes = {
+    @Index(name = "idx_opi_round", columnList = "round_id"),
+    @Index(name = "idx_opi_ne", columnList = "ne_id"),
+    @Index(name = "idx_opi_round_ne", columnList = "round_id,ne_id")
+})
 public class OpticalPowerInspection implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
-    /**
-     * 记录ID（主键）
-     */
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    /**
-     * 网元ID（关联dmne.oid）
-     */
+    /** 巡检轮次ID */
+    @Column(name = "round_id", nullable = false)
+    private Long roundId;
+
+    /** 网元ID（关联dmne.oid） */
     @Column(name = "ne_id", nullable = false, length = 64)
     private String neId;
 
-    /**
-     * 网元名称
-     */
+    /** 网元名称 */
     @Column(name = "ne_name", length = 100)
     private String neName;
 
-    /**
-     * 槽位号
-     */
+    /** 槽位号 */
     @Column(name = "slot_no")
     private Integer slotNo;
 
-    /**
-     * 端口号
-     */
+    /** 端口号 */
     @Column(name = "port_no")
     private Integer portNo;
 
-    /**
-     * 光模块类型
-     */
-    @Column(name = "module_type", length = 100)
-    private String moduleType;
+    /** 端口类型 */
+    @Column(name = "port_type")
+    private Integer portType;
 
-    /**
-     * 发送光功率（dBm）
-     */
+    /** 端口子类型 */
+    @Column(name = "port_sub_type")
+    private Integer portSubType;
+
+    /** 是否支持光功率查询 */
+    @Column(name = "supported")
+    private Boolean supported;
+
+    /** 光模块速率类型（如 2.5G, 10G, GE） */
+    @Column(name = "laser_type", length = 20)
+    private String laserType;
+
+    /** 光模块距离档（如 L, S, I, SX, LX） */
+    @Column(name = "laser_distance", length = 20)
+    private String laserDistance;
+
+    /** 模块类型组合键（如 2.5G-L, GE-LX） */
+    @Column(name = "module_type_key", length = 40)
+    private String moduleTypeKey;
+
+    /** 模块型号编码 */
+    @Column(name = "part_number", length = 32)
+    private String partNumber;
+
+    /** 波长 */
+    @Column(name = "laser_wave", length = 20)
+    private String laserWave;
+
+    /** 发送光功率（dBm） */
     @Column(name = "tx_power")
     private Double txPower;
 
-    /**
-     * 接收光功率（dBm）
-     */
+    /** 接收光功率（dBm） */
     @Column(name = "rx_power")
     private Double rxPower;
 
-    /**
-     * 发送光功率状态：0-正常，1-越下限，2-越上限
-     */
+    /** 发送光功率状态：0-正常，1-越下限，2-越上限 */
     @Column(name = "tx_power_status")
     private Integer txPowerStatus = 0;
 
-    /**
-     * 接收光功率状态：0-正常，1-越下限，2-越上限
-     */
+    /** 接收光功率状态：0-正常，1-越下限，2-越上限 */
     @Column(name = "rx_power_status")
     private Integer rxPowerStatus = 0;
 
-    /**
-     * 低光功率门限（dBm）
-     */
+    /** 低光功率门限（dBm） */
     @Column(name = "low_threshold")
     private Double lowThreshold;
 
-    /**
-     * 高光功率门限（dBm）
-     */
+    /** 高光功率门限（dBm） */
     @Column(name = "high_threshold")
     private Double highThreshold;
 
-    /**
-     * 巡检时间
-     */
+    /** 巡检时间 */
     @Column(name = "inspection_time")
     private LocalDateTime inspectionTime;
 
-    /**
-     * 巡检批次号
-     */
-    @Column(name = "batch_no", length = 50)
-    private String batchNo;
-
-    /**
-     * 创建时间
-     */
+    /** 创建时间 */
     @Column(name = "create_time")
     private LocalDateTime createTime;
 
-    /**
-     * 备注
-     */
-    @Column(name = "remark", length = 500)
-    private String remark;
+    /** 采集失败原因 */
+    @Column(name = "fail_reason", length = 200)
+    private String failReason;
 
-    /**
-     * 保存前自动设置时间
-     */
     @PrePersist
     public void prePersist() {
         this.createTime = LocalDateTime.now();

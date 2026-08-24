@@ -62,3 +62,7 @@ app:
       max-concurrent: 10
       circuit-threshold: 5
       circuit-cooldown-sec: 300
+  # 巡检配置
+  inspection:
+    concurrency: 10
+    max-rounds: 10
