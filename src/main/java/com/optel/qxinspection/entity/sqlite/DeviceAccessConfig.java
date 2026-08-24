@@ -38,6 +38,18 @@ public class DeviceAccessConfig implements Serializable {
     private String neName;
 
     /**
+     * 设备类型名称
+     */
+    @Column(name = "ne_type_name", length = 100)
+    private String neTypeName;
+
+    /**
+     * 所属网络名称
+     */
+    @Column(name = "network_name", length = 200)
+    private String networkName;
+
+    /**
      * IP地址
      */
     @Column(name = "ip_addr", length = 50, nullable = false)

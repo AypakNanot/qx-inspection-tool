@@ -5,7 +5,7 @@ spring:
   # 主数据源配置 - MySQL（老库只读）
   datasource:
     mysql:
-      url: jdbc:mysql://127.0.0.1:3306/Uniview?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+      url: jdbc:mysql://127.0.0.1:3306/Uniview?useUnicode=true&characterEncoding=GBK&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
       username: root
       password: root123
       driver-class-name: com.mysql.jdbc.Driver
@@ -48,24 +48,17 @@ server:
 
 # 应用自定义配置
 app:
-  # 设备接入配置
-  device:
-    # 默认用户名（独立用户）
-    default-username: inspection_user
-    # 默认密码
-    default-password: inspection_pwd
-    # 连接超时（毫秒）
-    connection-timeout: 5000
-    # 读取超时（毫秒）
-    read-timeout: 10000
-  
-  # 巡检任务配置
-  inspection:
-    # 巡检周期（小时）
-    interval-hours: 24
-    # 光功率门限
-    optical-power:
-      # 低光功率门限（dBm）
-      low-threshold: -30
-      # 高光功率门限（dBm）
-      high-threshold: -10
+  # Qx协议连接配置
+  qx:
+    connect-timeout-ms: 5000
+    login-timeout-sec: 20
+    heartbeat-interval-sec: 60
+    heartbeat-timeout-sec: 180
+    business-threads: 4
+    # 重连配置
+    reconnect:
+      base-sec: 5
+      max-sec: 300
+      max-concurrent: 10
+      circuit-threshold: 5
+      circuit-cooldown-sec: 300
