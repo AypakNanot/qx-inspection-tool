@@ -11,8 +11,14 @@ let currentModalNeOid = null;
 
 /** 分页状态 */
 let allDevices = [];
+let filteredDevices = [];
 let currentPage = 1;
 let pageSize = 200;
+let sortField = '';
+let sortOrder = 'asc';
+let filterNetwork = '';
+let filterStatus = '';
+let searchText = '';
 
 /** 创建文本单元格 */
 function createTextCell(text) {
@@ -94,70 +100,173 @@ function renderDeviceTable(devices) {
     });
 
     renderPagination(devices.length);
+    updateFilterStats();
+}
+
+/** 更新筛选统计 */
+function updateFilterStats() {
+    const stats = document.getElementById('deviceFilterStats');
+    if (stats) {
+        stats.textContent = `筛选结果：${filteredDevices.length} / ${allDevices.length} 台`;
+    }
+}
+
+/** 应用筛选和排序 */
+function applyFilterAndSort() {
+    filteredDevices = allDevices.filter(d => {
+        // 搜索文本筛选
+        if (searchText) {
+            const text = searchText.toLowerCase();
+            const match = (d.neName || '').toLowerCase().includes(text) ||
+                         (d.ipAddr || '').toLowerCase().includes(text) ||
+                         (d.neId || '').toLowerCase().includes(text);
+            if (!match) return false;
+        }
+        // 网络筛选
+        if (filterNetwork && d.networkName !== filterNetwork) return false;
+        // 状态筛选
+        if (filterStatus) {
+            const isOnline = d.connectionStatus === 1 || d.online === true;
+            if (filterStatus === 'online' && !isOnline) return false;
+            if (filterStatus === 'offline' && isOnline) return false;
+        }
+        return true;
+    });
+
+    // 排序
+    if (sortField) {
+        filteredDevices.sort((a, b) => {
+            let va = a[sortField] || '';
+            let vb = b[sortField] || '';
+            if (typeof va === 'string') va = va.toLowerCase();
+            if (typeof vb === 'string') vb = vb.toLowerCase();
+            if (va < vb) return sortOrder === 'asc' ? -1 : 1;
+            if (va > vb) return sortOrder === 'asc' ? 1 : -1;
+            return 0;
+        });
+    }
+
+    currentPage = 1;
+    renderDeviceTable(filteredDevices);
+}
+
+/** 切换排序字段 */
+export function sortBy(field) {
+    if (sortField === field) {
+        sortOrder = sortOrder === 'asc' ? 'desc' : 'asc';
+    } else {
+        sortField = field;
+        sortOrder = 'asc';
+    }
+    applyFilterAndSort();
+}
+
+/** 搜索设备 */
+export function searchDevices(text) {
+    searchText = text.trim();
+    applyFilterAndSort();
+}
+
+/** 按网络筛选 */
+export function filterByNetwork(network) {
+    filterNetwork = network;
+    applyFilterAndSort();
+}
+
+/** 按状态筛选 */
+export function filterByStatus(status) {
+    filterStatus = status;
+    applyFilterAndSort();
 }
 
 /** 渲染分页控件 */
 function renderPagination(total) {
-    const container = document.getElementById('devicePagination');
-    if (!container) return;
-    container.textContent = '';
+    const containers = [
+        document.getElementById('devicePaginationTop'),
+        document.getElementById('devicePagination')
+    ].filter(Boolean);
 
     const totalPages = Math.ceil(total / pageSize);
-    if (totalPages <= 1) {
-        container.style.display = 'none';
-        return;
-    }
-    container.style.display = 'flex';
+    const showPagination = totalPages > 1;
 
-    // 每页条数选择
-    const sizeSelect = document.createElement('select');
-    sizeSelect.style.cssText = 'padding:4px 8px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;margin-right:12px;';
-    [200, 500, 1000].forEach(size => {
-        const opt = document.createElement('option');
-        opt.value = size;
-        opt.textContent = size + '条/页';
-        if (size === pageSize) opt.selected = true;
-        sizeSelect.appendChild(opt);
+    containers.forEach(container => {
+        container.textContent = '';
+        container.style.display = showPagination ? 'flex' : 'none';
+
+        if (!showPagination) return;
+
+        // 每页条数选择
+        const sizeSelect = document.createElement('select');
+        sizeSelect.style.cssText = 'padding:4px 8px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;margin-right:12px;';
+        [20, 50, 100, 200, 500, 1000].forEach(size => {
+            const opt = document.createElement('option');
+            opt.value = size;
+            opt.textContent = size + '条/页';
+            if (size === pageSize) opt.selected = true;
+            sizeSelect.appendChild(opt);
+        });
+        sizeSelect.onchange = () => {
+            pageSize = parseInt(sizeSelect.value);
+            currentPage = 1;
+            renderDeviceTable(allDevices);
+        };
+        container.appendChild(sizeSelect);
+
+        // 页码信息
+        const info = document.createElement('span');
+        info.style.cssText = 'font-size:12px;color:#6b7280;line-height:28px;margin-right:12px;';
+        info.textContent = `第 ${currentPage}/${totalPages} 页，共 ${total} 条`;
+        container.appendChild(info);
+
+        // 上一页
+        const prevBtn = document.createElement('button');
+        prevBtn.className = 'btn btn-outline btn-sm';
+        prevBtn.textContent = '上一页';
+        prevBtn.disabled = currentPage <= 1;
+        prevBtn.onclick = () => { currentPage--; renderDeviceTable(allDevices); };
+        container.appendChild(prevBtn);
+
+        // 下一页
+        const nextBtn = document.createElement('button');
+        nextBtn.className = 'btn btn-outline btn-sm';
+        nextBtn.textContent = '下一页';
+        nextBtn.disabled = currentPage >= totalPages;
+        nextBtn.onclick = () => { currentPage++; renderDeviceTable(allDevices); };
+        container.appendChild(nextBtn);
     });
-    sizeSelect.onchange = () => {
-        pageSize = parseInt(sizeSelect.value);
-        currentPage = 1;
-        renderDeviceTable(allDevices);
-    };
-    container.appendChild(sizeSelect);
-
-    // 页码信息
-    const info = document.createElement('span');
-    info.style.cssText = 'font-size:12px;color:#6b7280;line-height:28px;margin-right:12px;';
-    info.textContent = `第 ${currentPage}/${totalPages} 页，共 ${total} 条`;
-    container.appendChild(info);
-
-    // 上一页
-    const prevBtn = document.createElement('button');
-    prevBtn.className = 'btn btn-outline btn-sm';
-    prevBtn.textContent = '上一页';
-    prevBtn.disabled = currentPage <= 1;
-    prevBtn.onclick = () => { currentPage--; renderDeviceTable(allDevices); };
-    container.appendChild(prevBtn);
-
-    // 下一页
-    const nextBtn = document.createElement('button');
-    nextBtn.className = 'btn btn-outline btn-sm';
-    nextBtn.textContent = '下一页';
-    nextBtn.disabled = currentPage >= totalPages;
-    nextBtn.onclick = () => { currentPage++; renderDeviceTable(allDevices); };
-    container.appendChild(nextBtn);
 }
 
 /** 加载设备列表 */
 export async function loadDevices() {
     try {
         allDevices = await get('/connection/status');
-        renderDeviceTable(allDevices);
+        filteredDevices = allDevices;
+        renderDeviceTable(filteredDevices);
         updateDeviceStats(allDevices);
+        loadNetworkFilter();
     } catch (e) {
         console.error('loadDevices', e);
     }
+}
+
+/** 加载网络筛选下拉框 */
+function loadNetworkFilter() {
+    const networks = [...new Set(allDevices.map(d => d.networkName).filter(Boolean))];
+    const select = document.getElementById('filterNetwork');
+    if (!select) return;
+    const current = select.value;
+    while (select.firstChild) select.removeChild(select.firstChild);
+    const defaultOpt = document.createElement('option');
+    defaultOpt.value = '';
+    defaultOpt.textContent = '全部网络';
+    select.appendChild(defaultOpt);
+    networks.sort().forEach(n => {
+        const opt = document.createElement('option');
+        opt.value = n;
+        opt.textContent = n;
+        select.appendChild(opt);
+    });
+    select.value = current;
 }
 
 /** 加载全局连接配置 */
@@ -193,6 +302,108 @@ export async function syncDevices() {
         alert('设备同步完成');
         loadDevices();
     } catch (e) { alert('同步失败: ' + e.message); }
+}
+
+/** 打开清除数据弹窗 */
+export async function openClearDataModal() {
+    document.getElementById('clearInspectionRecords').checked = false;
+    document.getElementById('clearInspectionRounds').checked = false;
+    document.getElementById('clearDeviceConfigs').checked = false;
+    document.getElementById('clearConnProfiles').checked = false;
+    document.getElementById('clearThresholdRules').checked = false;
+    document.getElementById('clearConnNetworks').style.display = 'none';
+    document.querySelector('input[name="connScope"][value="all"]').checked = true;
+    document.getElementById('clearNetworkSelect').style.display = 'none';
+
+    // 加载网络列表
+    try {
+        const networks = await get('/database/networks');
+        const select = document.getElementById('clearNetworkList');
+        select.textContent = '';
+        networks.forEach(n => {
+            const opt = document.createElement('option');
+            opt.value = n;
+            opt.textContent = n;
+            select.appendChild(opt);
+        });
+    } catch (e) { console.error('load networks', e); }
+
+    document.getElementById('clearDataModal').classList.remove('hidden');
+}
+
+/** 关闭清除数据弹窗 */
+export function closeClearDataModal() {
+    document.getElementById('clearDataModal').classList.add('hidden');
+}
+
+/** 切换连接配置网络选择区域显示 */
+export function toggleClearConnNetworks() {
+    const checked = document.getElementById('clearConnProfiles').checked;
+    document.getElementById('clearConnNetworks').style.display = checked ? 'block' : 'none';
+}
+
+/** 切换指定网络下拉框显示 */
+export function toggleNetworkSelect() {
+    const isNetwork = document.querySelector('input[name="connScope"]:checked').value === 'network';
+    document.getElementById('clearNetworkSelect').style.display = isNetwork ? 'block' : 'none';
+}
+
+/** 执行清除数据 */
+export async function executeClearData() {
+    const options = {};
+    let hasSelection = false;
+
+    if (document.getElementById('clearInspectionRecords').checked) {
+        options.inspectionRecords = true; hasSelection = true;
+    }
+    if (document.getElementById('clearInspectionRounds').checked) {
+        options.inspectionRounds = true; hasSelection = true;
+    }
+    if (document.getElementById('clearDeviceConfigs').checked) {
+        options.deviceConfigs = true; hasSelection = true;
+    }
+    if (document.getElementById('clearThresholdRules').checked) {
+        options.thresholdRules = true; hasSelection = true;
+    }
+    if (document.getElementById('clearConnProfiles').checked) {
+        hasSelection = true;
+        const scope = document.querySelector('input[name="connScope"]:checked').value;
+        if (scope === 'all') {
+            options.connectionProfiles = 'all';
+        } else {
+            const select = document.getElementById('clearNetworkList');
+            const selected = Array.from(select.selectedOptions).map(o => o.value);
+            if (selected.length === 0) {
+                alert('请至少选择一个网络');
+                return;
+            }
+            options.connectionProfiles = selected;
+        }
+    }
+
+    if (!hasSelection) {
+        alert('请至少选择一项数据');
+        return;
+    }
+
+    const labels = [];
+    if (options.inspectionRecords) labels.push('巡检记录');
+    if (options.inspectionRounds) labels.push('巡检轮次');
+    if (options.deviceConfigs) labels.push('设备配置');
+    if (options.thresholdRules) labels.push('门限规则');
+    if (options.connectionProfiles) {
+        labels.push('连接配置' + (options.connectionProfiles === 'all' ? '(全部)' : '(' + options.connectionProfiles.join(',') + ')'));
+    }
+
+    if (!confirm('确认清除以下数据？\n\n' + labels.join('\n') + '\n\n此操作不可恢复！')) return;
+
+    try {
+        const d = await post('/database/clear-selected', options);
+        closeClearDataModal();
+        const lines = Object.entries(d.deletedCounts).map(([k, v]) => k + ': ' + v + '条');
+        alert('清除完成：\n' + (lines.length > 0 ? lines.join('\n') : '无数据被删除'));
+        loadDevices();
+    } catch (e) { alert('清除失败: ' + e.message); }
 }
 
 /** 一键连接所有设备 */

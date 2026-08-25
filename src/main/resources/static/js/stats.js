@@ -69,7 +69,14 @@ export function switchStatsChart(type, btn) {
 
 /** 渲染 ECharts 图表 */
 function renderStatsChart() {
-    if (!statsChart) statsChart = echarts.init(document.getElementById('statsChart'));
+    const container = document.getElementById('statsChart');
+    if (!container || container.offsetParent === null) return;
+
+    if (!statsChart) {
+        statsChart = echarts.init(container);
+    } else {
+        statsChart.resize();
+    }
     if (!statsChartData || statsChartData.length === 0) {
         statsChart.setOption({ title: { text: '暂无数据', left: 'center', top: 'center', textStyle: { color: '#999', fontSize: 14 } } });
         return;

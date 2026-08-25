@@ -81,6 +81,41 @@ public class DatabaseTestController {
     }
 
     /**
+     * 选择性清除本地数据
+     * 请求体示例：
+     * {
+     *   "inspectionRecords": true,
+     *   "inspectionRounds": true,
+     *   "deviceConfigs": true,
+     *   "connectionProfiles": "all",       // 或 ["网络A","网络B"]
+     *   "thresholdRules": true
+     * }
+     */
+    @PostMapping("/clear-selected")
+    public ResponseEntity<Map<String, Object>> clearSelectedData(@RequestBody Map<String, Object> options) {
+        Map<String, Object> result = new java.util.HashMap<>();
+        try {
+            Map<String, Long> counts = deviceAccessService.clearSelectedData(options);
+            result.put("status", "SUCCESS");
+            result.put("message", "清除完成");
+            result.put("deletedCounts", counts);
+        } catch (Exception e) {
+            log.error("清除数据失败", e);
+            result.put("status", "FAILED");
+            result.put("message", "清除数据失败: " + e.getMessage());
+        }
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * 获取所有网络名称列表（用于清除数据时选择网络）
+     */
+    @GetMapping("/networks")
+    public ResponseEntity<List<String>> getNetworks() {
+        return ResponseEntity.ok(deviceAccessService.getAllNetworkNames());
+    }
+
+    /**
      * 从MySQL同步设备信息到SQLite
      */
     @PostMapping("/sync-devices")

@@ -13,6 +13,8 @@ import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 
+import org.springframework.beans.factory.annotation.Value;
+
 import javax.sql.DataSource;
 import java.util.HashMap;
 import java.util.Map;
@@ -32,6 +34,12 @@ import java.util.Map;
 )
 public class SQLiteDataSourceConfig {
 
+    @Value("${spring.jpa.show-sql:false}")
+    private boolean showSql;
+
+    @Value("${spring.jpa.properties.hibernate.format_sql:false}")
+    private boolean formatSql;
+
     /**
      * SQLite数据源属性配置
      */
@@ -50,11 +58,11 @@ public class SQLiteDataSourceConfig {
         HikariDataSource dataSource = properties.initializeDataSourceBuilder()
                 .type(HikariDataSource.class)
                 .build();
-        
-        // SQLite连接池配置（较小）
-        dataSource.setMaximumPoolSize(5);
+
+        // SQLite 只支持单写，连接池设为1避免并发锁冲突
+        dataSource.setMaximumPoolSize(1);
         dataSource.setMinimumIdle(1);
-        
+
         return dataSource;
     }
 
@@ -70,8 +78,8 @@ public class SQLiteDataSourceConfig {
         // 使用SQLite方言
         properties.put("hibernate.dialect", "org.hibernate.community.dialect.SQLiteDialect");
         properties.put("hibernate.hbm2ddl.auto", "update"); // 自动创建/更新表结构
-        properties.put("hibernate.show_sql", true);
-        properties.put("hibernate.format_sql", true);
+        properties.put("hibernate.show_sql", showSql);
+        properties.put("hibernate.format_sql", formatSql);
         
         return builder
                 .dataSource(dataSource)

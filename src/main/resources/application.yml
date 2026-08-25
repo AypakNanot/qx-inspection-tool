@@ -19,16 +19,20 @@ spring:
     
     # SQLite数据源配置（本地缓存库）
     sqlite:
-      url: jdbc:sqlite:./data/qx_inspection.db
+      url: "jdbc:sqlite:./data/qx_inspection.db?busy_timeout=5000&journal_mode=WAL"
       driver-class-name: org.sqlite.JDBC
       # SQLite不需要用户名密码
       hikari:
-        maximum-pool-size: 5
+        maximum-pool-size: 1
         minimum-idle: 1
 
   # JPA配置（各数据源方言和ddl-auto在Config类中单独设置）
   jpa:
     open-in-view: false
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: false
 
 # 日志配置
 logging:

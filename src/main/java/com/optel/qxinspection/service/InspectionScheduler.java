@@ -31,6 +31,9 @@ public class InspectionScheduler {
     @Value("${app.inspection.scheduled.network:}")
     private String network;
 
+    @Value("${app.inspection.scheduled.cron:0 0 2 * * ?}")
+    private String cronExpression;
+
     private volatile String lastRunStatus = "NEVER";
     private volatile String lastRunTime = "";
 
@@ -74,6 +77,7 @@ public class InspectionScheduler {
         status.put("enabled", enabled);
         status.put("scope", scope);
         status.put("network", network);
+        status.put("cronExpression", cronExpression);
         status.put("lastRunStatus", lastRunStatus);
         status.put("lastRunTime", lastRunTime);
         return status;
@@ -85,5 +89,16 @@ public class InspectionScheduler {
     public void setEnabled(boolean enabled) {
         this.enabled = enabled;
         log.info("定时巡检已{}", enabled ? "启用" : "禁用");
+    }
+
+    /**
+     * 更新定时巡检配置
+     */
+    public void updateConfig(boolean enabled, String scope, String network, String cronExpression) {
+        this.enabled = enabled;
+        this.scope = scope;
+        this.network = network != null ? network : "";
+        this.cronExpression = cronExpression;
+        log.info("定时巡检配置已更新: enabled={}, scope={}, network={}, cron={}", enabled, scope, network, cronExpression);
     }
 }

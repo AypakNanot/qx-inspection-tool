@@ -128,7 +128,7 @@ public class InspectionController {
 
             // 标题行
             Row header = sheet.createRow(0);
-            String[] columns = {"网元名称", "网元ID", "所属网络", "设备类型", "槽位", "端口", "支持光功率",
+            String[] columns = {"网元名称", "网元ID", "所属网络", "设备类型", "槽位", "端口", "端口名称", "支持光功率",
                     "光模块速率", "距离档", "模块型号", "波长",
                     "发送功率(dBm)", "接收功率(dBm)", "发送状态", "接收状态",
                     "发送低门限", "发送高门限", "接收低门限", "接收高门限", "巡检时间", "备注"};
@@ -164,15 +164,16 @@ public class InspectionController {
                 row.createCell(3).setCellValue(r.getNeTypeName() != null ? r.getNeTypeName() : "");
                 row.createCell(4).setCellValue(r.getSlotNo() != null ? r.getSlotNo() : 0);
                 row.createCell(5).setCellValue(r.getPortNo() != null ? r.getPortNo() : 0);
-                row.createCell(6).setCellValue(Boolean.TRUE.equals(r.getSupported()) ? "是" : "否");
-                row.createCell(7).setCellValue(r.getLaserType() != null ? r.getLaserType() : "--");
-                row.createCell(8).setCellValue(r.getLaserDistance() != null ? r.getLaserDistance() : "--");
-                row.createCell(9).setCellValue(r.getPartNumber() != null ? r.getPartNumber() : "--");
-                row.createCell(10).setCellValue(r.getLaserWave() != null ? r.getLaserWave() : "--");
+                row.createCell(6).setCellValue(r.getPortName() != null ? r.getPortName() : "");
+                row.createCell(7).setCellValue(Boolean.TRUE.equals(r.getSupported()) ? "是" : "否");
+                row.createCell(8).setCellValue(r.getLaserType() != null ? r.getLaserType() : "--");
+                row.createCell(9).setCellValue(r.getLaserDistance() != null ? r.getLaserDistance() : "--");
+                row.createCell(10).setCellValue(r.getPartNumber() != null ? r.getPartNumber() : "--");
+                row.createCell(11).setCellValue(r.getLaserWave() != null ? r.getLaserWave() : "--");
 
                 // 功率值
-                Cell txCell = row.createCell(11);
-                Cell rxCell = row.createCell(12);
+                Cell txCell = row.createCell(12);
+                Cell rxCell = row.createCell(13);
                 if (Boolean.TRUE.equals(r.getSupported()) && r.getTxPower() != null) {
                     txCell.setCellValue(r.getTxPower());
                     rxCell.setCellValue(r.getRxPower() != null ? r.getRxPower() : 0);
@@ -182,22 +183,22 @@ public class InspectionController {
                 }
 
                 // 状态标色
-                Cell txStatusCell = row.createCell(13);
+                Cell txStatusCell = row.createCell(14);
                 String txStatus = formatStatus(r.getTxPowerStatus());
                 txStatusCell.setCellValue(txStatus);
                 txStatusCell.setCellStyle(r.getTxPowerStatus() != null && r.getTxPowerStatus() > 0 ? warnStyle : normalStyle);
 
-                Cell rxStatusCell = row.createCell(14);
+                Cell rxStatusCell = row.createCell(15);
                 String rxStatus = formatStatus(r.getRxPowerStatus());
                 rxStatusCell.setCellValue(rxStatus);
                 rxStatusCell.setCellStyle(r.getRxPowerStatus() != null && r.getRxPowerStatus() > 0 ? warnStyle : normalStyle);
 
-                row.createCell(15).setCellValue(r.getTxLowThreshold() != null ? r.getTxLowThreshold() : 0);
-                row.createCell(16).setCellValue(r.getTxHighThreshold() != null ? r.getTxHighThreshold() : 0);
-                row.createCell(17).setCellValue(r.getLowThreshold() != null ? r.getLowThreshold() : 0);
-                row.createCell(18).setCellValue(r.getHighThreshold() != null ? r.getHighThreshold() : 0);
-                row.createCell(19).setCellValue(r.getInspectionTime() != null ? r.getInspectionTime().format(DT_FMT) : "");
-                row.createCell(20).setCellValue(r.getFailReason() != null ? r.getFailReason() : "");
+                row.createCell(16).setCellValue(r.getTxLowThreshold() != null ? r.getTxLowThreshold() : 0);
+                row.createCell(17).setCellValue(r.getTxHighThreshold() != null ? r.getTxHighThreshold() : 0);
+                row.createCell(18).setCellValue(r.getLowThreshold() != null ? r.getLowThreshold() : 0);
+                row.createCell(19).setCellValue(r.getHighThreshold() != null ? r.getHighThreshold() : 0);
+                row.createCell(20).setCellValue(r.getInspectionTime() != null ? r.getInspectionTime().format(DT_FMT) : "");
+                row.createCell(21).setCellValue(r.getFailReason() != null ? r.getFailReason() : "");
             }
 
             // 自动列宽
@@ -237,6 +238,38 @@ public class InspectionController {
     public Map<String, Object> toggleSchedule(@RequestParam boolean enabled) {
         inspectionScheduler.setEnabled(enabled);
         return inspectionScheduler.getStatus();
+    }
+
+    /**
+     * 保存定时巡检配置
+     */
+    @PostMapping("/schedule/config")
+    public Map<String, Object> saveScheduleConfig(@RequestBody Map<String, Object> body) {
+        boolean enabled = (Boolean) body.getOrDefault("enabled", false);
+        String scope = (String) body.getOrDefault("scope", "ALL");
+        String network = (String) body.getOrDefault("network", "");
+        String cron = (String) body.getOrDefault("cronExpression", "0 0 2 * * ?");
+        inspectionScheduler.updateConfig(enabled, scope, network, cron);
+        return inspectionScheduler.getStatus();
+    }
+
+    /**
+     * 获取采集参数
+     */
+    @GetMapping("/collect-params")
+    public Map<String, Object> getCollectParams() {
+        return inspectionService.getCollectParams();
+    }
+
+    /**
+     * 保存采集参数
+     */
+    @PostMapping("/collect-params")
+    public Map<String, Object> saveCollectParams(@RequestBody Map<String, Object> body) {
+        int concurrency = ((Number) body.getOrDefault("concurrency", 10)).intValue();
+        int maxRounds = ((Number) body.getOrDefault("maxRounds", 10)).intValue();
+        inspectionService.updateCollectParams(concurrency, maxRounds);
+        return inspectionService.getCollectParams();
     }
 
     // ========== 趋势与异常 ==========

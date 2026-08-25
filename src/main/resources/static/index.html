@@ -96,21 +96,39 @@
                     <button class="btn btn-primary" onclick="syncDevices()">同步设备</button>
                     <button class="btn btn-success" onclick="connectAll()">一键连接</button>
                     <button class="btn btn-danger" onclick="disconnectAll()">一键断开</button>
+                    <button class="btn btn-danger" onclick="clearAllData()" style="margin-left:24px;">清除数据</button>
                     <div class="toolbar-right">
                         <button class="btn btn-outline" onclick="loadDevices()">刷新</button>
                     </div>
                 </div>
+
+                <!-- 筛选栏 -->
+                <div class="toolbar" style="margin-bottom:8px;">
+                    <input type="text" id="filterSearch" placeholder="搜索网元名/IP..." oninput="searchDevices(this.value)" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;width:180px;">
+                    <select id="filterNetwork" onchange="filterByNetwork(this.value)" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+                        <option value="">全部网络</option>
+                    </select>
+                    <select id="filterStatus" onchange="filterByStatus(this.value)" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+                        <option value="">全部状态</option>
+                        <option value="online">在线</option>
+                        <option value="offline">离线</option>
+                    </select>
+                    <span id="deviceFilterStats" style="font-size:12px;color:#6b7280;margin-left:8px;"></span>
+                </div>
+
+                <!-- 顶部分页 -->
+                <div id="devicePaginationTop" style="display:flex;align-items:center;justify-content:flex-start;padding:0 0 12px 0;gap:8px;"></div>
 
                 <!-- 设备表格 -->
                 <div class="table-wrap">
                     <table>
                         <thead>
                             <tr>
-                                <th>网元名</th>
-                                <th>IP地址</th>
-                                <th>所属网络</th>
-                                <th>设备类型</th>
-                                <th>连接状态</th>
+                                <th style="cursor:pointer" onclick="sortBy('neName')">网元名 ↕</th>
+                                <th style="cursor:pointer" onclick="sortBy('ipAddr')">IP地址 ↕</th>
+                                <th style="cursor:pointer" onclick="sortBy('networkName')">所属网络 ↕</th>
+                                <th style="cursor:pointer" onclick="sortBy('neTypeName')">设备类型 ↕</th>
+                                <th style="cursor:pointer" onclick="sortBy('connectionStatus')">连接状态 ↕</th>
                                 <th>登录用户</th>
                                 <th style="width:140px">操作</th>
                             </tr>
@@ -243,8 +261,21 @@
                         </div>
                         <div class="form-row" style="margin-bottom:12px;">
                             <div class="form-group">
+                                <label>执行频率</label>
+                                <select id="schedPreset" onchange="onSchedPresetChange(this.value)" style="width:180px;">
+                                    <option value="0 0 2 * * ?">每天凌晨 2:00</option>
+                                    <option value="0 0 */2 * * ?">每 2 小时</option>
+                                    <option value="0 0 * * * ?">每小时整点</option>
+                                    <option value="0 */30 * * * ?">每 30 分钟</option>
+                                    <option value="0 0 8 * * 1-5">工作日早 8:00</option>
+                                    <option value="0 0 2 * * 1">每周一凌晨 2:00</option>
+                                    <option value="0 0 2 1 * ?">每月 1 号凌晨 2:00</option>
+                                    <option value="custom">自定义...</option>
+                                </select>
+                            </div>
+                            <div class="form-group" id="schedCronGroup" style="display:none;">
                                 <label>Cron 表达式</label>
-                                <input type="text" id="schedCron" value="0 0 2 * * ?" placeholder="如 0 0 2 * * ?" style="width:180px">
+                                <input type="text" id="schedCron" placeholder="0 0 2 * * ?" style="width:180px">
                             </div>
                             <div class="form-group">
                                 <label>采集范围</label>
@@ -258,8 +289,13 @@
                                 <input list="schedNetworkList" id="schedNetwork" placeholder="选择网络" style="width:160px;">
                                 <datalist id="schedNetworkList"></datalist>
                             </div>
+                            <div class="form-group" style="justify-content:flex-end">
+                                <label>&nbsp;</label>
+                                <button class="btn btn-primary" onclick="saveScheduleConfig()">保存配置</button>
+                            </div>
                         </div>
-                        <div style="font-size:12px;color:#6b7280;" id="schedStatus">加载中...</div>
+                        <div id="schedConfigMsg" style="font-size:12px;color:#16a34a;margin-top:8px;display:none"></div>
+                        <div style="font-size:12px;color:#6b7280;margin-top:8px;padding-top:8px;border-top:1px solid #f1f5f9;" id="schedStatus">加载中...</div>
                     </div>
                 </div>
 
@@ -279,7 +315,12 @@
                                 <label>保留轮次上限</label>
                                 <input type="number" id="paramMaxRounds" value="10" min="1" max="100" style="width:80px">
                             </div>
+                            <div class="form-group" style="justify-content:flex-end">
+                                <label>&nbsp;</label>
+                                <button class="btn btn-primary btn-sm" onclick="saveCollectParams()">保存</button>
+                            </div>
                         </div>
+                        <div id="collectParamsMsg" style="font-size:12px;color:#16a34a;margin-top:8px;display:none"></div>
                         <div style="font-size:12px;color:#9ca3af;margin-top:8px;">并发设备数：多设备同时采集的线程数；保留轮次：超龄轮次自动清理</div>
                     </div>
                 </div>
@@ -399,7 +440,7 @@
 
             <!-- ========== 数据查询页 ========== -->
             <div class="page" id="page-query">
-                <!-- 轮次选择 -->
+                <!-- 筛选工具栏 -->
                 <div class="toolbar">
                     <label style="font-size:13px;color:#6b7280;">轮次：</label>
                     <select id="queryRound" onchange="loadQueryResults()" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;min-width:160px;">
@@ -419,34 +460,42 @@
                         <option value="2">过载</option>
                         <option value="-1">无效</option>
                     </select>
+                    <input type="text" id="querySearch" placeholder="搜索网元/端口名/ID..." oninput="searchQuery(this.value)" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;width:180px;margin-left:8px;">
                     <button class="btn btn-primary btn-sm" onclick="loadQueryResults()">查询</button>
                     <div class="toolbar-right">
                         <button class="btn btn-outline btn-sm" onclick="exportExcel()">导出 Excel</button>
                     </div>
                 </div>
 
+                <!-- 上方分页 -->
+                <div id="queryPaginationTop" style="display:none;align-items:center;gap:8px;margin-bottom:10px;"></div>
+
                 <!-- 数据表格 -->
                 <div class="table-wrap">
                     <table>
                         <thead>
                             <tr>
-                                <th>网元名</th>
-                                <th>槽位</th>
-                                <th>端口</th>
-                                <th>模块类型</th>
-                                <th>发送功率(dBm)</th>
-                                <th>接收功率(dBm)</th>
+                                <th onclick="sortQueryBy('neName')" style="cursor:pointer">网元名 ↕</th>
+                                <th onclick="sortQueryBy('slotNo')" style="cursor:pointer">槽位 ↕</th>
+                                <th onclick="sortQueryBy('portNo')" style="cursor:pointer">端口 ↕</th>
+                                <th onclick="sortQueryBy('portName')" style="cursor:pointer">端口名称 ↕</th>
+                                <th onclick="sortQueryBy('moduleTypeKey')" style="cursor:pointer">模块类型 ↕</th>
+                                <th onclick="sortQueryBy('txPower')" style="cursor:pointer">发送功率(dBm) ↕</th>
+                                <th onclick="sortQueryBy('rxPower')" style="cursor:pointer">接收功率(dBm) ↕</th>
                                 <th>状态</th>
                                 <th>门限(发送)</th>
                                 <th>门限(接收)</th>
-                                <th>巡检时间</th>
+                                <th onclick="sortQueryBy('inspectionTime')" style="cursor:pointer">巡检时间 ↕</th>
                             </tr>
                         </thead>
                         <tbody id="queryTable">
-                            <tr><td colspan="10" class="loading">加载中...</td></tr>
+                            <tr><td colspan="11" class="loading">加载中...</td></tr>
                         </tbody>
                     </table>
                 </div>
+
+                <!-- 下方分页 -->
+                <div id="queryPagination" style="display:none;align-items:center;gap:8px;margin-top:10px;"></div>
                 <div style="font-size:12px;color:#9ca3af;margin-top:8px;" id="queryCount"></div>
             </div>
         </div>
@@ -512,6 +561,59 @@
             <div class="modal-footer">
                 <button class="btn btn-outline" onclick="closeThresholdModal()">取消</button>
                 <button class="btn btn-primary" onclick="saveThreshold()">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 清除数据弹窗 -->
+    <div class="modal-overlay hidden" id="clearDataModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>清除数据</h3>
+                <button class="modal-close" onclick="closeClearDataModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div style="font-size:13px;color:#6b7280;margin-bottom:16px;">选择需要清除的数据类型：</div>
+                <div style="display:flex;flex-direction:column;gap:12px;">
+                    <label style="display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer;">
+                        <input type="checkbox" id="clearInspectionRecords"> 巡检记录
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer;">
+                        <input type="checkbox" id="clearInspectionRounds"> 巡检轮次
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer;">
+                        <input type="checkbox" id="clearDeviceConfigs"> 设备配置
+                    </label>
+                    <div>
+                        <label style="display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer;">
+                            <input type="checkbox" id="clearConnProfiles" onchange="toggleClearConnNetworks()"> 连接配置
+                        </label>
+                        <div id="clearConnNetworks" style="display:none;margin-left:28px;margin-top:8px;padding:10px;background:#f9fafb;border-radius:6px;border:1px solid #e5e7eb;">
+                            <div style="font-size:12px;color:#6b7280;margin-bottom:8px;">清除范围：</div>
+                            <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;margin-bottom:6px;">
+                                <input type="radio" name="connScope" value="all" checked onchange="toggleNetworkSelect()"> 全部
+                            </label>
+                            <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
+                                <input type="radio" name="connScope" value="network" onchange="toggleNetworkSelect()"> 指定网络
+                            </label>
+                            <div id="clearNetworkSelect" style="display:none;margin-top:8px;">
+                                <select id="clearNetworkList" multiple style="width:100%;height:120px;padding:4px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;">
+                                </select>
+                                <div style="font-size:11px;color:#9ca3af;margin-top:4px;">按住 Ctrl 多选</div>
+                            </div>
+                        </div>
+                    </div>
+                    <label style="display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer;">
+                        <input type="checkbox" id="clearThresholdRules"> 门限规则
+                    </label>
+                </div>
+                <div style="margin-top:16px;padding:10px;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;font-size:12px;color:#991b1b;">
+                    注意：清除后不可恢复，请谨慎操作。
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="closeClearDataModal()">取消</button>
+                <button class="btn btn-danger" onclick="executeClearData()">清除</button>
             </div>
         </div>
     </div>

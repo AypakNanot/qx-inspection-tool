@@ -3,12 +3,12 @@
  * 初始化页面、注册全局事件、挂载onclick处理器
  */
 
-import { loadDevices, loadGlobalConfig, saveGlobalConfig, syncDevices, connectAll, disconnectAll, connectSingle, disconnectSingle, closeDeviceModal, saveDeviceConfig, deleteDeviceConfig } from './device.js';
+import { loadDevices, loadGlobalConfig, saveGlobalConfig, syncDevices, openClearDataModal, closeClearDataModal, toggleClearConnNetworks, toggleNetworkSelect, executeClearData, connectAll, disconnectAll, connectSingle, disconnectSingle, closeDeviceModal, saveDeviceConfig, deleteDeviceConfig, searchDevices, filterByNetwork, filterByStatus, sortBy } from './device.js';
 import { loadStatsOverview, loadStatsNetworks, loadStats, switchStatsChart, resizeChart } from './stats.js';
 import { loadGlobalThreshold, saveGlobalThreshold, loadThresholds, openThresholdModal, closeThresholdModal, saveThreshold } from './threshold.js';
-import { loadScheduleStatus, toggleSchedule, toggleSchedScope, toggleManualScope, loadTaskNetworks, loadTaskDevices, startManualInspection } from './task.js';
+import { loadScheduleStatus, toggleSchedule, toggleSchedScope, toggleManualScope, loadTaskNetworks, loadTaskDevices, startManualInspection, onSchedPresetChange, saveScheduleConfig, loadCollectParams, saveCollectParams } from './task.js';
 import { loadProgress, stopProgressPoll } from './progress.js';
-import { loadQueryRounds, loadQueryFilters, loadQueryResults, exportExcel } from './query.js';
+import { loadQueryRounds, loadQueryFilters, loadQueryResults, exportExcel, searchQuery, sortQueryBy } from './query.js';
 
 /** 页面标题映射 */
 const TITLES = {
@@ -34,6 +34,7 @@ function switchPage(el) {
     if (page === 'page-stats') {
         loadStatsOverview();
         loadStats();
+        setTimeout(resizeChart, 100);
     }
     if (page === 'page-threshold') {
         loadGlobalThreshold();
@@ -43,6 +44,7 @@ function switchPage(el) {
         loadScheduleStatus();
         loadTaskNetworks();
         loadTaskDevices();
+        loadCollectParams();
     }
     if (page === 'page-progress') {
         loadProgress();
@@ -68,6 +70,11 @@ window.togglePanel = togglePanel;
 window.loadDevices = loadDevices;
 window.saveGlobalConfig = saveGlobalConfig;
 window.syncDevices = syncDevices;
+window.clearAllData = openClearDataModal;
+window.closeClearDataModal = closeClearDataModal;
+window.toggleClearConnNetworks = toggleClearConnNetworks;
+window.toggleNetworkSelect = toggleNetworkSelect;
+window.executeClearData = executeClearData;
 window.connectAll = (e) => connectAll(e.target);
 window.disconnectAll = disconnectAll;
 window.connectSingle = connectSingle;
@@ -75,6 +82,10 @@ window.disconnectSingle = disconnectSingle;
 window.closeDeviceModal = closeDeviceModal;
 window.saveDeviceConfig = saveDeviceConfig;
 window.deleteDeviceConfig = deleteDeviceConfig;
+window.searchDevices = searchDevices;
+window.filterByNetwork = (val) => filterByNetwork(val);
+window.filterByStatus = (val) => filterByStatus(val);
+window.sortBy = sortBy;
 window.loadStats = loadStats;
 window.switchStatsChart = switchStatsChart;
 window.saveGlobalThreshold = saveGlobalThreshold;
@@ -82,17 +93,22 @@ window.openThresholdModal = (levelType) => openThresholdModal(levelType);
 window.closeThresholdModal = closeThresholdModal;
 window.saveThreshold = saveThreshold;
 window.toggleSchedule = (checked) => toggleSchedule(checked);
+window.onSchedPresetChange = onSchedPresetChange;
+window.saveScheduleConfig = saveScheduleConfig;
+window.loadCollectParams = loadCollectParams;
+window.saveCollectParams = saveCollectParams;
 window.toggleSchedScope = toggleSchedScope;
 window.toggleManualScope = toggleManualScope;
 window.startManualInspection = () => startManualInspection(switchPage);
 window.loadQueryResults = loadQueryResults;
 window.exportExcel = exportExcel;
+window.searchQuery = searchQuery;
+window.sortQueryBy = sortQueryBy;
 
 // 初始化加载
 loadDevices();
 loadGlobalConfig();
 loadStatsOverview();
 loadStatsNetworks();
-loadStats();
 
 window.addEventListener('resize', resizeChart);

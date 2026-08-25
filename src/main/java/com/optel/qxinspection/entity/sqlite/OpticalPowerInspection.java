@@ -51,6 +51,10 @@ public class OpticalPowerInspection implements Serializable {
     @Column(name = "port_no")
     private Integer portNo;
 
+    /** 端口名称（用户自定义） */
+    @Column(name = "port_name", length = 256)
+    private String portName;
+
     /** 端口类型 */
     @Column(name = "port_type")
     private Integer portType;

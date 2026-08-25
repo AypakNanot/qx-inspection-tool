@@ -61,11 +61,28 @@ function renderFailList(failures) {
     list.textContent = '';
     failures.forEach(f => {
         const div = document.createElement('div');
-        div.style.cssText = 'padding:4px 0;border-bottom:1px solid #f1f5f9;font-size:13px;';
+        div.style.cssText = 'padding:6px 0;border-bottom:1px solid #f1f5f9;font-size:13px;';
         const dot = document.createElement('span');
         dot.className = 'status-dot failed';
         div.appendChild(dot);
-        div.appendChild(document.createTextNode(f));
+        // 兼容新格式（对象）和旧格式（字符串）
+        if (typeof f === 'object' && f !== null) {
+            div.appendChild(document.createElement('strong')).textContent = f.device || '';
+            if (f.reason) {
+                const reasonSpan = document.createElement('span');
+                reasonSpan.style.cssText = 'color:#dc2626;margin-left:8px;font-size:12px;';
+                reasonSpan.textContent = f.reason;
+                div.appendChild(reasonSpan);
+            }
+            if (f.time) {
+                const timeSpan = document.createElement('span');
+                timeSpan.style.cssText = 'color:#9ca3af;margin-left:8px;font-size:11px;';
+                timeSpan.textContent = f.time;
+                div.appendChild(timeSpan);
+            }
+        } else {
+            div.appendChild(document.createTextNode(f));
+        }
         list.appendChild(div);
     });
 }

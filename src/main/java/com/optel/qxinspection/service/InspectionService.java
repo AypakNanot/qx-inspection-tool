@@ -54,7 +54,7 @@ public class InspectionService {
     /** 当前运行中的轮次（用于进度查询） */
     private volatile InspectionRound currentRound;
     private final AtomicInteger progressCurrent = new AtomicInteger(0);
-    private final List<String> progressFailures = new CopyOnWriteArrayList<>();
+    private final List<Map<String, String>> progressFailures = new CopyOnWriteArrayList<>();
     private volatile String progressCurrentNe = "";
 
     /**
@@ -380,7 +380,11 @@ public class InspectionService {
                     } catch (Exception e) {
                         log.error("巡检设备失败: {}({}), {}", device.getNeName(), device.getIpAddr(), e.getMessage());
                         failCount.incrementAndGet();
-                        progressFailures.add(device.getNeName() + "(" + device.getIpAddr() + ")");
+                        Map<String, String> failInfo = new LinkedHashMap<>();
+                        failInfo.put("device", device.getNeName() + "(" + device.getIpAddr() + ")");
+                        failInfo.put("reason", e.getMessage());
+                        failInfo.put("time", java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss").format(LocalDateTime.now()));
+                        progressFailures.add(failInfo);
                     } finally {
                         progressCurrent.incrementAndGet();
                     }
@@ -409,12 +413,16 @@ public class InspectionService {
     }
 
     private void inspectDevice(InspectionRound round, DeviceAccessConfig device) {
+        List<OpticalPowerInspection> records = new ArrayList<>();
+
         // 确保设备已连接（未连接则先建立连接）
         if (!qxConnectionService.isConnected(device.getNeId())) {
             log.debug("设备未连接，尝试建立连接: {}", device.getNeName());
             boolean connected = qxConnectionService.connectSingle(device.getNeId());
             if (!connected) {
-                throw new RuntimeException("设备连接失败: " + device.getNeName());
+                records.add(buildDeviceFailRecord(round, device, "设备连接失败"));
+                powerRecordRepository.saveAll(records);
+                throw new RuntimeException("设备连接失败");
             }
         }
 
@@ -426,9 +434,6 @@ public class InspectionService {
         }
 
         String neId = device.getNeId();
-
-        // 逐端口查询激光器属性 0x2410
-        List<OpticalPowerInspection> records = new ArrayList<>();
         int failPorts = 0;
 
         for (Dmeo dmeoPort : opticalPorts) {
@@ -448,10 +453,10 @@ public class InspectionService {
                         .build();
 
                 LaserAttributeAckData laser = laserService.attributeGet(neId, req);
-                records.add(buildRecord(round, device, slotId, portType, 0xFF, portId, laser));
+                records.add(buildRecord(round, device, slotId, portType, 0xFF, portId, dmeoPort.getName(), laser));
             } catch (Exception e) {
                 failPorts++;
-                records.add(buildFailRecord(round, device, slotId, portType, 0xFF, portId, e.getMessage()));
+                records.add(buildFailRecord(round, device, slotId, portType, 0xFF, portId, dmeoPort.getName(), e.getMessage()));
                 log.debug("端口查询失败: {} oid={}, {}",
                         device.getNeName(), dmeoPort.getOid(), e.getMessage());
             }
@@ -489,7 +494,7 @@ public class InspectionService {
 
     private OpticalPowerInspection buildRecord(InspectionRound round, DeviceAccessConfig device,
                                                 int slotId, int portType, int portSubType, int portId,
-                                                LaserAttributeAckData laser) {
+                                                String portName, LaserAttributeAckData laser) {
         OpticalPowerInspection r = new OpticalPowerInspection();
         r.setRoundId(round.getId());
         r.setNeId(device.getNeId());
@@ -498,6 +503,7 @@ public class InspectionService {
         r.setNeTypeName(device.getNeTypeName());
         r.setSlotNo(slotId);
         r.setPortNo(portId);
+        r.setPortName(portName);
         r.setPortType(portType);
         r.setPortSubType(portSubType);
         r.setInspectionTime(LocalDateTime.now());
@@ -527,7 +533,7 @@ public class InspectionService {
 
     private OpticalPowerInspection buildFailRecord(InspectionRound round, DeviceAccessConfig device,
                                                     int slotId, int portType, int portSubType, int portId,
-                                                    String reason) {
+                                                    String portName, String reason) {
         OpticalPowerInspection r = new OpticalPowerInspection();
         r.setRoundId(round.getId());
         r.setNeId(device.getNeId());
@@ -536,8 +542,23 @@ public class InspectionService {
         r.setNeTypeName(device.getNeTypeName());
         r.setSlotNo(slotId);
         r.setPortNo(portId);
+        r.setPortName(portName);
         r.setPortType(portType);
         r.setPortSubType(portSubType);
+        r.setSupported(false);
+        r.setFailReason(reason);
+        r.setInspectionTime(LocalDateTime.now());
+        return r;
+    }
+
+    private OpticalPowerInspection buildDeviceFailRecord(InspectionRound round, DeviceAccessConfig device,
+                                                          String reason) {
+        OpticalPowerInspection r = new OpticalPowerInspection();
+        r.setRoundId(round.getId());
+        r.setNeId(device.getNeId());
+        r.setNeName(device.getNeName());
+        r.setNetworkName(device.getNetworkName());
+        r.setNeTypeName(device.getNeTypeName());
         r.setSupported(false);
         r.setFailReason(reason);
         r.setInspectionTime(LocalDateTime.now());
@@ -600,5 +621,24 @@ public class InspectionService {
         } catch (Exception e) {
             log.warn("清理超龄轮次失败: {}", e.getMessage());
         }
+    }
+
+    /**
+     * 获取采集参数
+     */
+    public Map<String, Object> getCollectParams() {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("concurrency", concurrency);
+        params.put("maxRounds", maxRounds);
+        return params;
+    }
+
+    /**
+     * 更新采集参数
+     */
+    public void updateCollectParams(int concurrency, int maxRounds) {
+        this.concurrency = concurrency;
+        this.maxRounds = maxRounds;
+        log.info("采集参数已更新: concurrency={}, maxRounds={}", concurrency, maxRounds);
     }
 }

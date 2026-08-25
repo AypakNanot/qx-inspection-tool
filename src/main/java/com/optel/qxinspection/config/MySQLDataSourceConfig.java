@@ -14,6 +14,8 @@ import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 
+import org.springframework.beans.factory.annotation.Value;
+
 import javax.sql.DataSource;
 import java.util.HashMap;
 import java.util.Map;
@@ -32,6 +34,12 @@ import java.util.Map;
         transactionManagerRef = "mysqlTransactionManager"
 )
 public class MySQLDataSourceConfig {
+
+    @Value("${spring.jpa.show-sql:false}")
+    private boolean showSql;
+
+    @Value("${spring.jpa.properties.hibernate.format_sql:false}")
+    private boolean formatSql;
 
     /**
      * MySQL数据源属性配置
@@ -76,8 +84,8 @@ public class MySQLDataSourceConfig {
         Map<String, Object> properties = new HashMap<>();
         properties.put("hibernate.dialect", "org.hibernate.dialect.MySQLDialect");
         properties.put("hibernate.hbm2ddl.auto", "none"); // 老库只读，不自动建表
-        properties.put("hibernate.show_sql", true);
-        properties.put("hibernate.format_sql", true);
+        properties.put("hibernate.show_sql", showSql);
+        properties.put("hibernate.format_sql", formatSql);
         
         return builder
                 .dataSource(dataSource)
