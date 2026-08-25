@@ -93,6 +93,7 @@ public class InspectionService {
         progress.put("total", round.getTotalCount());
         progress.put("done", progressCurrent.get());
         progress.put("failures", progressFailures.size());
+        progress.put("failures_list", new ArrayList<>(progressFailures));
         progress.put("currentNe", progressCurrentNe);
         return progress;
     }

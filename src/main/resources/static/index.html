@@ -7,363 +7,1523 @@
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f0f2f5; color: #333; }
-        .header { background: linear-gradient(135deg, #1a73e8, #0d47a1); color: white; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; }
-        .header h1 { font-size: 20px; font-weight: 600; }
-        .header .status { font-size: 13px; opacity: 0.9; }
-        .container { max-width: 1400px; margin: 0 auto; padding: 16px; }
-        .toolbar { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
-        .btn { padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; transition: all 0.2s; }
-        .btn-primary { background: #1a73e8; color: white; }
-        .btn-primary:hover { background: #1557b0; }
-        .btn-primary:disabled { background: #93c5fd; cursor: not-allowed; }
-        .btn-secondary { background: white; color: #333; border: 1px solid #ddd; }
-        .btn-secondary:hover { background: #f5f5f5; }
-        select { padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; }
-        .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 16px; }
-        .card { background: white; border-radius: 8px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-        .card .label { font-size: 12px; color: #666; margin-bottom: 4px; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f0f2f5; color: #333; display: flex; height: 100vh; }
+
+        /* ===== 侧边栏 ===== */
+        .sidebar { width: 220px; background: #1a1f36; color: #a0aec0; display: flex; flex-direction: column; flex-shrink: 0; }
+        .sidebar-header { padding: 20px 16px 16px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+        .sidebar-header h1 { font-size: 16px; color: #fff; font-weight: 600; }
+        .sidebar-header .subtitle { font-size: 11px; color: #718096; margin-top: 4px; }
+        .sidebar-nav { flex: 1; padding: 8px 0; overflow-y: auto; }
+        .nav-group { margin-bottom: 4px; }
+        .nav-group-title { padding: 8px 16px 4px; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #4a5568; font-weight: 600; }
+        .nav-item { padding: 8px 16px 8px 24px; font-size: 13px; cursor: pointer; transition: all 0.15s; display: flex; align-items: center; gap: 8px; border-left: 3px solid transparent; }
+        .nav-item:hover { background: rgba(255,255,255,0.05); color: #e2e8f0; }
+        .nav-item.active { background: rgba(26,115,232,0.15); color: #63b3ed; border-left-color: #1a73e8; }
+        .nav-item .icon { width: 16px; text-align: center; font-size: 14px; }
+        .nav-badge { margin-left: auto; background: #e53e3e; color: #fff; font-size: 10px; padding: 1px 6px; border-radius: 8px; font-weight: 600; }
+
+        /* ===== 主内容区 ===== */
+        .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+        .topbar { background: #fff; padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #e2e8f0; flex-shrink: 0; }
+        .topbar h2 { font-size: 16px; font-weight: 600; }
+        .topbar .breadcrumb { font-size: 12px; color: #718096; }
+        .content { flex: 1; padding: 20px 24px; overflow-y: auto; }
+
+        /* ===== 组件 ===== */
+        .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
+        .card { background: #fff; border-radius: 8px; padding: 16px 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+        .card .label { font-size: 12px; color: #718096; margin-bottom: 4px; }
         .card .value { font-size: 28px; font-weight: 700; }
         .card .value.green { color: #16a34a; }
         .card .value.red { color: #dc2626; }
         .card .value.blue { color: #1a73e8; }
-        .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
-        .chart-box { background: white; border-radius: 8px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-        .chart-box h3 { font-size: 14px; margin-bottom: 12px; color: #555; }
-        .chart-container { width: 100%; height: 320px; }
-        .table-box { background: white; border-radius: 8px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 16px; }
-        .table-box h3 { font-size: 14px; margin-bottom: 12px; color: #555; }
+        .card .value.gray { color: #9ca3af; }
+
+        .toolbar { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+        .btn { padding: 7px 14px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; transition: all 0.15s; display: inline-flex; align-items: center; gap: 4px; }
+        .btn-primary { background: #1a73e8; color: #fff; }
+        .btn-primary:hover { background: #1557b0; }
+        .btn-primary:disabled { background: #93c5fd; cursor: not-allowed; }
+        .btn-success { background: #16a34a; color: #fff; }
+        .btn-success:hover { background: #15803d; }
+        .btn-danger { background: #dc2626; color: #fff; }
+        .btn-danger:hover { background: #b91c1c; }
+        .btn-outline { background: #fff; color: #374151; border: 1px solid #d1d5db; }
+        .btn-outline:hover { background: #f9fafb; }
+        .btn-sm { padding: 4px 10px; font-size: 12px; }
+        .toolbar-right { margin-left: auto; }
+
+        .table-wrap { background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); overflow: hidden; }
         table { width: 100%; border-collapse: collapse; font-size: 13px; }
-        th { background: #f8f9fa; padding: 10px 12px; text-align: left; font-weight: 600; border-bottom: 2px solid #e5e7eb; }
-        td { padding: 8px 12px; border-bottom: 1px solid #f0f0f0; }
-        tr:hover td { background: #f8f9fa; }
+        th { background: #f8fafc; padding: 10px 12px; text-align: left; font-weight: 600; color: #475569; border-bottom: 1px solid #e2e8f0; white-space: nowrap; }
+        td { padding: 8px 12px; border-bottom: 1px solid #f1f5f9; }
+        tr:hover td { background: #f8fafc; }
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+        .status-dot.online { background: #16a34a; }
+        .status-dot.offline { background: #d1d5db; }
+        .status-dot.failed { background: #dc2626; }
+
         .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
-        .badge-ok { background: #dcfce7; color: #16a34a; }
-        .badge-error { background: #fee2e2; color: #dc2626; }
-        .badge-info { background: #dbeafe; color: #1a73e8; }
-        .progress-bar { width: 100%; height: 6px; background: #e5e7eb; border-radius: 3px; overflow: hidden; margin-top: 8px; }
+        .badge-online { background: #dcfce7; color: #16a34a; }
+        .badge-offline { background: #f3f4f6; color: #6b7280; }
+        .badge-failed { background: #fee2e2; color: #dc2626; }
+
+        /* ===== 折叠面板 ===== */
+        .panel { background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); margin-bottom: 16px; }
+        .panel-header { padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; user-select: none; }
+        .panel-header h3 { font-size: 14px; font-weight: 600; color: #374151; }
+        .panel-header .toggle { font-size: 12px; color: #9ca3af; transition: transform 0.2s; }
+        .panel-header.collapsed .toggle { transform: rotate(-90deg); }
+        .panel-body { padding: 0 16px 16px; }
+        .panel-body.hidden { display: none; }
+
+        .form-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+        .form-group { display: flex; flex-direction: column; gap: 4px; }
+        .form-group label { font-size: 12px; color: #6b7280; font-weight: 500; }
+        .form-group input, .form-group select { padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 13px; }
+        .form-group input:focus, .form-group select:focus { outline: none; border-color: #1a73e8; box-shadow: 0 0 0 2px rgba(26,115,232,0.15); }
+
+        /* ===== 弹窗 ===== */
+        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+        .modal-overlay.hidden { display: none; }
+        .modal { background: #fff; border-radius: 12px; width: 420px; max-width: 90vw; box-shadow: 0 20px 60px rgba(0,0,0,0.2); }
+        .modal-header { padding: 16px 20px; border-bottom: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: space-between; }
+        .modal-header h3 { font-size: 15px; font-weight: 600; }
+        .modal-close { background: none; border: none; font-size: 18px; color: #9ca3af; cursor: pointer; padding: 4px; }
+        .modal-close:hover { color: #374151; }
+        .modal-body { padding: 20px; }
+        .modal-footer { padding: 12px 20px; border-top: 1px solid #e2e8f0; display: flex; justify-content: flex-end; gap: 8px; }
+
+        .loading { text-align: center; padding: 40px; color: #9ca3af; font-size: 13px; }
+        .empty { text-align: center; padding: 40px; color: #9ca3af; font-size: 13px; }
+        .stats-chart-btn { background: #fff; color: #6b7280; border: 1px solid #d1d5db; }
+        .stats-chart-btn:first-child { border-radius: 4px 0 0 4px; }
+        .stats-chart-btn:last-child { border-radius: 0 4px 4px 0; }
+        .stats-chart-btn.active { background: #1a73e8; color: #fff; border-color: #1a73e8; }
+        .progress-bar { width: 100%; height: 6px; background: #e5e7eb; border-radius: 3px; overflow: hidden; }
         .progress-fill { height: 100%; background: #1a73e8; border-radius: 3px; transition: width 0.3s; }
-        .loading { text-align: center; padding: 40px; color: #999; }
-        .hidden { display: none; }
-        @media (max-width: 768px) { .charts { grid-template-columns: 1fr; } }
+
+        /* ===== 页内页面隐藏 ===== */
+        .page { display: none; }
+        .page.active { display: block; }
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1>QX 设备直连巡检工具</h1>
-        <div style="display:flex;align-items:center;gap:16px;">
-            <a href="./stats.html" style="color:white;text-decoration:none;font-size:13px;opacity:0.9;">设备统计</a>
-            <div class="status" id="headerStatus">就绪</div>
+    <!-- 侧边栏 -->
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <h1>QX 巡检工具</h1>
+            <div class="subtitle">设备直连光功率巡检</div>
+        </div>
+        <div class="sidebar-nav">
+            <div class="nav-group">
+                <div class="nav-group-title">设备管理</div>
+                <div class="nav-item active" data-page="page-device" onclick="switchPage(this)">
+                    <span class="icon">&#9781;</span> 设备管理
+                </div>
+            </div>
+            <div class="nav-group">
+                <div class="nav-group-title">统计</div>
+                <div class="nav-item" data-page="page-stats" onclick="switchPage(this)">
+                    <span class="icon">&#9776;</span> 类型统计
+                </div>
+            </div>
+            <div class="nav-group">
+                <div class="nav-group-title">光功率巡检</div>
+                <div class="nav-item" data-page="page-threshold" onclick="switchPage(this)">
+                    <span class="icon">&#9879;</span> 门限配置
+                </div>
+                <div class="nav-item" data-page="page-task" onclick="switchPage(this)">
+                    <span class="icon">&#9201;</span> 任务配置
+                </div>
+                <div class="nav-item" data-page="page-progress" onclick="switchPage(this)">
+                    <span class="icon">&#9654;</span> 任务进度
+                </div>
+                <div class="nav-item" data-page="page-query" onclick="switchPage(this)">
+                    <span class="icon">&#9783;</span> 数据查询
+                </div>
+            </div>
         </div>
     </div>
 
-    <div class="container">
-        <div class="toolbar">
-            <select id="networkFilter"><option value="">全部网络</option></select>
-            <button class="btn btn-primary" id="btnStart" onclick="startInspection()">开始巡检</button>
-            <button class="btn btn-secondary" onclick="refreshAll()">刷新</button>
-            <button class="btn btn-secondary" onclick="exportExcel()">导出 Excel</button>
-            <div style="flex:1"></div>
-            <label style="display:flex;align-items:center;gap:6px;font-size:13px;">
-                <input type="checkbox" id="scheduleToggle" onchange="toggleSchedule(this.checked)"> 定时巡检
-            </label>
+    <!-- 主内容区 -->
+    <div class="main">
+        <div class="topbar">
+            <h2 id="pageTitle">设备管理</h2>
+            <div class="breadcrumb" id="breadcrumb">设备管理</div>
         </div>
+        <div class="content">
 
-        <div class="card hidden" id="progressCard">
-            <div style="display:flex;justify-content:space-between;align-items:center;">
-                <span id="progressText">巡检中...</span>
-                <span id="progressNum">0/0</span>
+            <!-- ========== 设备管理页 ========== -->
+            <div class="page active" id="page-device">
+                <!-- 统计卡片 -->
+                <div class="cards">
+                    <div class="card"><div class="label">设备总数</div><div class="value blue" id="devTotal">-</div></div>
+                    <div class="card"><div class="label">在线</div><div class="value green" id="devOnline">-</div></div>
+                    <div class="card"><div class="label">离线</div><div class="value gray" id="devOffline">-</div></div>
+                </div>
+
+                <!-- 全局连接配置（折叠） -->
+                <div class="panel">
+                    <div class="panel-header collapsed" onclick="togglePanel(this)">
+                        <h3>全局默认连接配置</h3>
+                        <span class="toggle">&#9660;</span>
+                    </div>
+                    <div class="panel-body hidden">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>用户名</label>
+                                <input type="text" id="globalUser" placeholder="独立用户，与老网管不同">
+                            </div>
+                            <div class="form-group">
+                                <label>密码</label>
+                                <input type="password" id="globalPass" placeholder="密码">
+                            </div>
+                            <div class="form-group">
+                                <label>端口</label>
+                                <input type="number" id="globalPort" value="9900" style="width:80px">
+                            </div>
+                            <div class="form-group" style="justify-content:flex-end">
+                                <button class="btn btn-primary" onclick="saveGlobalConfig()">保存</button>
+                            </div>
+                        </div>
+                        <div style="font-size:12px;color:#9ca3af;margin-top:8px;">保存后对所有设备生效（单设备可单独覆盖）</div>
+                        <div id="globalConfigMsg" style="font-size:13px;color:#16a34a;margin-top:8px;display:none"></div>
+                    </div>
+                </div>
+
+                <!-- 操作栏 -->
+                <div class="toolbar">
+                    <button class="btn btn-primary" onclick="syncDevices()">同步设备</button>
+                    <button class="btn btn-success" onclick="connectAll()">一键连接</button>
+                    <button class="btn btn-danger" onclick="disconnectAll()">一键断开</button>
+                    <div class="toolbar-right">
+                        <button class="btn btn-outline" onclick="loadDevices()">刷新</button>
+                    </div>
+                </div>
+
+                <!-- 设备表格 -->
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>网元名</th>
+                                <th>IP地址</th>
+                                <th>所属网络</th>
+                                <th>设备类型</th>
+                                <th>连接状态</th>
+                                <th>登录用户</th>
+                                <th style="width:140px">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="deviceTable">
+                            <tr><td colspan="7" class="loading">加载中...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
-            <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
-            <div style="font-size:12px;color:#999;margin-top:4px;" id="progressNe"></div>
-        </div>
 
-        <div class="cards">
-            <div class="card"><div class="label">设备总数</div><div class="value blue" id="statDevices">-</div></div>
-            <div class="card"><div class="label">端口总数</div><div class="value blue" id="statPorts">-</div></div>
-            <div class="card"><div class="label">支持光功率</div><div class="value green" id="statSupported">-</div></div>
-            <div class="card"><div class="label">越限端口</div><div class="value red" id="statOverThreshold">-</div></div>
-            <div class="card"><div class="label">巡检状态</div><div class="value" id="statStatus">-</div></div>
-        </div>
+            <!-- ========== 占位页面 ========== -->
+            <!-- ========== 类型统计页 ========== -->
+            <div class="page" id="page-stats">
+                <div class="cards" style="grid-template-columns: repeat(4, 1fr);">
+                    <div class="card"><div class="label">网元总数</div><div class="value blue" id="stNe">-</div></div>
+                    <div class="card"><div class="label">盘总数</div><div class="value" style="color:#7c3aed" id="stSlot">-</div></div>
+                    <div class="card"><div class="label">端口总数</div><div class="value green" id="stPort">-</div></div>
+                    <div class="card"><div class="label">网络数</div><div class="value" style="color:#ea580c" id="stNetwork">-</div></div>
+                </div>
 
-        <div class="charts">
-            <div class="chart-box"><h3>设备类型分布</h3><div class="chart-container" id="chartType"></div></div>
-            <div class="chart-box"><h3>越限异常统计（按网元）</h3><div class="chart-container" id="chartAnomaly"></div></div>
-        </div>
+                <div class="toolbar">
+                    <label style="font-size:13px;color:#6b7280;">网络：</label>
+                    <input list="statsNetworkList" id="statsNetwork" placeholder="全部网络" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;width:160px;">
+                    <datalist id="statsNetworkList"></datalist>
+                    <label style="font-size:13px;color:#6b7280;margin-left:8px;">口径：</label>
+                    <select id="statsScope" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+                        <option value="inventory">库存口径</option>
+                        <option value="online">在线口径</option>
+                    </select>
+                    <button class="btn btn-primary btn-sm" onclick="loadStats()">筛选</button>
+                    <div class="toolbar-right">
+                        <div style="display:flex;gap:2px;">
+                            <button class="btn btn-sm stats-chart-btn active" data-type="bar" onclick="switchStatsChart('bar',this)">柱状图</button>
+                            <button class="btn btn-sm stats-chart-btn" data-type="pie" onclick="switchStatsChart('pie',this)">饼图</button>
+                            <button class="btn btn-sm stats-chart-btn" data-type="line" onclick="switchStatsChart('line',this)">折线图</button>
+                        </div>
+                    </div>
+                </div>
 
-        <div class="table-box">
-            <h3>越限端口明细</h3>
-            <table>
-                <thead><tr><th>网元名称</th><th>槽位</th><th>端口</th><th>模块类型</th><th>发送功率</th><th>接收功率</th><th>状态</th></tr></thead>
-                <tbody id="anomalyTable"><tr><td colspan="7" class="loading">暂无数据</td></tr></tbody>
-            </table>
-        </div>
+                <div class="chart-box" style="background:#fff;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.08);padding:16px;margin-bottom:16px;">
+                    <div style="height:320px;" id="statsChart"></div>
+                </div>
 
-        <div class="table-box">
-            <h3>最近巡检轮次</h3>
-            <table>
-                <thead><tr><th>轮次ID</th><th>触发方式</th><th>范围</th><th>状态</th><th>设备数</th><th>完成</th><th>失败</th><th>开始时间</th></tr></thead>
-                <tbody id="roundsTable"><tr><td colspan="8" class="loading">暂无数据</td></tr></tbody>
-            </table>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr><th>类型名称</th><th>数量</th><th>占比</th></tr>
+                        </thead>
+                        <tbody id="statsTable">
+                            <tr><td colspan="3" class="loading">加载中...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <!-- ========== 门限配置页 ========== -->
+            <div class="page" id="page-threshold">
+                <div style="background:#f0f7ff;border:1px solid #bfdbfe;border-radius:8px;padding:12px 16px;margin-bottom:16px;font-size:13px;color:#1e40af;">
+                    匹配优先级：<b>PART（型号精确匹配）</b> > <b>MODULE（模块类型匹配）</b> > <b>GLOBAL（全局默认）</b>。修改后即时生效，无需重新采集。
+                </div>
+
+                <!-- 全局默认门限 -->
+                <div class="panel">
+                    <div class="panel-header" onclick="togglePanel(this)">
+                        <h3>全局默认门限（兜底）</h3>
+                        <span class="toggle">&#9660;</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="form-row" id="globalThresholdView">
+                            <div class="form-group"><label>接收低门限 (dBm)</label><input type="number" id="gRxLow" step="0.1" style="width:100px"></div>
+                            <div class="form-group"><label>接收高门限 (dBm)</label><input type="number" id="gRxHigh" step="0.1" style="width:100px"></div>
+                            <div class="form-group"><label>发送低门限 (dBm)</label><input type="number" id="gTxLow" step="0.1" style="width:100px"></div>
+                            <div class="form-group"><label>发送高门限 (dBm)</label><input type="number" id="gTxHigh" step="0.1" style="width:100px"></div>
+                            <div class="form-group" style="justify-content:flex-end">
+                                <button class="btn btn-primary btn-sm" onclick="saveGlobalThreshold()">保存</button>
+                            </div>
+                        </div>
+                        <div id="globalThresholdMsg" style="font-size:12px;color:#16a34a;margin-top:6px;display:none"></div>
+                    </div>
+                </div>
+
+                <!-- 模块类型规则 -->
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+                    <h3 style="font-size:14px;font-weight:600;color:#374151;">模块类型规则</h3>
+                    <button class="btn btn-primary btn-sm" onclick="openThresholdModal('MODULE')">新增规则</button>
+                </div>
+                <div class="table-wrap" style="margin-bottom:20px;">
+                    <table>
+                        <thead>
+                            <tr><th>模块类型 (moduleTypeKey)</th><th>接收低 (dBm)</th><th>接收高 (dBm)</th><th>发送低 (dBm)</th><th>发送高 (dBm)</th><th>说明</th><th style="width:100px">操作</th></tr>
+                        </thead>
+                        <tbody id="moduleThresholdTable">
+                            <tr><td colspan="7" class="loading">加载中...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- 型号规则 -->
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+                    <h3 style="font-size:14px;font-weight:600;color:#374151;">型号规则 (partNumber)</h3>
+                    <button class="btn btn-primary btn-sm" onclick="openThresholdModal('PART')">新增规则</button>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr><th>型号编码 (partNumber)</th><th>接收低 (dBm)</th><th>接收高 (dBm)</th><th>发送低 (dBm)</th><th>发送高 (dBm)</th><th>说明</th><th style="width:100px">操作</th></tr>
+                        </thead>
+                        <tbody id="partThresholdTable">
+                            <tr><td colspan="7" class="loading">加载中...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <!-- ========== 任务配置页 ========== -->
+            <div class="page" id="page-task">
+                <!-- 定时巡检配置 -->
+                <div class="panel">
+                    <div class="panel-header" onclick="togglePanel(this)">
+                        <h3>定时巡检配置</h3>
+                        <span class="toggle">&#9660;</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="form-row" style="margin-bottom:12px;">
+                            <label style="display:flex;align-items:center;gap:6px;font-size:13px;">
+                                <input type="checkbox" id="schedEnabled" onchange="toggleSchedule(this.checked)"> 启用定时巡检
+                            </label>
+                        </div>
+                        <div class="form-row" style="margin-bottom:12px;">
+                            <div class="form-group">
+                                <label>Cron 表达式</label>
+                                <input type="text" id="schedCron" value="0 0 2 * * ?" placeholder="如 0 0 2 * * ?" style="width:180px">
+                            </div>
+                            <div class="form-group">
+                                <label>采集范围</label>
+                                <select id="schedScope" onchange="toggleSchedScope(this.value)">
+                                    <option value="ALL">全网</option>
+                                    <option value="NETWORK">指定网络</option>
+                                </select>
+                            </div>
+                            <div class="form-group" id="schedNetworkGroup" style="display:none">
+                                <label>网络</label>
+                                <input list="schedNetworkList" id="schedNetwork" placeholder="选择网络" style="width:160px;">
+                                <datalist id="schedNetworkList"></datalist>
+                            </div>
+                        </div>
+                        <div style="font-size:12px;color:#6b7280;" id="schedStatus">加载中...</div>
+                    </div>
+                </div>
+
+                <!-- 采集参数 -->
+                <div class="panel">
+                    <div class="panel-header collapsed" onclick="togglePanel(this)">
+                        <h3>采集参数</h3>
+                        <span class="toggle">&#9660;</span>
+                    </div>
+                    <div class="panel-body hidden">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>并发设备数</label>
+                                <input type="number" id="paramConcurrency" value="10" min="1" max="50" style="width:80px">
+                            </div>
+                            <div class="form-group">
+                                <label>保留轮次上限</label>
+                                <input type="number" id="paramMaxRounds" value="10" min="1" max="100" style="width:80px">
+                            </div>
+                        </div>
+                        <div style="font-size:12px;color:#9ca3af;margin-top:8px;">并发设备数：多设备同时采集的线程数；保留轮次：超龄轮次自动清理</div>
+                    </div>
+                </div>
+
+                <!-- 手动触发 -->
+                <div class="panel">
+                    <div class="panel-header" onclick="togglePanel(this)">
+                        <h3>手动触发巡检</h3>
+                        <span class="toggle">&#9660;</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>巡检范围</label>
+                                <select id="manualScope" onchange="toggleManualScope(this.value)">
+                                    <option value="ALL">全网</option>
+                                    <option value="NETWORK">指定网络</option>
+                                    <option value="SINGLE">指定网元</option>
+                                </select>
+                            </div>
+                            <div class="form-group" id="manualNetworkGroup" style="display:none">
+                                <label>网络</label>
+                                <input list="manualNetworkList" id="manualNetwork" placeholder="选择网络" style="width:160px;">
+                                <datalist id="manualNetworkList"></datalist>
+                            </div>
+                            <div class="form-group" id="manualNeGroup" style="display:none">
+                                <label>网元</label>
+                                <input list="manualNeList" id="manualNe" placeholder="输入搜索" style="width:200px;">
+                                <datalist id="manualNeList"></datalist>
+                            </div>
+                            <div class="form-group" style="justify-content:flex-end">
+                                <label>&nbsp;</label>
+                                <button class="btn btn-primary" id="btnManualInspection" onclick="startManualInspection()">立即巡检</button>
+                            </div>
+                        </div>
+                        <div style="margin-top:8px;">
+                            <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#6b7280;">
+                                <input type="checkbox" id="manualRecursive"> 递归子网络
+                            </label>
+                            <div style="font-size:11px;color:#9ca3af;margin-top:2px;">勾选后将包含所选网络下的所有子网络设备</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- ========== 任务进度页 ========== -->
+            <div class="page" id="page-progress">
+                <!-- 当前任务状态 -->
+                <div class="cards">
+                    <div class="card"><div class="label">任务状态</div><div class="value" id="progStatus" style="color:#6b7280">空闲</div></div>
+                    <div class="card"><div class="label">已完成</div><div class="value blue" id="progDone">-</div></div>
+                    <div class="card"><div class="label">失败</div><div class="value red" id="progFail">-</div></div>
+                </div>
+
+                <div class="panel" id="progProgressPanel" style="display:none;">
+                    <div style="padding:16px;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                            <span style="font-size:13px;color:#374151;">采集进度</span>
+                            <span style="font-size:13px;color:#6b7280;" id="progNum">0/0</span>
+                        </div>
+                        <div class="progress-bar" style="height:8px;">
+                            <div class="progress-fill" id="progFill" style="width:0%"></div>
+                        </div>
+                        <div style="font-size:12px;color:#9ca3af;margin-top:6px;" id="progCurrentNe"></div>
+                    </div>
+                </div>
+
+                <!-- 失败设备列表 -->
+                <div class="panel" id="progFailPanel" style="display:none;">
+                    <div class="panel-header" onclick="togglePanel(this)">
+                        <h3>失败设备</h3>
+                        <span class="toggle">&#9660;</span>
+                    </div>
+                    <div class="panel-body">
+                        <div id="progFailList" style="font-size:13px;max-height:200px;overflow-y:auto;"></div>
+                    </div>
+                </div>
+
+                <!-- 本轮摘要 -->
+                <div class="panel" id="progSummaryPanel" style="display:none;">
+                    <div class="panel-header" onclick="togglePanel(this)">
+                        <h3>本轮摘要</h3>
+                        <span class="toggle">&#9660;</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="cards" style="margin-bottom:12px;">
+                            <div class="card"><div class="label">总端口</div><div class="value blue" id="sumPorts">-</div></div>
+                            <div class="card"><div class="label">支持光功率</div><div class="value green" id="sumSupported">-</div></div>
+                            <div class="card"><div class="label">越限端口</div><div class="value red" id="sumOver">-</div></div>
+                        </div>
+                        <div style="font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">按模块类型统计</div>
+                        <div class="table-wrap">
+                            <table>
+                                <thead><tr><th>模块类型</th><th>总数</th><th>越限</th></tr></thead>
+                                <tbody id="sumModuleTable"><tr><td colspan="3" class="empty">暂无数据</td></tr></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 历史轮次 -->
+                <div class="panel">
+                    <div class="panel-header" onclick="togglePanel(this)">
+                        <h3>历史轮次</h3>
+                        <span class="toggle">&#9660;</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="table-wrap">
+                            <table>
+                                <thead><tr><th>轮次</th><th>触发</th><th>范围</th><th>状态</th><th>设备数</th><th>完成</th><th>失败</th><th>开始时间</th></tr></thead>
+                                <tbody id="roundsTable"><tr><td colspan="8" class="loading">加载中...</td></tr></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- ========== 数据查询页 ========== -->
+            <div class="page" id="page-query">
+                <!-- 轮次选择 -->
+                <div class="toolbar">
+                    <label style="font-size:13px;color:#6b7280;">轮次：</label>
+                    <select id="queryRound" onchange="loadQueryResults()" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;min-width:160px;">
+                        <option value="">最新轮次</option>
+                    </select>
+                    <label style="font-size:13px;color:#6b7280;margin-left:8px;">网络：</label>
+                    <input list="queryNetworkList" id="queryNetwork" placeholder="全部" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;width:140px;">
+                    <datalist id="queryNetworkList"></datalist>
+                    <label style="font-size:13px;color:#6b7280;margin-left:8px;">网元：</label>
+                    <input list="queryNeList" id="queryNe" placeholder="全部" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;width:160px;">
+                    <datalist id="queryNeList"></datalist>
+                    <label style="font-size:13px;color:#6b7280;margin-left:8px;">状态：</label>
+                    <select id="queryStatus" onchange="loadQueryResults()" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+                        <option value="">全部</option>
+                        <option value="0">正常</option>
+                        <option value="1">劣化</option>
+                        <option value="2">过载</option>
+                        <option value="-1">无效</option>
+                    </select>
+                    <button class="btn btn-primary btn-sm" onclick="loadQueryResults()">查询</button>
+                    <div class="toolbar-right">
+                        <button class="btn btn-outline btn-sm" onclick="exportExcel()">导出 Excel</button>
+                    </div>
+                </div>
+
+                <!-- 数据表格 -->
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>网元名</th>
+                                <th>槽位</th>
+                                <th>端口</th>
+                                <th>模块类型</th>
+                                <th>发送功率(dBm)</th>
+                                <th>接收功率(dBm)</th>
+                                <th>状态</th>
+                                <th>门限(发送)</th>
+                                <th>门限(接收)</th>
+                                <th>巡检时间</th>
+                            </tr>
+                        </thead>
+                        <tbody id="queryTable">
+                            <tr><td colspan="10" class="loading">加载中...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div style="font-size:12px;color:#9ca3af;margin-top:8px;" id="queryCount"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 单设备配置弹窗 -->
+    <div class="modal-overlay hidden" id="deviceModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 id="modalTitle">设备连接配置</h3>
+                <button class="modal-close" onclick="closeDeviceModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div style="font-size:12px;color:#6b7280;margin-bottom:12px;" id="modalDeviceInfo"></div>
+                <div class="form-group" style="margin-bottom:12px">
+                    <label>用户名</label>
+                    <input type="text" id="modalUser" placeholder="留空则使用全局配置">
+                </div>
+                <div class="form-group" style="margin-bottom:12px">
+                    <label>密码</label>
+                    <input type="password" id="modalPass" placeholder="留空则使用全局配置">
+                </div>
+                <div class="form-group">
+                    <label>端口</label>
+                    <input type="number" id="modalPort" value="9900" placeholder="留空则使用全局配置">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="closeDeviceModal()">取消</button>
+                <button class="btn btn-danger btn-sm" id="modalDeleteBtn" onclick="deleteDeviceConfig()" style="margin-right:auto">清除覆盖</button>
+                <button class="btn btn-primary" onclick="saveDeviceConfig()">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 门限规则弹窗 -->
+    <div class="modal-overlay hidden" id="thresholdModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 id="thresholdModalTitle">新增门限规则</h3>
+                <button class="modal-close" onclick="closeThresholdModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="thId">
+                <input type="hidden" id="thLevelType">
+                <div class="form-group" style="margin-bottom:12px">
+                    <label id="thMatchKeyLabel">模块类型 (moduleTypeKey)</label>
+                    <input type="text" id="thMatchKey" placeholder="如 2.5G-L、GE-LX">
+                </div>
+                <div class="form-row" style="margin-bottom:12px;">
+                    <div class="form-group"><label>接收低门限 (dBm)</label><input type="number" id="thRxLow" step="0.1" style="width:100px"></div>
+                    <div class="form-group"><label>接收高门限 (dBm)</label><input type="number" id="thRxHigh" step="0.1" style="width:100px"></div>
+                </div>
+                <div class="form-row" style="margin-bottom:12px;">
+                    <div class="form-group"><label>发送低门限 (dBm)</label><input type="number" id="thTxLow" step="0.1" style="width:100px"></div>
+                    <div class="form-group"><label>发送高门限 (dBm)</label><input type="number" id="thTxHigh" step="0.1" style="width:100px"></div>
+                </div>
+                <div class="form-group">
+                    <label>说明</label>
+                    <input type="text" id="thDesc" placeholder="可选">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="closeThresholdModal()">取消</button>
+                <button class="btn btn-primary" onclick="saveThreshold()">保存</button>
+            </div>
         </div>
     </div>
 
     <script>
-        const API = '/qx-inspection/api';
+    const API = '/qx-inspection/api';
+    let currentModalNeOid = null;
 
-        function createEl(tag, text, className) {
-            const el = document.createElement(tag);
-            if (text != null) el.textContent = text;
-            if (className) el.className = className;
-            return el;
+    // ===== 页面切换 =====
+    function switchPage(el) {
+        document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+        el.classList.add('active');
+        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+        document.getElementById(el.dataset.page).classList.add('active');
+        var titles = {
+            'page-device': ['设备管理', '设备管理'],
+            'page-stats': ['类型统计', '统计 / 类型统计'],
+            'page-threshold': ['门限配置', '光功率巡检 / 门限配置'],
+            'page-task': ['任务配置', '光功率巡检 / 任务配置'],
+            'page-progress': ['任务进度', '光功率巡检 / 任务进度'],
+            'page-query': ['数据查询', '光功率巡检 / 数据查询']
+        };
+        var t = titles[el.dataset.page] || ['', ''];
+        document.getElementById('pageTitle').textContent = t[0];
+        document.getElementById('breadcrumb').textContent = t[1];
+        if (el.dataset.page === 'page-stats') {
+            loadStatsOverview();
+            loadStats();
         }
-
-        async function loadNetworks() {
-            try {
-                const res = await fetch(API + '/stats/networks');
-                const data = await res.json();
-                const sel = document.getElementById('networkFilter');
-                sel.textContent = '';
-                const opt0 = createEl('option', '全部网络');
-                opt0.value = '';
-                sel.appendChild(opt0);
-                data.forEach(n => {
-                    const opt = createEl('option', n);
-                    opt.value = n;
-                    sel.appendChild(opt);
-                });
-            } catch (e) { console.error('loadNetworks failed', e); }
+        if (el.dataset.page === 'page-threshold') {
+            loadGlobalThreshold();
+            loadThresholds();
         }
+        if (el.dataset.page === 'page-task') {
+            loadScheduleStatus();
+            loadTaskNetworks();
+            loadTaskDevices();
+        }
+        if (el.dataset.page === 'page-progress') {
+            loadProgress();
+            loadSummary();
+            loadRounds();
+        } else {
+            stopProgressPoll();
+        }
+        if (el.dataset.page === 'page-query') {
+            loadQueryRounds();
+            loadQueryFilters();
+            loadQueryResults();
+        }
+    }
 
-        async function loadSummary() {
-            try {
-                const res = await fetch(API + '/inspection/summary');
-                const d = await res.json();
-                document.getElementById('statDevices').textContent = d.hasData ? (d.totalDevices || 0) : '-';
-                document.getElementById('statPorts').textContent = d.hasData ? (d.totalPorts || 0) : '-';
-                document.getElementById('statSupported').textContent = d.hasData ? (d.supportedPorts || 0) : '-';
-                document.getElementById('statOverThreshold').textContent = d.hasData ? (d.overThresholdPorts || 0) : '-';
-                document.getElementById('statStatus').textContent = d.hasData
-                    ? (d.status === 'COMPLETED' ? '已完成' : d.status === 'RUNNING' ? '进行中' : d.status)
-                    : '无数据';
-                if (d.hasData) {
-                    document.getElementById('headerStatus').textContent = '最新轮次 #' + d.roundId + ' | ' + (d.startTime || '');
-                    renderTypeChart(d.byModuleType || {});
+    // ===== 折叠面板 =====
+    function togglePanel(header) {
+        header.classList.toggle('collapsed');
+        header.nextElementSibling.classList.toggle('hidden');
+    }
+
+    // ===== 设备列表 =====
+    async function loadDevices() {
+        try {
+            var res = await fetch(API + '/connection/status');
+            var devices = await res.json();
+            renderDeviceTable(devices);
+            updateDeviceStats(devices);
+        } catch (e) {
+            console.error('loadDevices', e);
+        }
+    }
+
+    function updateDeviceStats(devices) {
+        var online = devices.filter(function(d) { return d.connectionStatus === 1; }).length;
+        document.getElementById('devTotal').textContent = devices.length;
+        document.getElementById('devOnline').textContent = online;
+        document.getElementById('devOffline').textContent = devices.length - online;
+    }
+
+    function renderDeviceTable(devices) {
+        var tbody = document.getElementById('deviceTable');
+        tbody.textContent = '';
+        if (!devices || devices.length === 0) {
+            var tr = document.createElement('tr');
+            var td = document.createElement('td');
+            td.colSpan = 7;
+            td.className = 'empty';
+            td.textContent = '暂无设备，请先点击"同步设备"';
+            tr.appendChild(td);
+            tbody.appendChild(tr);
+            return;
+        }
+        devices.forEach(function(d) {
+            var tr = document.createElement('tr');
+            tr.appendChild(createTextCell(d.neName || '-'));
+            tr.appendChild(createTextCell(d.ipAddr || '-'));
+            tr.appendChild(createTextCell(d.networkName || '-'));
+            tr.appendChild(createTextCell(d.neTypeName || '-'));
+
+            // 连接状态
+            var statusTd = document.createElement('td');
+            var online = d.connectionStatus === 1;
+            var sdkOnline = d.online === true;
+            var isOnline = online || sdkOnline;
+            var dot = document.createElement('span');
+            dot.className = 'status-dot ' + (isOnline ? 'online' : 'offline');
+            statusTd.appendChild(dot);
+            statusTd.appendChild(document.createTextNode(isOnline ? '在线' : '离线'));
+            tr.appendChild(statusTd);
+
+            // 登录用户
+            tr.appendChild(createTextCell(d.connectionStatus === 1 ? (d.username || '-') : '-'));
+
+            // 操作
+            var opTd = document.createElement('td');
+            if (isOnline) {
+                var disBtn = createBtn('断开', 'btn btn-danger btn-sm', function() { disconnectSingle(d.neId); });
+                opTd.appendChild(disBtn);
+            } else {
+                var conBtn = createBtn('连接', 'btn btn-success btn-sm', function() { connectSingle(d.neId); });
+                opTd.appendChild(conBtn);
+            }
+            opTd.appendChild(document.createTextNode(' '));
+            var cfgBtn = createBtn('配置', 'btn btn-outline btn-sm', function() { openDeviceModal(d); });
+            opTd.appendChild(cfgBtn);
+            tr.appendChild(opTd);
+
+            tbody.appendChild(tr);
+        });
+    }
+
+    function createTextCell(text) {
+        var td = document.createElement('td');
+        td.textContent = text;
+        return td;
+    }
+
+    function createBtn(text, className, onclick) {
+        var btn = document.createElement('button');
+        btn.className = className;
+        btn.textContent = text;
+        btn.onclick = onclick;
+        return btn;
+    }
+
+    // ===== 设备操作 =====
+    async function syncDevices() {
+        try {
+            var res = await fetch(API + '/database/sync-devices', { method: 'POST' });
+            if (res.ok) {
+                alert('设备同步完成');
+                loadDevices();
+            } else {
+                alert('同步失败: ' + res.statusText);
+            }
+        } catch (e) { alert('同步失败: ' + e.message); }
+    }
+
+    async function connectAll() {
+        var btn = event.target;
+        btn.disabled = true;
+        btn.textContent = '连接中...';
+        try {
+            var res = await fetch(API + '/connection/connect-all', { method: 'POST' });
+            var d = await res.json();
+            alert('连接完成: 成功 ' + d.success + ' 台, 失败 ' + d.fail + ' 台');
+            loadDevices();
+        } catch (e) { alert('连接失败: ' + e.message); }
+        btn.disabled = false;
+        btn.textContent = '一键连接';
+    }
+
+    async function disconnectAll() {
+        if (!confirm('确认断开所有设备连接？')) return;
+        try {
+            var res = await fetch(API + '/connection/disconnect-all', { method: 'POST' });
+            var d = await res.json();
+            alert('已断开 ' + d.disconnected + ' 台设备');
+            loadDevices();
+        } catch (e) { alert('断开失败: ' + e.message); }
+    }
+
+    async function connectSingle(neOid) {
+        try {
+            await fetch(API + '/connection/connect/' + encodeURIComponent(neOid), { method: 'POST' });
+            loadDevices();
+        } catch (e) { console.error('connectSingle', e); }
+    }
+
+    async function disconnectSingle(neOid) {
+        try {
+            await fetch(API + '/connection/disconnect/' + encodeURIComponent(neOid), { method: 'POST' });
+            loadDevices();
+        } catch (e) { console.error('disconnectSingle', e); }
+    }
+
+    // ===== 单设备配置弹窗 =====
+    function openDeviceModal(device) {
+        currentModalNeOid = device.neId;
+        document.getElementById('modalDeviceInfo').textContent = device.neName + ' (' + device.ipAddr + ')';
+        document.getElementById('modalTitle').textContent = '设备连接配置';
+        document.getElementById('modalUser').value = '';
+        document.getElementById('modalPass').value = '';
+        document.getElementById('modalPort').value = '9900';
+        document.getElementById('modalDeleteBtn').style.display = '';
+        document.getElementById('deviceModal').classList.remove('hidden');
+
+        // 加载已有配置
+        fetch(API + '/connection/config/' + encodeURIComponent(currentModalNeOid))
+            .then(function(r) { return r.ok ? r.json() : null; })
+            .then(function(cfg) {
+                if (cfg) {
+                    document.getElementById('modalUser').value = cfg.username || '';
+                    document.getElementById('modalPass').value = cfg.password || '';
+                    document.getElementById('modalPort').value = cfg.port || 9900;
                 }
-            } catch (e) { console.error('loadSummary failed', e); }
+            }).catch(function() {});
+    }
+
+    function closeDeviceModal() {
+        document.getElementById('deviceModal').classList.add('hidden');
+        currentModalNeOid = null;
+    }
+
+    async function saveDeviceConfig() {
+        if (!currentModalNeOid) return;
+        var body = {
+            username: document.getElementById('modalUser').value,
+            password: document.getElementById('modalPass').value,
+            port: parseInt(document.getElementById('modalPort').value) || 9900
+        };
+        try {
+            await fetch(API + '/connection/config/' + encodeURIComponent(currentModalNeOid), {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            closeDeviceModal();
+            loadDevices();
+        } catch (e) { alert('保存失败: ' + e.message); }
+    }
+
+    async function deleteDeviceConfig() {
+        if (!currentModalNeOid) return;
+        if (!confirm('确认清除该设备的独立配置，恢复使用全局配置？')) return;
+        try {
+            await fetch(API + '/connection/config/' + encodeURIComponent(currentModalNeOid), { method: 'DELETE' });
+            closeDeviceModal();
+            loadDevices();
+        } catch (e) { alert('删除失败: ' + e.message); }
+    }
+
+    // ===== 全局连接配置 =====
+    async function loadGlobalConfig() {
+        try {
+            var res = await fetch(API + '/connection/config/global');
+            if (res.ok) {
+                var cfg = await res.json();
+                document.getElementById('globalUser').value = cfg.username || '';
+                document.getElementById('globalPass').value = cfg.password || '';
+                document.getElementById('globalPort').value = cfg.port || 9900;
+            }
+        } catch (e) { console.error('loadGlobalConfig', e); }
+    }
+
+    async function saveGlobalConfig() {
+        var body = {
+            username: document.getElementById('globalUser').value,
+            password: document.getElementById('globalPass').value,
+            port: parseInt(document.getElementById('globalPort').value) || 9900
+        };
+        try {
+            await fetch(API + '/connection/config/global', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            var msg = document.getElementById('globalConfigMsg');
+            msg.textContent = '保存成功';
+            msg.style.display = 'block';
+            setTimeout(function() { msg.style.display = 'none'; }, 2000);
+        } catch (e) { alert('保存失败: ' + e.message); }
+    }
+
+    // ===== 数据查询 =====
+    async function loadQueryRounds() {
+        try {
+            var res = await fetch(API + '/inspection/rounds');
+            var rounds = await res.json();
+            var sel = document.getElementById('queryRound');
+            var current = sel.value;
+            sel.textContent = '';
+            var opt0 = document.createElement('option');
+            opt0.value = ''; opt0.textContent = '最新轮次';
+            sel.appendChild(opt0);
+            rounds.forEach(function(r) {
+                var opt = document.createElement('option');
+                opt.value = r.id;
+                opt.textContent = '#' + r.id + ' ' + (r.startTime || '') + ' (' + r.status + ')';
+                sel.appendChild(opt);
+            });
+            sel.value = current;
+        } catch (e) { console.error('loadQueryRounds', e); }
+    }
+
+    async function loadQueryFilters() {
+        try {
+            var res = await fetch(API + '/inventory/networks');
+            var data = await res.json();
+            var dl = document.getElementById('queryNetworkList');
+            dl.textContent = '';
+            data.forEach(function(n) {
+                var opt = document.createElement('option');
+                opt.value = n; dl.appendChild(opt);
+            });
+        } catch (e) { console.error('loadQueryFilters', e); }
+        try {
+            var res = await fetch(API + '/connection/status');
+            var devices = await res.json();
+            var dl = document.getElementById('queryNeList');
+            dl.textContent = '';
+            devices.forEach(function(d) {
+                var opt = document.createElement('option');
+                opt.value = d.neId; opt.textContent = d.neName;
+                dl.appendChild(opt);
+            });
+        } catch (e) { console.error('loadQueryDevices', e); }
+    }
+
+    async function loadQueryResults() {
+        var roundId = document.getElementById('queryRound').value;
+        var network = document.getElementById('queryNetwork').value.trim();
+        var neId = document.getElementById('queryNe').value.trim();
+        var params = new URLSearchParams();
+        if (roundId) params.set('roundId', roundId);
+        if (network) params.set('network', network);
+        if (neId) params.set('neId', neId);
+        try {
+            var res = await fetch(API + '/inspection/results' + (params.toString() ? '?' + params : ''));
+            var data = await res.json();
+            var statusFilter = document.getElementById('queryStatus').value;
+            if (statusFilter !== '') {
+                data = filterByStatus(data, parseInt(statusFilter));
+            }
+            renderQueryTable(data);
+        } catch (e) { console.error('loadQueryResults', e); }
+    }
+
+    function filterByStatus(data, status) {
+        return data.filter(function(r) {
+            if (status === -1) return !r.supported || r.supported === false;
+            return r.txPowerStatus === status || r.rxPowerStatus === status;
+        });
+    }
+
+    function renderQueryTable(data) {
+        var tbody = document.getElementById('queryTable');
+        tbody.textContent = '';
+        document.getElementById('queryCount').textContent = '共 ' + data.length + ' 条记录';
+        if (!data || data.length === 0) {
+            var tr = document.createElement('tr');
+            var td = document.createElement('td');
+            td.colSpan = 10; td.className = 'empty'; td.textContent = '暂无数据';
+            tr.appendChild(td); tbody.appendChild(tr);
+            return;
         }
+        data.slice(0, 500).forEach(function(r) {
+            var tr = document.createElement('tr');
+            tr.appendChild(createTextCell(r.neName || '-'));
+            tr.appendChild(createTextCell(r.slotNo != null ? String(r.slotNo) : '-'));
+            tr.appendChild(createTextCell(r.portNo != null ? String(r.portNo) : '-'));
+            tr.appendChild(createTextCell(r.moduleTypeKey || '--'));
 
-        async function loadAnomaly() {
-            try {
-                const res = await fetch(API + '/inspection/anomaly/summary');
-                const data = await res.json();
-                renderAnomalyChart(data);
+            // 发送功率
+            var txTd = document.createElement('td');
+            if (r.supported && r.txPower != null) {
+                txTd.textContent = r.txPower.toFixed(1);
+                if (r.txPowerStatus > 0) txTd.style.color = '#dc2626';
+            } else {
+                txTd.textContent = '--';
+                txTd.style.color = '#9ca3af';
+            }
+            tr.appendChild(txTd);
 
-                const res2 = await fetch(API + '/inspection/anomaly/details');
-                const details = await res2.json();
-                renderAnomalyTable(details);
-            } catch (e) { console.error('loadAnomaly failed', e); }
+            // 接收功率
+            var rxTd = document.createElement('td');
+            if (r.supported && r.rxPower != null) {
+                rxTd.textContent = r.rxPower.toFixed(1);
+                if (r.rxPowerStatus > 0) rxTd.style.color = '#dc2626';
+            } else {
+                rxTd.textContent = '--';
+                rxTd.style.color = '#9ca3af';
+            }
+            tr.appendChild(rxTd);
+
+            // 状态
+            var statusTd = document.createElement('td');
+            var status = getPortStatus(r);
+            var badge = document.createElement('span');
+            badge.className = 'badge ' + status.cls;
+            badge.textContent = status.text;
+            statusTd.appendChild(badge);
+            tr.appendChild(statusTd);
+
+            // 门限
+            tr.appendChild(createTextCell(r.txLowThreshold != null ? r.txLowThreshold + '~' + r.txHighThreshold : '-'));
+            tr.appendChild(createTextCell(r.lowThreshold != null ? r.lowThreshold + '~' + r.highThreshold : '-'));
+            tr.appendChild(createTextCell(r.inspectionTime || '-'));
+            tbody.appendChild(tr);
+        });
+    }
+
+    function getPortStatus(r) {
+        if (!r.supported) return { text: '无效', cls: 'badge-offline' };
+        if (r.txPowerStatus > 0 || r.rxPowerStatus > 0) {
+            var isOver = (r.txPowerStatus === 2 || r.rxPowerStatus === 2);
+            return { text: isOver ? '过载' : '劣化', cls: 'badge-failed' };
         }
+        return { text: '正常', cls: 'badge-online' };
+    }
 
-        async function loadRounds() {
-            try {
-                const res = await fetch(API + '/inspection/rounds');
-                const data = await res.json();
-                renderRoundsTable(data);
-            } catch (e) { console.error('loadRounds failed', e); }
+    function exportExcel() {
+        var roundId = document.getElementById('queryRound').value;
+        var network = document.getElementById('queryNetwork').value.trim();
+        var params = new URLSearchParams();
+        if (roundId) params.set('roundId', roundId);
+        if (network) params.set('network', network);
+        window.open(API + '/inspection/export' + (params.toString() ? '?' + params : ''), '_blank');
+    }
+
+    // ===== 任务进度 =====
+    var progressPollTimer = null;
+
+    async function loadProgress() {
+        try {
+            var res = await fetch(API + '/inspection/progress');
+            var d = await res.json();
+            renderProgress(d);
+        } catch (e) { console.error('loadProgress', e); }
+    }
+
+    function renderProgress(d) {
+        var statusEl = document.getElementById('progStatus');
+        var panel = document.getElementById('progProgressPanel');
+        if (!d.running) {
+            statusEl.textContent = '空闲';
+            statusEl.style.color = '#6b7280';
+            panel.style.display = 'none';
+            stopProgressPoll();
+            loadSummary();
+            loadRounds();
+            return;
         }
+        statusEl.textContent = '进行中';
+        statusEl.style.color = '#1a73e8';
+        panel.style.display = '';
+        startProgressPoll();
+        var pct = d.total > 0 ? Math.round((d.done / d.total) * 100) : 0;
+        document.getElementById('progFill').style.width = pct + '%';
+        document.getElementById('progNum').textContent = d.done + ' / ' + d.total;
+        document.getElementById('progDone').textContent = d.done;
+        document.getElementById('progFail').textContent = d.failures;
+        document.getElementById('progCurrentNe').textContent = d.currentNe ? '当前: ' + d.currentNe : '';
+        renderFailList(d.failures_list || []);
+    }
 
-        async function loadSchedule() {
-            try {
-                const res = await fetch(API + '/inspection/schedule');
-                const d = await res.json();
-                document.getElementById('scheduleToggle').checked = d.enabled;
-            } catch (e) { console.error('loadSchedule failed', e); }
+    function renderFailList(failures) {
+        var panel = document.getElementById('progFailPanel');
+        var list = document.getElementById('progFailList');
+        if (!failures || failures.length === 0) {
+            panel.style.display = 'none';
+            return;
         }
+        panel.style.display = '';
+        list.textContent = '';
+        failures.forEach(function(f) {
+            var div = document.createElement('div');
+            div.style.cssText = 'padding:4px 0;border-bottom:1px solid #f1f5f9;font-size:13px;';
+            var dot = document.createElement('span');
+            dot.className = 'status-dot failed';
+            div.appendChild(dot);
+            div.appendChild(document.createTextNode(f));
+            list.appendChild(div);
+        });
+    }
 
-        // ===== Charts =====
-        let typeChart, anomalyChart;
+    function startProgressPoll() {
+        if (progressPollTimer) return;
+        progressPollTimer = setInterval(loadProgress, 2000);
+    }
 
-        function renderTypeChart(byModuleType) {
-            if (!typeChart) typeChart = echarts.init(document.getElementById('chartType'));
-            const entries = Object.entries(byModuleType || {});
-            if (entries.length === 0) {
-                typeChart.setOption({ title: { text: '暂无数据', left: 'center', top: 'center', textStyle: { color: '#999' } } });
+    function stopProgressPoll() {
+        if (progressPollTimer) { clearInterval(progressPollTimer); progressPollTimer = null; }
+    }
+
+    async function loadSummary() {
+        try {
+            var res = await fetch(API + '/inspection/summary');
+            var d = await res.json();
+            if (!d.hasData) {
+                document.getElementById('progSummaryPanel').style.display = 'none';
                 return;
             }
-            typeChart.setOption({
+            document.getElementById('progSummaryPanel').style.display = '';
+            document.getElementById('sumPorts').textContent = d.totalPorts || 0;
+            document.getElementById('sumSupported').textContent = d.supportedPorts || 0;
+            document.getElementById('sumOver').textContent = d.overThresholdPorts || 0;
+            renderModuleSummary(d.byModuleType || {});
+        } catch (e) { console.error('loadSummary', e); }
+    }
+
+    function renderModuleSummary(byModuleType) {
+        var tbody = document.getElementById('sumModuleTable');
+        tbody.textContent = '';
+        var entries = Object.entries(byModuleType);
+        if (entries.length === 0) {
+            var tr = document.createElement('tr');
+            var td = document.createElement('td');
+            td.colSpan = 3; td.className = 'empty'; td.textContent = '暂无数据';
+            tr.appendChild(td); tbody.appendChild(tr);
+            return;
+        }
+        entries.forEach(function(e) {
+            var tr = document.createElement('tr');
+            tr.appendChild(createTextCell(e[0]));
+            tr.appendChild(createTextCell(String(e[1].count || 0)));
+            var overTd = createTextCell(String(e[1].overThreshold || 0));
+            if (e[1].overThreshold > 0) overTd.style.color = '#dc2626';
+            tr.appendChild(overTd);
+            tbody.appendChild(tr);
+        });
+    }
+
+    async function loadRounds() {
+        try {
+            var res = await fetch(API + '/inspection/rounds');
+            var data = await res.json();
+            renderRoundsTable(data);
+        } catch (e) { console.error('loadRounds', e); }
+    }
+
+    function renderRoundsTable(rounds) {
+        var tbody = document.getElementById('roundsTable');
+        tbody.textContent = '';
+        if (!rounds || rounds.length === 0) {
+            var tr = document.createElement('tr');
+            var td = document.createElement('td');
+            td.colSpan = 8; td.className = 'empty'; td.textContent = '暂无巡检记录';
+            tr.appendChild(td); tbody.appendChild(tr);
+            return;
+        }
+        rounds.slice(0, 20).forEach(function(r) {
+            var tr = document.createElement('tr');
+            tr.appendChild(createTextCell('#' + r.id));
+            tr.appendChild(createTextCell(r.triggerType));
+            tr.appendChild(createTextCell(r.scopeType + (r.scopeParam ? '(' + r.scopeParam + ')' : '')));
+            var statusTd = document.createElement('td');
+            var badgeCls = r.status === 'COMPLETED' ? 'badge-online' : r.status === 'RUNNING' ? '' : 'badge-failed';
+            var badgeText = r.status === 'COMPLETED' ? '已完成' : r.status === 'RUNNING' ? '进行中' : '失败';
+            var badge = document.createElement('span');
+            badge.className = 'badge ' + badgeCls;
+            badge.textContent = badgeText;
+            statusTd.appendChild(badge);
+            tr.appendChild(statusTd);
+            tr.appendChild(createTextCell(String(r.totalCount || 0)));
+            tr.appendChild(createTextCell(String(r.doneCount || 0)));
+            tr.appendChild(createTextCell(String(r.failCount || 0)));
+            tr.appendChild(createTextCell(r.startTime || '-'));
+            tbody.appendChild(tr);
+        });
+    }
+
+    // ===== 任务配置 =====
+    async function loadScheduleStatus() {
+        try {
+            var res = await fetch(API + '/inspection/schedule');
+            var d = await res.json();
+            document.getElementById('schedEnabled').checked = d.enabled;
+            var statusText = '上次运行: ' + (d.lastRunTime || '从未') + ' | 状态: ' + (d.lastRunStatus || '-');
+            document.getElementById('schedStatus').textContent = statusText;
+        } catch (e) { console.error('loadScheduleStatus', e); }
+    }
+
+    async function toggleSchedule(enabled) {
+        try {
+            await fetch(API + '/inspection/schedule/toggle?enabled=' + enabled, { method: 'POST' });
+            loadScheduleStatus();
+        } catch (e) { alert('设置失败: ' + e.message); }
+    }
+
+    function toggleSchedScope(val) {
+        document.getElementById('schedNetworkGroup').style.display = val === 'NETWORK' ? '' : 'none';
+    }
+
+    function toggleManualScope(val) {
+        document.getElementById('manualNetworkGroup').style.display = val === 'NETWORK' ? '' : 'none';
+        document.getElementById('manualNeGroup').style.display = val === 'SINGLE' ? '' : 'none';
+    }
+
+    async function loadTaskNetworks() {
+        try {
+            var res = await fetch(API + '/inventory/networks');
+            var data = await res.json();
+            ['schedNetworkList', 'manualNetworkList'].forEach(function(id) {
+                var dl = document.getElementById(id);
+                dl.textContent = '';
+                data.forEach(function(n) {
+                    var opt = document.createElement('option');
+                    opt.value = n;
+                    dl.appendChild(opt);
+                });
+            });
+        } catch (e) { console.error('loadTaskNetworks', e); }
+    }
+
+    async function loadTaskDevices() {
+        try {
+            var res = await fetch(API + '/connection/status');
+            var devices = await res.json();
+            var dl = document.getElementById('manualNeList');
+            dl.textContent = '';
+            devices.forEach(function(d) {
+                var opt = document.createElement('option');
+                opt.value = d.neId;
+                opt.textContent = d.neName + ' (' + d.ipAddr + ')';
+                dl.appendChild(opt);
+            });
+        } catch (e) { console.error('loadTaskDevices', e); }
+    }
+
+    async function startManualInspection() {
+        var btn = document.getElementById('btnManualInspection');
+        btn.disabled = true;
+        btn.textContent = '启动中...';
+        var scope = document.getElementById('manualScope').value;
+        var params = new URLSearchParams();
+        if (scope === 'NETWORK') {
+            var network = document.getElementById('manualNetwork').value.trim();
+            if (!network) { alert('请选择网络'); btn.disabled = false; btn.textContent = '立即巡检'; return; }
+            params.set('network', network);
+        } else if (scope === 'SINGLE') {
+            var neId = document.getElementById('manualNe').value.trim();
+            if (!neId) { alert('请选择网元'); btn.disabled = false; btn.textContent = '立即巡检'; return; }
+            params.set('neId', neId);
+        }
+        try {
+            var res = await fetch(API + '/inspection/start' + (params.toString() ? '?' + params : ''), { method: 'POST' });
+            var d = await res.json();
+            alert('巡检已启动: 轮次 #' + d.roundId + ', ' + d.totalDevices + ' 台设备');
+            switchPage(document.querySelector('[data-page="page-progress"]'));
+        } catch (e) { alert('启动失败: ' + e.message); }
+        btn.disabled = false;
+        btn.textContent = '立即巡检';
+    }
+
+    // ===== 门限配置 =====
+    async function loadThresholds() {
+        try {
+            var res = await fetch(API + '/inspection/thresholds');
+            var rules = await res.json();
+            renderThresholdTables(rules);
+        } catch (e) { console.error('loadThresholds', e); }
+    }
+
+    function renderThresholdTables(rules) {
+        var moduleTbody = document.getElementById('moduleThresholdTable');
+        var partTbody = document.getElementById('partThresholdTable');
+        moduleTbody.textContent = '';
+        partTbody.textContent = '';
+
+        var moduleRules = rules.filter(function(r) { return r.levelType === 'MODULE'; });
+        var partRules = rules.filter(function(r) { return r.levelType === 'PART'; });
+
+        if (moduleRules.length === 0) {
+            var tr = document.createElement('tr');
+            var td = document.createElement('td');
+            td.colSpan = 7; td.className = 'empty'; td.textContent = '暂无模块类型规则';
+            tr.appendChild(td); moduleTbody.appendChild(tr);
+        } else {
+            moduleRules.forEach(function(r) { moduleTbody.appendChild(buildThresholdRow(r)); });
+        }
+        if (partRules.length === 0) {
+            var tr2 = document.createElement('tr');
+            var td2 = document.createElement('td');
+            td2.colSpan = 7; td2.className = 'empty'; td2.textContent = '暂无型号规则';
+            tr2.appendChild(td2); partTbody.appendChild(tr2);
+        } else {
+            partRules.forEach(function(r) { partTbody.appendChild(buildThresholdRow(r)); });
+        }
+    }
+
+    function buildThresholdRow(r) {
+        var tr = document.createElement('tr');
+        tr.appendChild(createTextCell(r.matchKey));
+        tr.appendChild(createTextCell(r.rxLow != null ? r.rxLow : '-'));
+        tr.appendChild(createTextCell(r.rxHigh != null ? r.rxHigh : '-'));
+        tr.appendChild(createTextCell(r.txLow != null ? r.txLow : '-'));
+        tr.appendChild(createTextCell(r.txHigh != null ? r.txHigh : '-'));
+        tr.appendChild(createTextCell(r.description || '-'));
+        var opTd = document.createElement('td');
+        opTd.appendChild(createBtn('编辑', 'btn btn-outline btn-sm', function() { editThreshold(r); }));
+        opTd.appendChild(document.createTextNode(' '));
+        opTd.appendChild(createBtn('删除', 'btn btn-danger btn-sm', function() { deleteThreshold(r.id); }));
+        tr.appendChild(opTd);
+        return tr;
+    }
+
+    async function loadGlobalThreshold() {
+        try {
+            var res = await fetch(API + '/inspection/thresholds');
+            var rules = await res.json();
+            var g = rules.find(function(r) { return r.levelType === 'GLOBAL'; });
+            if (g) {
+                document.getElementById('gRxLow').value = g.rxLow != null ? g.rxLow : -28;
+                document.getElementById('gRxHigh').value = g.rxHigh != null ? g.rxHigh : -8;
+                document.getElementById('gTxLow').value = g.txLow != null ? g.txLow : -6;
+                document.getElementById('gTxHigh').value = g.txHigh != null ? g.txHigh : 0;
+            }
+        } catch (e) { console.error('loadGlobalThreshold', e); }
+    }
+
+    async function saveGlobalThreshold() {
+        var body = {
+            levelType: 'GLOBAL', matchKey: 'GLOBAL',
+            rxLow: parseFloat(document.getElementById('gRxLow').value),
+            rxHigh: parseFloat(document.getElementById('gRxHigh').value),
+            txLow: parseFloat(document.getElementById('gTxLow').value),
+            txHigh: parseFloat(document.getElementById('gTxHigh').value),
+            description: '默认全局门限'
+        };
+        try {
+            await fetch(API + '/inspection/thresholds', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+            });
+            var msg = document.getElementById('globalThresholdMsg');
+            msg.textContent = '保存成功'; msg.style.display = 'block';
+            setTimeout(function() { msg.style.display = 'none'; }, 2000);
+        } catch (e) { alert('保存失败: ' + e.message); }
+    }
+
+    function openThresholdModal(levelType, rule) {
+        document.getElementById('thLevelType').value = levelType;
+        document.getElementById('thId').value = rule ? rule.id : '';
+        document.getElementById('thMatchKey').value = rule ? rule.matchKey : '';
+        document.getElementById('thRxLow').value = rule && rule.rxLow != null ? rule.rxLow : '';
+        document.getElementById('thRxHigh').value = rule && rule.rxHigh != null ? rule.rxHigh : '';
+        document.getElementById('thTxLow').value = rule && rule.txLow != null ? rule.txLow : '';
+        document.getElementById('thTxHigh').value = rule && rule.txHigh != null ? rule.txHigh : '';
+        document.getElementById('thDesc').value = rule ? (rule.description || '') : '';
+        document.getElementById('thMatchKeyLabel').textContent = levelType === 'PART' ? '型号编码 (partNumber)' : '模块类型 (moduleTypeKey)';
+        document.getElementById('thMatchKey').placeholder = levelType === 'PART' ? '如 ABCD-1234' : '如 2.5G-L、GE-LX';
+        document.getElementById('thresholdModalTitle').textContent = rule ? '编辑门限规则' : '新增门限规则';
+        document.getElementById('thresholdModal').classList.remove('hidden');
+    }
+
+    function editThreshold(rule) { openThresholdModal(rule.levelType, rule); }
+
+    function closeThresholdModal() { document.getElementById('thresholdModal').classList.add('hidden'); }
+
+    async function saveThreshold() {
+        var id = document.getElementById('thId').value;
+        var body = {
+            levelType: document.getElementById('thLevelType').value,
+            matchKey: document.getElementById('thMatchKey').value.trim(),
+            rxLow: parseFloat(document.getElementById('thRxLow').value),
+            rxHigh: parseFloat(document.getElementById('thRxHigh').value),
+            txLow: parseFloat(document.getElementById('thTxLow').value),
+            txHigh: parseFloat(document.getElementById('thTxHigh').value),
+            description: document.getElementById('thDesc').value.trim()
+        };
+        if (!body.matchKey) { alert('请输入匹配键'); return; }
+        try {
+            await fetch(API + '/inspection/thresholds', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+            });
+            closeThresholdModal();
+            loadThresholds();
+        } catch (e) { alert('保存失败: ' + e.message); }
+    }
+
+    async function deleteThreshold(id) {
+        if (!confirm('确认删除该门限规则？')) return;
+        try {
+            await fetch(API + '/inspection/thresholds/' + id, { method: 'DELETE' });
+            loadThresholds();
+        } catch (e) { alert('删除失败: ' + e.message); }
+    }
+
+    // ===== 类型统计 =====
+    var statsChart = null;
+    var statsChartData = [];
+    var statsChartType = 'bar';
+    var STATS_COLORS = ['#1a73e8','#34a853','#ea580c','#7c3aed','#dc2626','#0891b2','#ca8a04','#be185d','#4f46e5','#059669'];
+
+    async function loadStatsOverview() {
+        try {
+            var res = await fetch(API + '/inventory/overview');
+            var d = await res.json();
+            document.getElementById('stNe').textContent = d.neCount || 0;
+            document.getElementById('stSlot').textContent = d.slotCount || 0;
+            document.getElementById('stPort').textContent = d.portCount || 0;
+            document.getElementById('stNetwork').textContent = d.networkCount || 0;
+        } catch (e) { console.error('loadStatsOverview', e); }
+    }
+
+    async function loadStatsNetworks() {
+        try {
+            var res = await fetch(API + '/inventory/networks');
+            var data = await res.json();
+            var dl = document.getElementById('statsNetworkList');
+            dl.textContent = '';
+            data.forEach(function(n) {
+                var opt = document.createElement('option');
+                opt.value = n;
+                dl.appendChild(opt);
+            });
+        } catch (e) { console.error('loadStatsNetworks', e); }
+    }
+
+    async function loadStats() {
+        var network = document.getElementById('statsNetwork').value.trim();
+        var scope = document.getElementById('statsScope').value;
+        var url = scope === 'online' ? API + '/stats/type/online' : API + '/stats/type';
+        if (network) url += '?network=' + encodeURIComponent(network);
+        try {
+            var res = await fetch(url);
+            statsChartData = await res.json();
+            renderStatsChart();
+            renderStatsTable(statsChartData);
+        } catch (e) { console.error('loadStats', e); }
+    }
+
+    function switchStatsChart(type, btn) {
+        statsChartType = type;
+        btn.parentElement.querySelectorAll('button').forEach(function(b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+        renderStatsChart();
+    }
+
+    function renderStatsChart() {
+        if (!statsChart) statsChart = echarts.init(document.getElementById('statsChart'));
+        if (!statsChartData || statsChartData.length === 0) {
+            statsChart.setOption({ title: { text: '暂无数据', left: 'center', top: 'center', textStyle: { color: '#999', fontSize: 14 } } });
+            return;
+        }
+        var top20 = statsChartData.slice(0, 20);
+        var names = top20.map(function(d) { return d.typeName; });
+        var values = top20.map(function(d) { return d.count; });
+
+        if (statsChartType === 'pie') {
+            statsChart.setOption({
                 tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
                 legend: { orient: 'vertical', right: 10, top: 'center', textStyle: { fontSize: 11 } },
-                series: [{ type: 'pie', radius: ['40%', '70%'], center: ['40%', '50%'],
+                color: STATS_COLORS,
+                series: [{ type: 'pie', radius: ['35%', '70%'], center: ['40%', '50%'],
                     label: { show: false },
                     emphasis: { label: { show: true, fontSize: 14, fontWeight: 'bold' } },
-                    data: entries.map(function(e) { return { name: e[0], value: e[1].count }; })
+                    data: top20.map(function(d) { return { name: d.typeName, value: d.count }; })
                 }]
-            });
-        }
-
-        function renderAnomalyChart(anomalyData) {
-            if (!anomalyChart) anomalyChart = echarts.init(document.getElementById('chartAnomaly'));
-            if (!anomalyData || anomalyData.length === 0) {
-                anomalyChart.setOption({ title: { text: '暂无越限数据', left: 'center', top: 'center', textStyle: { color: '#999' } } });
-                return;
-            }
-            var top10 = anomalyData.slice(0, 10);
-            anomalyChart.setOption({
+            }, true);
+        } else if (statsChartType === 'line') {
+            statsChart.setOption({
+                tooltip: { trigger: 'axis' },
+                grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+                xAxis: { type: 'category', data: names, axisLabel: { rotate: 30, fontSize: 10 } },
+                yAxis: { type: 'value' },
+                color: STATS_COLORS,
+                series: [{ type: 'line', data: values, smooth: true, symbol: 'circle', symbolSize: 6,
+                    lineStyle: { width: 2 }, areaStyle: { opacity: 0.15 },
+                    label: { show: true, position: 'top', fontSize: 11 }
+                }]
+            }, true);
+        } else {
+            statsChart.setOption({
                 tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
                 grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
-                xAxis: { type: 'category', data: top10.map(function(d) { return d.neName || d.neId; }), axisLabel: { rotate: 30, fontSize: 10 } },
-                yAxis: { type: 'value', name: '越限端口数' },
-                series: [{ type: 'bar', data: top10.map(function(d) { return d.overThresholdCount; }),
-                    itemStyle: { color: '#dc2626', borderRadius: [4, 4, 0, 0] }, barWidth: '60%'
+                xAxis: { type: 'category', data: names, axisLabel: { rotate: 30, fontSize: 10 } },
+                yAxis: { type: 'value' },
+                color: STATS_COLORS,
+                series: [{ type: 'bar', data: values,
+                    itemStyle: { borderRadius: [4, 4, 0, 0] }, barWidth: '60%',
+                    label: { show: true, position: 'top', fontSize: 11 }
                 }]
-            });
+            }, true);
         }
+    }
 
-        function makeBadge(text, cls) {
-            var span = document.createElement('span');
-            span.className = 'badge ' + cls;
-            span.textContent = text;
-            return span;
+    function renderStatsTable(data) {
+        var tbody = document.getElementById('statsTable');
+        tbody.textContent = '';
+        if (!data || data.length === 0) {
+            var tr = document.createElement('tr');
+            var td = document.createElement('td');
+            td.colSpan = 3; td.className = 'empty'; td.textContent = '暂无数据';
+            tr.appendChild(td); tbody.appendChild(tr);
+            return;
         }
-
-        function renderAnomalyTable(details) {
-            var tbody = document.getElementById('anomalyTable');
-            tbody.textContent = '';
-            if (!details || details.length === 0) {
-                var tr = document.createElement('tr');
-                var td = createEl('td', '暂无越限数据', 'loading');
-                td.colSpan = 7;
-                tr.appendChild(td);
-                tbody.appendChild(tr);
-                return;
-            }
-            details.slice(0, 50).forEach(function(r) {
-                var tr = document.createElement('tr');
-                tr.appendChild(createEl('td', r.neName || '-'));
-                tr.appendChild(createEl('td', r.slotNo != null ? String(r.slotNo) : '-'));
-                tr.appendChild(createEl('td', r.portNo != null ? String(r.portNo) : '-'));
-                tr.appendChild(createEl('td', r.moduleTypeKey || '--'));
-                tr.appendChild(createEl('td', r.txPower != null ? r.txPower.toFixed(1) + ' dBm' : '--'));
-                tr.appendChild(createEl('td', r.rxPower != null ? r.rxPower.toFixed(1) + ' dBm' : '--'));
-                var statusTd = document.createElement('td');
-                statusTd.appendChild(makeBadge('TX:' + (r.txPowerStatus > 0 ? '越限' : '正常'), r.txPowerStatus > 0 ? 'badge-error' : 'badge-ok'));
-                statusTd.appendChild(document.createTextNode(' '));
-                statusTd.appendChild(makeBadge('RX:' + (r.rxPowerStatus > 0 ? '越限' : '正常'), r.rxPowerStatus > 0 ? 'badge-error' : 'badge-ok'));
-                tr.appendChild(statusTd);
-                tbody.appendChild(tr);
-            });
-        }
-
-        function renderRoundsTable(rounds) {
-            var tbody = document.getElementById('roundsTable');
-            tbody.textContent = '';
-            if (!rounds || rounds.length === 0) {
-                var tr = document.createElement('tr');
-                var td = createEl('td', '暂无巡检记录', 'loading');
-                td.colSpan = 8;
-                tr.appendChild(td);
-                tbody.appendChild(tr);
-                return;
-            }
-            rounds.slice(0, 10).forEach(function(r) {
-                var tr = document.createElement('tr');
-                tr.appendChild(createEl('td', '#' + r.id));
-                tr.appendChild(createEl('td', r.triggerType));
-                tr.appendChild(createEl('td', r.scopeType + (r.scopeParam ? '(' + r.scopeParam + ')' : '')));
-                var statusTd = document.createElement('td');
-                var badgeCls = r.status === 'COMPLETED' ? 'badge-ok' : r.status === 'RUNNING' ? 'badge-info' : 'badge-error';
-                var badgeText = r.status === 'COMPLETED' ? '已完成' : r.status === 'RUNNING' ? '进行中' : '失败';
-                statusTd.appendChild(makeBadge(badgeText, badgeCls));
-                tr.appendChild(statusTd);
-                tr.appendChild(createEl('td', String(r.totalCount || 0)));
-                tr.appendChild(createEl('td', String(r.doneCount || 0)));
-                tr.appendChild(createEl('td', String(r.failCount || 0)));
-                tr.appendChild(createEl('td', r.startTime || '-'));
-                tbody.appendChild(tr);
-            });
-        }
-
-        // ===== Actions =====
-        async function startInspection() {
-            var btn = document.getElementById('btnStart');
-            btn.disabled = true;
-            btn.textContent = '巡检中...';
-            document.getElementById('progressCard').classList.remove('hidden');
-
-            var network = document.getElementById('networkFilter').value;
-            var params = network ? '?network=' + encodeURIComponent(network) : '';
-            try {
-                var res = await fetch(API + '/inspection/start' + params, { method: 'POST' });
-                var d = await res.json();
-                document.getElementById('headerStatus').textContent = '巡检已启动: 轮次 #' + d.roundId + ', ' + d.totalDevices + ' 台设备';
-                pollProgress();
-            } catch (e) {
-                alert('启动巡检失败: ' + e.message);
-                btn.disabled = false;
-                btn.textContent = '开始巡检';
-                document.getElementById('progressCard').classList.add('hidden');
-            }
-        }
-
-        async function pollProgress() {
-            var pollErrors = 0;
-            var interval = setInterval(async function() {
-                try {
-                    var res = await fetch(API + '/inspection/progress');
-                    var d = await res.json();
-                    pollErrors = 0;
-                    if (!d.running) {
-                        clearInterval(interval);
-                        document.getElementById('btnStart').disabled = false;
-                        document.getElementById('btnStart').textContent = '开始巡检';
-                        document.getElementById('progressCard').classList.add('hidden');
-                        refreshAll();
-                        return;
-                    }
-                    var pct = d.total > 0 ? Math.round((d.done / d.total) * 100) : 0;
-                    document.getElementById('progressFill').style.width = pct + '%';
-                    document.getElementById('progressNum').textContent = d.done + '/' + d.total;
-                    document.getElementById('progressText').textContent = '巡检中... 失败: ' + d.failures;
-                    document.getElementById('progressNe').textContent = d.currentNe ? '当前: ' + d.currentNe : '';
-                } catch (e) {
-                    console.error('poll failed', e);
-                    if (++pollErrors > 10) {
-                        clearInterval(interval);
-                        document.getElementById('btnStart').disabled = false;
-                        document.getElementById('btnStart').textContent = '开始巡检';
-                        document.getElementById('progressCard').classList.add('hidden');
-                    }
-                }
-            }, 2000);
-        }
-
-        async function toggleSchedule(enabled) {
-            try {
-                await fetch(API + '/inspection/schedule/toggle?enabled=' + enabled, { method: 'POST' });
-            } catch (e) { alert('设置失败: ' + e.message); }
-        }
-
-        function exportExcel() {
-            window.open(API + '/inspection/export', '_blank');
-        }
-
-        function refreshAll() {
-            loadSummary();
-            loadAnomaly();
-            loadRounds();
-        }
-
-        window.addEventListener('resize', function() {
-            typeChart && typeChart.resize();
-            anomalyChart && anomalyChart.resize();
+        var total = data.reduce(function(s, d) { return s + d.count; }, 0);
+        data.forEach(function(d) {
+            var tr = document.createElement('tr');
+            tr.appendChild(createTextCell(d.typeName));
+            tr.appendChild(createTextCell(String(d.count)));
+            tr.appendChild(createTextCell(d.percent + '%'));
+            tbody.appendChild(tr);
         });
+    }
 
-        loadNetworks();
-        loadSummary();
-        loadAnomaly();
-        loadRounds();
-        loadSchedule();
+    // ===== 初始化 =====
+    loadDevices();
+    loadGlobalConfig();
+    loadStatsOverview();
+    loadStatsNetworks();
+    loadStats();
+
+    window.addEventListener('resize', function() {
+        if (statsChart) statsChart.resize();
+    });
     </script>
 </body>
 </html>
