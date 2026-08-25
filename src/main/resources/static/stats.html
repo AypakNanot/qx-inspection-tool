@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QX 设备统计</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f0f2f5; color: #333; }
+        .header { background: linear-gradient(135deg, #1a73e8, #0d47a1); color: white; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; }
+        .header h1 { font-size: 20px; font-weight: 600; }
+        .header a { color: white; text-decoration: none; font-size: 13px; opacity: 0.9; }
+        .header a:hover { opacity: 1; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 16px; }
+        .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 16px; }
+        .card { background: white; border-radius: 8px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .card .label { font-size: 12px; color: #666; margin-bottom: 4px; }
+        .card .value { font-size: 28px; font-weight: 700; }
+        .card .value.green { color: #16a34a; }
+        .card .value.blue { color: #1a73e8; }
+        .card .value.purple { color: #7c3aed; }
+        .card .value.orange { color: #ea580c; }
+        .section-bar { display: flex; align-items: center; gap: 10px; margin: 24px 0 12px; flex-wrap: wrap; }
+        .section-bar .section-title { margin: 0; font-size: 16px; font-weight: 600; color: #333; padding-left: 8px; border-left: 4px solid #1a73e8; }
+        .section-bar select { padding: 6px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; background: white; max-width: 200px; }
+        .section-bar input { padding: 6px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; width: 180px; }
+        .section-bar label { font-size: 13px; color: #555; white-space: nowrap; }
+        .section-bar button { padding: 6px 14px; border: 1px solid #ddd; border-radius: 6px; background: white; font-size: 13px; cursor: pointer; }
+        .section-bar button:hover { background: #f5f5f5; }
+        .chart-box { background: white; border-radius: 8px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 16px; }
+        .chart-box-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+        .chart-box-header h3 { font-size: 14px; color: #555; margin: 0; }
+        .chart-type-btns { display: flex; gap: 2px; }
+        .chart-type-btns button { padding: 4px 10px; border: 1px solid #ddd; background: white; font-size: 12px; cursor: pointer; color: #666; }
+        .chart-type-btns button:first-child { border-radius: 4px 0 0 4px; }
+        .chart-type-btns button:last-child { border-radius: 0 4px 4px 0; }
+        .chart-type-btns button.active { background: #1a73e8; color: white; border-color: #1a73e8; }
+        .chart-container { width: 100%; height: 360px; }
+        @media (max-width: 768px) { .charts { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>QX 设备统计</h1>
+        <a href="./index.html">&larr; 返回巡检首页</a>
+    </div>
+
+    <div class="container">
+        <div class="cards">
+            <div class="card"><div class="label">网元总数</div><div class="value blue" id="statNe">-</div></div>
+            <div class="card"><div class="label">盘总数</div><div class="value purple" id="statSlot">-</div></div>
+            <div class="card"><div class="label">端口总数</div><div class="value green" id="statPort">-</div></div>
+            <div class="card"><div class="label">网络数</div><div class="value orange" id="statNetwork">-</div></div>
+        </div>
+
+        <!-- 网元分布 -->
+        <div class="section-bar">
+            <div class="section-title">网元分布</div>
+            <label>网络：</label>
+            <input list="neNetworkList" id="neNetwork" placeholder="输入搜索或留空=全网">
+            <datalist id="neNetworkList"></datalist>
+            <button onclick="loadNe()">筛选</button>
+        </div>
+        <div class="chart-box">
+            <div class="chart-box-header">
+                <h3>按设备类型</h3>
+                <div class="chart-type-btns" id="neChartType">
+                    <button class="active" data-type="bar" onclick="switchChartType('ne','bar',this)">柱状图</button>
+                    <button data-type="pie" onclick="switchChartType('ne','pie',this)">饼图</button>
+                    <button data-type="line" onclick="switchChartType('ne','line',this)">折线图</button>
+                </div>
+            </div>
+            <div class="chart-container" id="chartNeType"></div>
+        </div>
+
+        <!-- 盘分布 -->
+        <div class="section-bar">
+            <div class="section-title">盘分布</div>
+            <label>网络：</label>
+            <input list="slotNetworkList" id="slotNetwork" placeholder="输入搜索或留空=全网">
+            <datalist id="slotNetworkList"></datalist>
+            <label>盘类型：</label>
+            <select id="slotType"><option value="">全部</option></select>
+            <button onclick="loadSlot()">筛选</button>
+        </div>
+        <div class="chart-box">
+            <div class="chart-box-header">
+                <h3>按盘类型</h3>
+                <div class="chart-type-btns" id="slotChartType">
+                    <button class="active" data-type="bar" onclick="switchChartType('slot','bar',this)">柱状图</button>
+                    <button data-type="pie" onclick="switchChartType('slot','pie',this)">饼图</button>
+                    <button data-type="line" onclick="switchChartType('slot','line',this)">折线图</button>
+                </div>
+            </div>
+            <div class="chart-container" id="chartSlotType"></div>
+        </div>
+
+        <!-- 端口分布 -->
+        <div class="section-bar">
+            <div class="section-title">端口分布</div>
+            <label>网络：</label>
+            <input list="portNetworkList" id="portNetwork" placeholder="输入搜索或留空=全网">
+            <datalist id="portNetworkList"></datalist>
+            <label>端口类型：</label>
+            <select id="portType"><option value="">全部</option></select>
+            <button onclick="loadPort()">筛选</button>
+        </div>
+        <div class="chart-box">
+            <div class="chart-box-header">
+                <h3>按端口类型</h3>
+                <div class="chart-type-btns" id="portChartType">
+                    <button class="active" data-type="bar" onclick="switchChartType('port','bar',this)">柱状图</button>
+                    <button data-type="pie" onclick="switchChartType('port','pie',this)">饼图</button>
+                    <button data-type="line" onclick="switchChartType('port','line',this)">折线图</button>
+                </div>
+            </div>
+            <div class="chart-container" id="chartPortType"></div>
+        </div>
+    </div>
+
+    <script>
+        var API = '/qx-inspection/api/inventory';
+        var charts = {};      // { ne: echartsInstance, slot: ..., port: ... }
+        var chartData = {};   // { ne: [...], slot: [...], port: [...] }
+        var chartTypes = { ne: 'bar', slot: 'bar', port: 'bar' };
+
+        function qs(params) {
+            var parts = [];
+            for (var k in params) {
+                if (params[k] !== '' && params[k] != null) {
+                    parts.push(encodeURIComponent(k) + '=' + encodeURIComponent(params[k]));
+                }
+            }
+            return parts.length > 0 ? '?' + parts.join('&') : '';
+        }
+
+        // ===== 图表类型切换 =====
+        function switchChartType(section, type, btn) {
+            chartTypes[section] = type;
+            // 更新按钮样式
+            btn.parentElement.querySelectorAll('button').forEach(function(b) { b.classList.remove('active'); });
+            btn.classList.add('active');
+            // 重新渲染
+            var containerMap = { ne: 'chartNeType', slot: 'chartSlotType', port: 'chartPortType' };
+            renderChart(containerMap[section], chartData[section] || [], type, section);
+        }
+
+        // ===== 加载筛选下拉框 =====
+        async function loadFilters() {
+            try {
+                var res = await fetch(API + '/networks');
+                var data = await res.json();
+                ['neNetworkList', 'slotNetworkList', 'portNetworkList'].forEach(function(id) {
+                    var dl = document.getElementById(id);
+                    dl.textContent = '';
+                    data.forEach(function(n) {
+                        var opt = document.createElement('option');
+                        opt.value = n;
+                        dl.appendChild(opt);
+                    });
+                });
+            } catch (e) { console.error('loadNetworks', e); }
+
+            try {
+                var res = await fetch(API + '/slot/types');
+                fillTypeSelect('slotType', await res.json());
+            } catch (e) { console.error('loadSlotTypes', e); }
+
+            try {
+                var res = await fetch(API + '/port/types');
+                fillTypeSelect('portType', await res.json());
+            } catch (e) { console.error('loadPortTypes', e); }
+        }
+
+        function fillTypeSelect(id, types) {
+            var sel = document.getElementById(id);
+            sel.textContent = '';
+            var opt0 = document.createElement('option');
+            opt0.value = ''; opt0.textContent = '全部';
+            sel.appendChild(opt0);
+            types.forEach(function(t) {
+                var opt = document.createElement('option');
+                opt.value = t; opt.textContent = '类型 ' + t;
+                sel.appendChild(opt);
+            });
+        }
+
+        // ===== 总览 =====
+        async function loadOverview() {
+            try {
+                var res = await fetch(API + '/overview');
+                var d = await res.json();
+                document.getElementById('statNe').textContent = d.neCount || 0;
+                document.getElementById('statSlot').textContent = d.slotCount || 0;
+                document.getElementById('statPort').textContent = d.portCount || 0;
+                document.getElementById('statNetwork').textContent = d.networkCount || 0;
+            } catch (e) { console.error('loadOverview', e); }
+        }
+
+        // ===== 网元分布 =====
+        async function loadNe() {
+            var network = document.getElementById('neNetwork').value.trim();
+            try {
+                var res = await fetch(API + '/ne' + qs({network: network}));
+                var data = await res.json();
+                chartData.ne = data.byNeTypeName || [];
+                renderChart('chartNeType', chartData.ne, chartTypes.ne, 'ne');
+            } catch (e) { console.error('loadNe', e); }
+        }
+
+        // ===== 盘分布 =====
+        async function loadSlot() {
+            var network = document.getElementById('slotNetwork').value.trim();
+            var objectType = document.getElementById('slotType').value;
+            try {
+                var res = await fetch(API + '/slot' + qs({network: network, objectType: objectType}));
+                var data = await res.json();
+                chartData.slot = data.byTypeName || [];
+                renderChart('chartSlotType', chartData.slot, chartTypes.slot, 'slot');
+            } catch (e) { console.error('loadSlot', e); }
+        }
+
+        // ===== 端口分布 =====
+        async function loadPort() {
+            var network = document.getElementById('portNetwork').value.trim();
+            var objectType = document.getElementById('portType').value;
+            try {
+                var res = await fetch(API + '/port' + qs({network: network, objectType: objectType}));
+                var data = await res.json();
+                chartData.port = data.byTypeName || [];
+                renderChart('chartPortType', chartData.port, chartTypes.port, 'port');
+            } catch (e) { console.error('loadPort', e); }
+        }
+
+        // ===== 图表渲染 =====
+        var COLORS = ['#1a73e8', '#34a853', '#ea580c', '#7c3aed', '#dc2626', '#0891b2', '#ca8a04', '#be185d', '#4f46e5', '#059669'];
+
+        function renderChart(containerId, data, type, section) {
+            if (charts[section]) charts[section].dispose();
+            var chart = echarts.init(document.getElementById(containerId));
+            charts[section] = chart;
+
+            if (!data || data.length === 0) {
+                chart.setOption({ title: { text: '暂无数据', left: 'center', top: 'center', textStyle: { color: '#999' } } });
+                return;
+            }
+            var top20 = data.slice(0, 20);
+
+            if (type === 'pie') {
+                chart.setOption({
+                    tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
+                    legend: { orient: 'vertical', right: 10, top: 'center', textStyle: { fontSize: 11 } },
+                    color: COLORS,
+                    series: [{
+                        type: 'pie', radius: ['35%', '70%'], center: ['40%', '50%'],
+                        label: { show: false },
+                        emphasis: { label: { show: true, fontSize: 14, fontWeight: 'bold' } },
+                        data: top20.map(function(d) { return { name: d.name, value: d.count }; })
+                    }]
+                });
+            } else if (type === 'line') {
+                chart.setOption({
+                    tooltip: { trigger: 'axis' },
+                    grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+                    xAxis: {
+                        type: 'category', data: top20.map(function(d) { return d.name; }),
+                        axisLabel: { rotate: 30, fontSize: 10 }
+                    },
+                    yAxis: { type: 'value' },
+                    color: COLORS,
+                    series: [{
+                        type: 'line', data: top20.map(function(d) { return d.count; }),
+                        smooth: true, symbol: 'circle', symbolSize: 6,
+                        lineStyle: { width: 2 },
+                        areaStyle: { opacity: 0.15 },
+                        label: { show: true, position: 'top', fontSize: 11 }
+                    }]
+                });
+            } else {
+                chart.setOption({
+                    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+                    grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+                    xAxis: {
+                        type: 'category', data: top20.map(function(d) { return d.name; }),
+                        axisLabel: { rotate: 30, fontSize: 10 }
+                    },
+                    yAxis: { type: 'value' },
+                    color: COLORS,
+                    series: [{
+                        type: 'bar', data: top20.map(function(d) { return d.count; }),
+                        itemStyle: { borderRadius: [4, 4, 0, 0] },
+                        barWidth: '60%',
+                        label: { show: true, position: 'top', fontSize: 11 }
+                    }]
+                });
+            }
+        }
+
+        // ===== 盘/端口类型下拉自动触发 =====
+        document.getElementById('slotType').addEventListener('change', loadSlot);
+        document.getElementById('portType').addEventListener('change', loadPort);
+
+        // ===== 窗口自适应 =====
+        window.addEventListener('resize', function() {
+            Object.values(charts).forEach(function(c) { if (c) c.resize(); });
+        });
+
+        // ===== 初始化 =====
+        loadFilters().then(function() {
+            loadOverview();
+            loadNe();
+            loadSlot();
+            loadPort();
+        });
+    </script>
+</body>
+</html>
