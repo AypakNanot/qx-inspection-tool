@@ -22,6 +22,7 @@ import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -430,45 +431,47 @@ public class InspectionService {
             return;
         }
 
-        // 逐端口查询激光器属性 0x2410
+        // 按盘（slot）分组，对每个盘查询一次激光器属性
+        Map<Integer, List<Dmeo>> slotGroups = opticalPorts.stream()
+                .collect(Collectors.groupingBy(d -> parseSlotId(d.getOid())));
+
         List<OpticalPowerInspection> records = new ArrayList<>();
-        int failPorts = 0;
+        int failSlots = 0;
 
-        for (Dmeo dmeoPort : opticalPorts) {
+        for (Map.Entry<Integer, List<Dmeo>> entry : slotGroups.entrySet()) {
+            int slotId = entry.getKey();
+            List<Dmeo> ports = entry.getValue();
+
             try {
-                // 从 dmeo oid 解析 0x2410 所需参数
-                int[] params = parseOidForLaser(dmeoPort.getOid(), dmeoPort.getType());
-                int slotId = params[0];
-                int portType = params[1];
-                int portSubType = params[2];
-                int portId = params[3];
-
+                // 对每个盘发送一次 0x2410 查询（只传入盘号）
                 LaserAttributeResponse laser = qxCommandService.queryLaserAttribute(
                         ip, port, user, password,
-                        slotId, portType, portSubType, portId);
+                        slotId);
 
-                // 构建简化的 PortRecord 用于 buildRecord
-                PortRecord p = new PortRecord();
-                p.setSubcaseNo(1);
-                p.setSlotId(slotId);
-                p.setPortType(portType);
-                p.setPortSubType(portSubType);
-                p.setPortId(portId);
+                // 为该盘下的每个端口创建记录
+                for (Dmeo dmeoPort : ports) {
+                    PortRecord p = new PortRecord();
+                    p.setSubcaseNo(1);
+                    p.setSlotId(slotId);
+                    p.setPortType(dmeoPort.getType() != null ? dmeoPort.getType() : 0xFF);
+                    p.setPortSubType(0xFF);
+                    p.setPortId(parsePortId(dmeoPort.getOid()));
 
-                OpticalPowerInspection record = buildRecord(round, device, p, laser);
-                records.add(record);
+                    OpticalPowerInspection record = buildRecord(round, device, p, laser);
+                    records.add(record);
+                }
             } catch (Exception e) {
-                failPorts++;
-                // 记录失败端口
-                PortRecord failP = new PortRecord();
-                int[] failParams = parseOidForLaser(dmeoPort.getOid(), dmeoPort.getType());
-                failP.setSlotId(failParams[0]);
-                failP.setPortType(failParams[1]);
-                failP.setPortSubType(failParams[2]);
-                failP.setPortId(failParams[3]);
-                records.add(buildFailRecord(round, device, failP, e.getMessage()));
-                log.debug("端口查询失败: {} oid={}, {}",
-                        device.getNeName(), dmeoPort.getOid(), e.getMessage());
+                failSlots++;
+                // 记录该盘下所有端口失败
+                for (Dmeo dmeoPort : ports) {
+                    PortRecord failP = new PortRecord();
+                    failP.setSlotId(slotId);
+                    failP.setPortType(dmeoPort.getType() != null ? dmeoPort.getType() : 0xFF);
+                    failP.setPortSubType(0xFF);
+                    failP.setPortId(parsePortId(dmeoPort.getOid()));
+                    records.add(buildFailRecord(round, device, failP, e.getMessage()));
+                }
+                log.debug("盘查询失败: {} slot={}, {}", device.getNeName(), slotId, e.getMessage());
             }
         }
 
@@ -477,7 +480,8 @@ public class InspectionService {
             powerRecordRepository.saveAll(records);
         }
 
-        log.debug("设备巡检完成: {}, 光口数={}, 失败={}", device.getNeName(), opticalPorts.size(), failPorts);
+        log.debug("设备巡检完成: {}, 光口数={}, 盘数={}, 失败盘数={}",
+                device.getNeName(), opticalPorts.size(), slotGroups.size(), failSlots);
     }
 
     /**
@@ -503,20 +507,27 @@ public class InspectionService {
     }
 
     /**
-     * 从 dmeo oid 解析 0x2410 所需参数
+     * 从 dmeo oid 解析盘号（slotId）
      * oid 格式: "neOid:slotOid:portOid" 或更深层级
-     * 返回: [slotId, portType, portSubType, portId]
      */
-    private int[] parseOidForLaser(String oid, Integer dmeoType) {
+    private int parseSlotId(String oid) {
         if (oid == null || oid.isEmpty()) {
-            return new int[]{1, 0xFF, 0xFF, 0xFFFF};
+            return 1;
         }
         String[] parts = oid.split(":");
-        int slotId = parts.length >= 2 ? parseIntSafe(parts[1]) : 1;
-        int portId = parts.length >= 3 ? parseIntSafe(parts[2]) : 0xFFFF;
-        // portType 优先使用 dmeo.type，无则用 0xFF
-        int portType = dmeoType != null ? dmeoType : 0xFF;
-        return new int[]{slotId, portType, 0xFF, portId};
+        return parts.length >= 2 ? parseIntSafe(parts[1]) : 1;
+    }
+
+    /**
+     * 从 dmeo oid 解析端口号（portId）
+     * oid 格式: "neOid:slotOid:portOid" 或更深层级
+     */
+    private int parsePortId(String oid) {
+        if (oid == null || oid.isEmpty()) {
+            return 0xFFFF;
+        }
+        String[] parts = oid.split(":");
+        return parts.length >= 3 ? parseIntSafe(parts[2]) : 0xFFFF;
     }
 
     private int parseIntSafe(String s) {

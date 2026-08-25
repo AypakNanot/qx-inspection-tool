@@ -8,15 +8,12 @@ import java.nio.ByteBuffer;
 public class LaserAttributeRequest {
     private int subcaseNo = 1;
     private int slotId;
-    private int portType;
-    private int portSubType;
-    private int portId;
+    private int portType = 0xFF;
+    private int portSubType = 0xFF;
+    private int portId = 0xFFFF;
 
-    public LaserAttributeRequest(int slotId, int portType, int portSubType, int portId) {
+    public LaserAttributeRequest(int slotId) {
         this.slotId = slotId;
-        this.portType = portType;
-        this.portSubType = portSubType;
-        this.portId = portId;
     }
 
     public byte[] encode() {
