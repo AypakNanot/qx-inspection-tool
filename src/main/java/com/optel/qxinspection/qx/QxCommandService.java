@@ -63,19 +63,13 @@ public class QxCommandService {
         try {
             byte[] reqBytes = new LaserAttributeRequest(slotId, portType, portSubType, portId).encode();
             byte[] respBytes = sendCommand(ip, port, user, password, (short) 0x2410, reqBytes);
-            if (respBytes == null || respBytes.length <= 4) {
-                log.warn("0x2410 响应为空: {}:{}, slot={}, port={}", ip, port, slotId, portId);
+            if (respBytes == null || respBytes.length < 86) {
+                log.warn("0x2410 响应为空或过短: {}:{}, slot={}, port={}, length={}",
+                        ip, port, slotId, portId, respBytes == null ? 0 : respBytes.length);
                 return null;
             }
-            // 跳过4字节result码
-            int resultCode = ByteBuffer.wrap(respBytes).getInt();
-            if (resultCode != 0) {
-                log.warn("0x2410 返回错误码: {}, 设备={}:{}, slot={}, port={}", resultCode, ip, port, slotId, portId);
-                return null;
-            }
-            byte[] payload = new byte[respBytes.length - 4];
-            System.arraycopy(respBytes, 4, payload, 0, payload.length);
-            return LaserAttributeResponse.decode(payload);
+            // sendCommand 已去掉24字节消息头，直接解析 payload
+            return LaserAttributeResponse.decode(respBytes);
         } catch (Exception e) {
             log.error("0x2410 查询失败: {}:{}, slot={}, port={}, {}",
                     ip, port, slotId, portId, e.getMessage());
