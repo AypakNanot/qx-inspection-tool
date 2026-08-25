@@ -82,12 +82,6 @@ export async function loadQueryResults() {
     } catch (e) { console.error('loadQueryResults', e); }
 }
 
-/** 按状态筛选 */
-function filterByStatus(data, status) {
-    if (status === -1) return data.filter(r => !r.supported || r.supported === false);
-    return data.filter(r => r.txPowerStatus === status || r.rxPowerStatus === status);
-}
-
 /** 应用筛选和排序 */
 function applyFilterAndSort() {
     const statusFilter = document.getElementById('queryStatus').value;

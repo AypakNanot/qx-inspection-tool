@@ -45,12 +45,20 @@ export async function loadScheduleStatus() {
             document.getElementById('schedCron').value = cron;
         }
 
+        // 同步范围和网络字段
+        const scopeSel = document.getElementById('schedScope');
+        scopeSel.value = d.scope || 'ALL';
+        toggleSchedScope(scopeSel.value);
+        if (d.scope === 'NETWORK' && d.network) {
+            document.getElementById('schedNetwork').value = d.network;
+        }
+
         // 显示状态信息
         const enableStatus = d.enabled ? '已启用' : '未启用';
         const enableColor = d.enabled ? '#16a34a' : '#6b7280';
         const freqDesc = PRESET_DESC[cron] || cron;
-        const scopeDesc = d.scope === 'NETWORK' ? '指定网络' : '全网';
-        const lastRun = d.lastRunTime || '从未';
+        const scopeDesc = d.scope === 'NETWORK' ? '指定网络: ' + (d.network || '-') : '全网';
+        const lastRun = d.lastRunTime ? d.lastRunTime.replace('T', ' ').substring(0, 19) : '从未';
         const lastStatus = d.lastRunStatus || '-';
 
         const statusEl = document.getElementById('schedStatus');

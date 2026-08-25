@@ -28,6 +28,12 @@
                 </div>
             </div>
             <div class="nav-group">
+                <div class="nav-group-title">维护</div>
+                <div class="nav-item" data-page="page-maintenance" onclick="switchPage(this)">
+                    <span class="icon">&#9881;</span> 数据维护
+                </div>
+            </div>
+            <div class="nav-group">
                 <div class="nav-group-title">光功率巡检</div>
                 <div class="nav-item" data-page="page-threshold" onclick="switchPage(this)">
                     <span class="icon">&#9879;</span> 门限配置
@@ -96,7 +102,6 @@
                     <button class="btn btn-primary" onclick="syncDevices()">同步设备</button>
                     <button class="btn btn-success" onclick="connectAll()">一键连接</button>
                     <button class="btn btn-danger" onclick="disconnectAll()">一键断开</button>
-                    <button class="btn btn-danger" onclick="clearAllData()" style="margin-left:24px;">清除数据</button>
                     <div class="toolbar-right">
                         <button class="btn btn-outline" onclick="loadDevices()">刷新</button>
                     </div>
@@ -356,12 +361,6 @@
                                 <button class="btn btn-primary" id="btnManualInspection" onclick="startManualInspection()">立即巡检</button>
                             </div>
                         </div>
-                        <div style="margin-top:8px;">
-                            <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#6b7280;">
-                                <input type="checkbox" id="manualRecursive"> 递归子网络
-                            </label>
-                            <div style="font-size:11px;color:#9ca3af;margin-top:2px;">勾选后将包含所选网络下的所有子网络设备</div>
-                        </div>
                     </div>
                 </div>
             </div>
@@ -497,6 +496,25 @@
                 <!-- 下方分页 -->
                 <div id="queryPagination" style="display:none;align-items:center;gap:8px;margin-top:10px;"></div>
                 <div style="font-size:12px;color:#9ca3af;margin-top:8px;" id="queryCount"></div>
+            </div>
+
+            <!-- ========== 数据维护页 ========== -->
+            <div class="page" id="page-maintenance">
+                <div class="card">
+                    <div class="card-title">数据清除</div>
+                    <div style="font-size:13px;color:#6b7280;margin-bottom:16px;">
+                        清除系统中的历史数据，包括巡检记录、巡检轮次、设备配置、连接配置、门限规则等。
+                        <br>清除后不可恢复，请谨慎操作。
+                    </div>
+                    <button class="btn btn-danger" onclick="clearAllData()">清除数据</button>
+                </div>
+                <div class="card" style="margin-top:16px;">
+                    <div class="card-title">系统信息</div>
+                    <div style="font-size:13px;color:#6b7280;line-height:2;">
+                        <div>SQLite 数据库：本地存储巡检记录、配置、轮次等</div>
+                        <div>MySQL 数据库：存储设备资产信息（网元、网络、端口等）</div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
