@@ -5,6 +5,7 @@ import com.optel.qx.cci.util.ChannelID;
 import com.optel.qx.cci.util.ChannelProp;
 import com.optel.qxinspection.entity.sqlite.ConnProfile;
 import com.optel.qxinspection.entity.sqlite.DeviceAccessConfig;
+import com.optel.qxinspection.qx.QxDeviceServiceImpl;
 import com.optel.qxinspection.reconnect.QxReconnectManager;
 import com.optel.qxinspection.repository.sqlite.ConnProfileRepository;
 import com.optel.qxinspection.repository.sqlite.DeviceAccessConfigRepository;
@@ -24,7 +25,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 @RequiredArgsConstructor
 public class QxConnectionService {
 
-    private final QxChannelManager qxChannelManager;
+    private final QxDeviceServiceImpl qxDeviceService;
     private final QxReconnectManager reconnectManager;
     private final ConnProfileRepository connProfileRepository;
     private final DeviceAccessConfigRepository deviceAccessConfigRepository;
@@ -34,9 +35,9 @@ public class QxConnectionService {
 
     @PostConstruct
     public void init() {
-        // 注册状态监听器
-        qxChannelManager.addStateListener(this::onStateChanged);
-        log.info("QxConnectionService 初始化完成，已注册状态监听器");
+        // 注册状态监听器到 QxChannelManager
+        qxDeviceService.getManager().addStateListener(this::onStateChanged);
+        log.info("QxConnectionService initialized, state listener registered");
     }
 
     /**
@@ -46,7 +47,7 @@ public class QxConnectionService {
         String neOid = findNeOidByChannelId(channelId);
         if (neOid == null) return;
 
-        log.debug("设备状态变化 neOid={}, {} -> {}, error={}", neOid, prev, current, error);
+        log.debug("State change neOid={}, {} -> {}, error={}", neOid, prev, current, error);
 
         // 更新 SQLite 中的状态
         deviceAccessConfigRepository.findByNeId(neOid).ifPresent(config -> {
@@ -86,24 +87,29 @@ public class QxConnectionService {
         AtomicInteger fail = new AtomicInteger();
         List<String> failedDevices = new ArrayList<>();
 
-        // 全局配置
         ConnProfile globalProfile = connProfileRepository.findByScopeAndNeOid("GLOBAL", "")
                 .orElse(null);
 
         List<CompletableFuture<QxChannel>> futures = new ArrayList<>();
 
         for (DeviceAccessConfig device : devices) {
-            ChannelID channelId = new ChannelID(device.getIpAddr(), getPort(device, globalProfile));
+            int port = getPort(device, globalProfile);
+
+            // 注册端点到 QxDeviceServiceImpl
+            qxDeviceService.registerEndpoint(device.getNeId(), device.getIpAddr(), port,
+                    device.getUsername(), device.getPassword());
+
+            ChannelID channelId = new ChannelID(device.getIpAddr(), port);
             channelIdMap.put(device.getNeId(), channelId);
 
             ChannelProp prop = buildChannelProp(device.getNeId());
             if (prop == null) {
                 fail.incrementAndGet();
-                failedDevices.add(device.getNeId() + "(无配置)");
+                failedDevices.add(device.getNeId() + "(no config)");
                 continue;
             }
 
-            CompletableFuture<QxChannel> future = qxChannelManager.connect(channelId, prop);
+            CompletableFuture<QxChannel> future = qxDeviceService.getManager().connect(channelId, prop);
             futures.add(future);
 
             future.whenComplete((ch, ex) -> {
@@ -116,12 +122,11 @@ public class QxConnectionService {
             });
         }
 
-        // 等待所有连接完成（最多60秒）
         try {
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
                     .get(60, java.util.concurrent.TimeUnit.SECONDS);
         } catch (Exception e) {
-            log.warn("等待批量连接超时");
+            log.warn("Batch connect timed out");
         }
 
         Map<String, Object> result = new LinkedHashMap<>();
@@ -136,18 +141,17 @@ public class QxConnectionService {
      * 一键断开
      */
     public Map<String, Object> disconnectAll() {
-        Collection<QxChannel> channels = qxChannelManager.allChannels();
+        Collection<QxChannel> channels = qxDeviceService.getManager().allChannels();
         int count = channels.size();
 
         for (QxChannel ch : new ArrayList<>(channels)) {
             try {
-                qxChannelManager.shut(ch.getChannelId());
+                qxDeviceService.getManager().shut(ch.getChannelId());
             } catch (Exception e) {
-                log.warn("断开通道失败: {}", ch.getChannelId(), e);
+                log.warn("Failed to shut channel: {}", ch.getChannelId(), e);
             }
         }
 
-        // 取消所有重连
         channelIdMap.keySet().forEach(reconnectManager::cancel);
 
         Map<String, Object> result = new LinkedHashMap<>();
@@ -165,6 +169,10 @@ public class QxConnectionService {
         ConnProfile globalProfile = connProfileRepository.findByScopeAndNeOid("GLOBAL", "").orElse(null);
         int port = getPort(config, globalProfile);
 
+        // 注册端点到 QxDeviceServiceImpl（供生成的 Service 使用）
+        qxDeviceService.registerEndpoint(neOid, config.getIpAddr(), port,
+                config.getUsername(), config.getPassword());
+
         ChannelID channelId = new ChannelID(config.getIpAddr(), port);
         channelIdMap.put(neOid, channelId);
 
@@ -172,10 +180,11 @@ public class QxConnectionService {
         if (prop == null) return false;
 
         try {
-            qxChannelManager.connect(channelId, prop).get(30, java.util.concurrent.TimeUnit.SECONDS);
+            qxDeviceService.getManager().connect(channelId, prop)
+                    .get(30, java.util.concurrent.TimeUnit.SECONDS);
             return true;
         } catch (Exception e) {
-            log.warn("连接设备失败 neOid={}: {}", neOid, e.getMessage());
+            log.warn("connectSingle failed neOid={}: {}", neOid, e.getMessage());
             return false;
         }
     }
@@ -186,7 +195,7 @@ public class QxConnectionService {
     public boolean isConnected(String neOid) {
         ChannelID channelId = channelIdMap.get(neOid);
         if (channelId == null) return false;
-        QxChannel ch = qxChannelManager.getRegistry().getIfPresent(channelId);
+        QxChannel ch = qxDeviceService.getManager().getRegistry().getIfPresent(channelId);
         return ch != null && ch.isOnline();
     }
 
@@ -199,10 +208,10 @@ public class QxConnectionService {
 
         reconnectManager.cancel(neOid);
         try {
-            qxChannelManager.shut(channelId);
+            qxDeviceService.getManager().shut(channelId);
             return true;
         } catch (Exception e) {
-            log.warn("断开设备失败 neOid={}: {}", neOid, e.getMessage());
+            log.warn("disconnectSingle failed neOid={}: {}", neOid, e.getMessage());
             return false;
         }
     }
@@ -223,10 +232,9 @@ public class QxConnectionService {
             item.put("ipAddr", device.getIpAddr());
             item.put("connectionStatus", device.getConnectionStatus());
 
-            // 检查 SDK 中的实际状态
             ChannelID channelId = channelIdMap.get(device.getNeId());
             if (channelId != null) {
-                QxChannel ch = qxChannelManager.getRegistry().getIfPresent(channelId);
+                QxChannel ch = qxDeviceService.getManager().getRegistry().getIfPresent(channelId);
                 if (ch != null) {
                     item.put("sdkState", ch.getState().name());
                     item.put("online", ch.isOnline());
@@ -250,7 +258,7 @@ public class QxConnectionService {
         summary.put("online", online);
         summary.put("offline", total - online);
         summary.put("total", total);
-        summary.put("sdkChannels", qxChannelManager.allChannels().size());
+        summary.put("sdkChannels", qxDeviceService.getManager().allChannels().size());
         return summary;
     }
 
@@ -308,7 +316,6 @@ public class QxConnectionService {
      * 构建 ChannelProp（全局配置 + 单设备覆盖）
      */
     private ChannelProp buildChannelProp(String neOid) {
-        // 先查单设备覆盖
         Optional<ConnProfile> deviceProfile = connProfileRepository.findByScopeAndNeOid("NE", neOid);
         ConnProfile profile = deviceProfile.orElse(
                 connProfileRepository.findByScopeAndNeOid("GLOBAL", "").orElse(null));
@@ -323,19 +330,14 @@ public class QxConnectionService {
         return new ChannelProp(channelId, profile.getUsername(), profile.getPassword());
     }
 
-    /**
-     * 获取设备有效端口（单设备覆盖 > 全局配置 > 默认9900）
-     */
     public int getEffectivePort(DeviceAccessConfig device) {
         ConnProfile globalProfile = connProfileRepository.findByScopeAndNeOid("GLOBAL", "").orElse(null);
         return getPort(device, globalProfile);
     }
 
     public int getPort(DeviceAccessConfig device, ConnProfile globalProfile) {
-        // 单设备覆盖
         Optional<ConnProfile> deviceProfile = connProfileRepository.findByScopeAndNeOid("NE", device.getNeId());
         if (deviceProfile.isPresent()) return deviceProfile.map(ConnProfile::getPort).orElse(9900);
-        // 全局
         if (globalProfile != null) return globalProfile.getPort();
         return 9900;
     }

@@ -1,13 +1,13 @@
 package com.optel.qxinspection.service;
 
 import com.optel.qxinspection.entity.mysql.Dmeo;
-import com.optel.qxinspection.entity.mysql.DmNe;
 import com.optel.qxinspection.entity.sqlite.DeviceAccessConfig;
 import com.optel.qxinspection.entity.sqlite.InspectionRound;
 import com.optel.qxinspection.entity.sqlite.OpticalPowerInspection;
-import com.optel.qxinspection.qx.QxCommandService;
-import com.optel.qxinspection.qx.message.LaserAttributeResponse;
-import com.optel.qxinspection.qx.message.PortRecord;
+import com.optel.qxinspection.laser.LaserAttributeAckData;
+import com.optel.qxinspection.laser.LaserAttributeGetData;
+import com.optel.qxinspection.laser.service.ILaserService;
+import com.optel.qxinspection.util.OidUtil;
 import com.optel.qxinspection.repository.mysql.DmeoRepository;
 import com.optel.qxinspection.repository.mysql.DmNeRepository;
 import com.optel.qxinspection.repository.sqlite.DeviceAccessConfigRepository;
@@ -28,7 +28,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 @RequiredArgsConstructor
 public class InspectionService {
 
-    private final QxCommandService qxCommandService;
+    private final ILaserService laserService;
     private final QxConnectionService qxConnectionService;
     private final DeviceAccessConfigRepository deviceAccessConfigRepository;
     private final InspectionRoundRepository inspectionRoundRepository;
@@ -409,11 +409,6 @@ public class InspectionService {
     }
 
     private void inspectDevice(InspectionRound round, DeviceAccessConfig device) {
-        String ip = device.getIpAddr();
-        int port = qxConnectionService.getEffectivePort(device);
-        String user = device.getUsername();
-        String password = device.getPassword();
-
         // 确保设备已连接（未连接则先建立连接）
         if (!qxConnectionService.isConnected(device.getNeId())) {
             log.debug("设备未连接，尝试建立连接: {}", device.getNeName());
@@ -430,40 +425,33 @@ public class InspectionService {
             return;
         }
 
+        String neId = device.getNeId();
+
         // 逐端口查询激光器属性 0x2410
         List<OpticalPowerInspection> records = new ArrayList<>();
         int failPorts = 0;
 
         for (Dmeo dmeoPort : opticalPorts) {
+            int subrackId = OidUtil.getSubrackId(dmeoPort.getOid());
+            int slotId = OidUtil.getSlotId(dmeoPort.getOid());
+            int portId = OidUtil.getPortId(dmeoPort.getOid());
+            int portType = dmeoPort.getType() != null ? dmeoPort.getType() : 0xFF;
+
             try {
-                // 从 dmeo oid 解析 0x2410 所需参数
-                int slotId = parseSlotId(dmeoPort.getOid());
-                int portId = parsePortId(dmeoPort.getOid());
-                int portType = dmeoPort.getType() != null ? dmeoPort.getType() : 0xFF;
+                LaserAttributeGetData req = LaserAttributeGetData.builder()
+                        .subcaseNo(subrackId)
+                        .slotId(slotId)
+                        .portType(portType)
+                        .portSubType(0xFF)
+                        .portId(portId)
+                        .backup(0)
+                        .build();
 
-                LaserAttributeResponse laser = qxCommandService.queryLaserAttribute(
-                        ip, port, user, password,
-                        slotId, portType, 0xFF, portId);
-
-                // 构建 PortRecord 用于 buildRecord
-                PortRecord p = new PortRecord();
-                p.setSubcaseNo(1);
-                p.setSlotId(slotId);
-                p.setPortType(portType);
-                p.setPortSubType(0xFF);
-                p.setPortId(portId);
-
-                OpticalPowerInspection record = buildRecord(round, device, p, laser);
-                records.add(record);
+                LaserAttributeAckData laser = laserService.attributeGet(neId, req);
+                records.add(buildRecord(round, device, slotId, portType, 0xFF, portId, laser));
             } catch (Exception e) {
                 failPorts++;
-                // 记录失败端口
-                PortRecord failP = new PortRecord();
-                failP.setSlotId(parseSlotId(dmeoPort.getOid()));
-                failP.setPortType(dmeoPort.getType() != null ? dmeoPort.getType() : 0xFF);
-                failP.setPortSubType(0xFF);
-                failP.setPortId(parsePortId(dmeoPort.getOid()));
-                records.add(buildFailRecord(round, device, failP, e.getMessage()));
+                records.add(buildFailRecord(round, device, slotId, portType, 0xFF, portId, e.getMessage()));
                 log.debug("端口查询失败: {} oid={}, {}",
                         device.getNeName(), dmeoPort.getOid(), e.getMessage());
             }
@@ -499,53 +487,19 @@ public class InspectionService {
         return result;
     }
 
-    /**
-     * 从 dmeo oid 解析盘号（slotId）
-     * oid 格式: "neOid:slotOid:portOid" 或更深层级
-     */
-    private int parseSlotId(String oid) {
-        if (oid == null || oid.isEmpty()) {
-            return 1;
-        }
-        String[] parts = oid.split(":");
-        return parts.length >= 2 ? parseIntSafe(parts[1]) : 1;
-    }
-
-    /**
-     * 从 dmeo oid 解析端口号（portId）
-     * oid 格式: "neOid:slotOid:portOid" 或更深层级
-     */
-    private int parsePortId(String oid) {
-        if (oid == null || oid.isEmpty()) {
-            return 0xFFFF;
-        }
-        String[] parts = oid.split(":");
-        return parts.length >= 3 ? parseIntSafe(parts[2]) : 0xFFFF;
-    }
-
-    private int parseIntSafe(String s) {
-        try {
-            // oid 段可能含点分（如 "1.3.6"），取最后一段数字
-            int lastDot = s.lastIndexOf('.');
-            String num = lastDot >= 0 ? s.substring(lastDot + 1) : s;
-            return Integer.parseInt(num);
-        } catch (NumberFormatException e) {
-            return 0;
-        }
-    }
-
     private OpticalPowerInspection buildRecord(InspectionRound round, DeviceAccessConfig device,
-                                                PortRecord port, LaserAttributeResponse laser) {
+                                                int slotId, int portType, int portSubType, int portId,
+                                                LaserAttributeAckData laser) {
         OpticalPowerInspection r = new OpticalPowerInspection();
         r.setRoundId(round.getId());
         r.setNeId(device.getNeId());
         r.setNeName(device.getNeName());
         r.setNetworkName(device.getNetworkName());
         r.setNeTypeName(device.getNeTypeName());
-        r.setSlotNo(port.getSlotId());
-        r.setPortNo(port.getPortId());
-        r.setPortType(port.getPortType());
-        r.setPortSubType(port.getPortSubType());
+        r.setSlotNo(slotId);
+        r.setPortNo(portId);
+        r.setPortType(portType);
+        r.setPortSubType(portSubType);
         r.setInspectionTime(LocalDateTime.now());
 
         if (laser == null) {
@@ -554,16 +508,17 @@ public class InspectionService {
             return r;
         }
 
-        r.setSupported(laser.isSupported());
-        if (!laser.isSupported()) {
+        boolean supported = (laser.getSupportFlag() & 0x01) == 1;
+        r.setSupported(supported);
+        if (!supported) {
             return r;
         }
 
-        r.setLaserType(laser.getLaserTypeName());
-        r.setLaserDistance(laser.getDistanceName());
-        r.setModuleTypeKey(laser.getModuleTypeKey());
+        r.setLaserType(toLaserTypeName(laser.getLaserType()));
+        r.setLaserDistance(toDistanceName(laser.getLaserType(), laser.getDistance()));
+        r.setModuleTypeKey(toLaserTypeName(laser.getLaserType()) + "-" + toDistanceName(laser.getLaserType(), laser.getDistance()));
         r.setPartNumber(laser.getPartNumber());
-        r.setLaserWave(laser.getLaserWaveName());
+        r.setLaserWave(toLaserWaveName(laser.getLaserWave()));
         r.setTxPower((double) laser.getTranLaserPower());
         r.setRxPower((double) laser.getRecvLaserPower());
 
@@ -571,21 +526,59 @@ public class InspectionService {
     }
 
     private OpticalPowerInspection buildFailRecord(InspectionRound round, DeviceAccessConfig device,
-                                                    PortRecord port, String reason) {
+                                                    int slotId, int portType, int portSubType, int portId,
+                                                    String reason) {
         OpticalPowerInspection r = new OpticalPowerInspection();
         r.setRoundId(round.getId());
         r.setNeId(device.getNeId());
         r.setNeName(device.getNeName());
         r.setNetworkName(device.getNetworkName());
         r.setNeTypeName(device.getNeTypeName());
-        r.setSlotNo(port.getSlotId());
-        r.setPortNo(port.getPortId());
-        r.setPortType(port.getPortType());
-        r.setPortSubType(port.getPortSubType());
+        r.setSlotNo(slotId);
+        r.setPortNo(portId);
+        r.setPortType(portType);
+        r.setPortSubType(portSubType);
         r.setSupported(false);
         r.setFailReason(reason);
         r.setInspectionTime(LocalDateTime.now());
         return r;
+    }
+
+    private static String toLaserTypeName(int laserType) {
+        return switch (laserType) {
+            case 1 -> "2.5G";
+            case 2 -> "622M";
+            case 3 -> "155M";
+            case 4 -> "10G";
+            case 0x10 -> "GE";
+            default -> "Unknown(" + laserType + ")";
+        };
+    }
+
+    private static String toDistanceName(int laserType, int distance) {
+        if (laserType == 0x10) {
+            return switch (distance) {
+                case 0x10 -> "SX";
+                case 0x11 -> "LX";
+                default -> "Unknown(" + distance + ")";
+            };
+        }
+        return switch (distance) {
+            case 1 -> "I";
+            case 2 -> "S";
+            case 3 -> "L";
+            case 4 -> "V";
+            default -> "Unknown(" + distance + ")";
+        };
+    }
+
+    private static String toLaserWaveName(int laserWave) {
+        return switch (laserWave) {
+            case 1 -> "1310nm";
+            case 2 -> "1550nm";
+            case 3 -> "850nm";
+            default -> "Unknown(" + laserWave + ")";
+        };
     }
 
 

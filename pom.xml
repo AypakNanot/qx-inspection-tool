@@ -135,6 +135,24 @@
                     </compilerArgs>
                 </configuration>
             </plugin>
+            <plugin>
+                <groupId>com.optel.qx.sdk</groupId>
+                <artifactId>opt-qx-cci-codec-plugin</artifactId>
+                <version>1.0.0</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>generate</goal>
+                        </goals>
+                        <phase>generate-sources</phase>
+                    </execution>
+                </executions>
+                <configuration>
+                    <schemaDirectory>src/main/schema</schemaDirectory>
+                    <outputDirectory>${project.build.directory}/generated-sources/codec</outputDirectory>
+                    <packageName>com.optel.qxinspection</packageName>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
 </project>

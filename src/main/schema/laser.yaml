@@ -1,0 +1,47 @@
+# 激光器属性查询 (0x2410)
+# 仅包含巡检工具需要的命令
+schema:
+  namespace: "laser"
+
+messages:
+  - cmdCode: 0x2410
+    operation: "激光器属性查询"
+    request:
+      className: "LaserAttributeGetData"
+      fields:
+        - { name: subcaseNo,   type: BYTE,  desc: "子架序号" }
+        - { name: slotId,      type: BYTE,  desc: "槽位序号" }
+        - { name: portType,    type: BYTE,  desc: "端口类型" }
+        - { name: portSubType, type: BYTE,  desc: "端口子类型" }
+        - { name: portId,      type: SHORT, desc: "端口号" }
+        - { name: backup,      type: SHORT, desc: "备用" }
+    response:
+      className: "LaserAttributeAckData"
+      fields:
+        - { name: subcaseNo,      type: BYTE,     desc: "子架序号" }
+        - { name: slotId,         type: BYTE,     desc: "槽位序号" }
+        - { name: portType,       type: BYTE,     desc: "端口类型" }
+        - { name: portSubType,    type: BYTE,     desc: "端口子类型" }
+        - { name: portId,         type: SHORT,    desc: "端口号" }
+        - { name: laserWave,      type: BYTE,     desc: "波长: 1=1310nm, 2=1550nm, 3=850nm" }
+        - { name: autoProState,   type: BYTE,     desc: "ALS状态" }
+        - { name: autoProControl, type: BYTE,     desc: "ALS控制" }
+        - { name: manualControl,  type: BYTE,     desc: "手动控制" }
+        - { name: laserState,     type: BYTE,     desc: "激光器状态: 1=开, 2=关" }
+        - { name: delayTime,      type: SHORT,    desc: "ALS延迟" }
+        - { name: laserType,      type: BYTE,     desc: "速率: 1=2.5G, 2=622M, 3=155M, 4=10G, 0x10=GE" }
+        - { name: distance,       type: BYTE,     desc: "距离档: 1=I, 2=S, 3=L, 4=V; GE: 0x10=SX, 0x11=LX" }
+        - { name: backup,         type: SHORT,    desc: "备用" }
+        - { name: vendorName,     type: STRING, len: 16, desc: "厂商" }
+        - { name: partNumber,     type: STRING, len: 16, desc: "型号编码" }
+        - { name: serialNumber,   type: STRING, len: 16, desc: "序列号" }
+        - { name: laserVersion,   type: STRING, len: 4,  desc: "版本号" }
+        - { name: productYear,    type: SHORT,    desc: "生产年" }
+        - { name: productMonth,   type: SHORT,    desc: "生产月" }
+        - { name: productDay,     type: SHORT,    desc: "生产日" }
+        - { name: productSpare,   type: SHORT,    desc: "备用" }
+        - { name: laserOpenTime,  type: BYTE,     desc: "LOS后打开时间" }
+        - { name: moduleBackup,   type: BIN,   len: 6,  desc: "备用x6" }
+        - { name: supportFlag,    type: BYTE,     desc: "bit0: 1=支持光功率" }
+        - { name: recvLaserPower, type: FLOAT,    desc: "接收光功率 dBm" }
+        - { name: tranLaserPower, type: FLOAT,    desc: "发送光功率 dBm" }

@@ -1,0 +1,41 @@
+# 设备管理命令 (0x2406 端口查询, 0x2403 槽位查询)
+schema:
+  namespace: "device"
+
+messages:
+  # 0x2406 物理端口安装查询
+  - cmdCode: 0x2406
+    operation: "物理端口查询"
+    request:
+      className: "PortQueryGetData"
+      fields:
+        - { name: subcaseNo,   type: BYTE,  desc: "子架序号" }
+        - { name: slotId,      type: BYTE,  desc: "槽位(0xFF=全部)" }
+        - { name: portType,    type: BYTE,  desc: "端口类型(0xFF=全部)" }
+        - { name: portSubType, type: BYTE,  desc: "端口子类型(0xFF=全部)" }
+        - { name: portId,      type: SHORT, desc: "端口号(0xFFFF=全部)" }
+        - { name: backup,      type: SHORT, desc: "备用" }
+    response:
+      className: "PortQueryAckData"
+      fields:
+        - { name: result, type: INT }
+        - { name: count,  type: INT }
+        - { name: records, listOf: "PortQueryRecord", countField: "count" }
+
+  - cmdCode: 0x2406
+    operation: "物理端口查询记录"
+    response:
+      className: "PortQueryRecord"
+      listRecord: true
+      fields:
+        - { name: subcaseNo,     type: BYTE }
+        - { name: slotId,        type: BYTE }
+        - { name: portType,      type: BYTE }
+        - { name: portSubType,   type: BYTE }
+        - { name: portId,        type: SHORT }
+        - { name: reqPortType,   type: BYTE }
+        - { name: reqPortSubType, type: BYTE }
+        - { name: realPortType,  type: BYTE }
+        - { name: realPortSubType, type: BYTE }
+        - { name: adminState,    type: BYTE }
+        - { name: runState,      type: BYTE }

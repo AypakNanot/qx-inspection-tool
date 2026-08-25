@@ -1,0 +1,66 @@
+# 时钟查询命令 (0x241A 模块状态, 0x241B 时钟源状态)
+schema:
+  namespace: "clock"
+
+messages:
+  # 0x241A 时钟模块状态查询
+  - cmdCode: 0x241A
+    operation: "时钟模块状态查询"
+    request:
+      className: "ClockUnitStateGetData"
+      fields:
+        - { name: subcaseNo,   type: BYTE,  desc: "子架序号" }
+        - { name: slotId,      type: BYTE,  desc: "槽位序号" }
+        - { name: portType,    type: BYTE,  desc: "端口类型(0x11)" }
+        - { name: portSubType, type: BYTE,  desc: "端口子类型(0x07)" }
+        - { name: portId,      type: SHORT, desc: "端口号(1)" }
+        - { name: backup1,     type: BYTE,  desc: "备用" }
+        - { name: backup2,     type: BYTE,  desc: "备用" }
+    response:
+      className: "ClockUnitStateAckData"
+      fields:
+        - { name: subcaseNo,   type: BYTE,  desc: "子架序号" }
+        - { name: slotId,      type: BYTE,  desc: "槽位序号" }
+        - { name: portType,    type: BYTE,  desc: "端口类型" }
+        - { name: portSubType, type: BYTE,  desc: "端口子类型" }
+        - { name: portId,      type: SHORT, desc: "端口号" }
+        - { name: clockState,  type: BYTE,  desc: "时钟状态: 1=锁定, 2=保持, 3=自由振荡" }
+        - { name: backup,      type: BYTE,  desc: "备用" }
+
+  # 0x241B 时钟源状态查询
+  - cmdCode: 0x241B
+    operation: "时钟源状态查询"
+    request:
+      className: "ClockStateGetData"
+      fields:
+        - { name: subcaseNo,   type: BYTE,  desc: "子架序号" }
+        - { name: slotId,      type: BYTE,  desc: "槽位序号(0)" }
+        - { name: portType,    type: BYTE,  desc: "端口类型(0=不用)" }
+        - { name: portSubType, type: BYTE,  desc: "端口子类型(0=不用)" }
+        - { name: portId,      type: SHORT, desc: "端口号(0=不用)" }
+        - { name: clockType,   type: BYTE,  desc: "时钟类别: 1=系统时钟, 2=导出时钟" }
+        - { name: queryScope,  type: BYTE,  desc: "查询范围: 1=所有可选, 2=当前所选, 3=实际使用" }
+    response:
+      className: "ClockStateAckData"
+      fields:
+        - { name: subcaseNo,        type: BYTE,  desc: "子架序号" }
+        - { name: slotId,           type: BYTE,  desc: "槽位序号" }
+        - { name: portType,         type: BYTE,  desc: "端口类型" }
+        - { name: portSubType,      type: BYTE,  desc: "端口子类型" }
+        - { name: portId,           type: SHORT, desc: "端口号" }
+        - { name: clockSourceState, type: BYTE,  desc: "时钟源状态: 1=可用, 2=不可用" }
+        - { name: priority,         type: BYTE,  desc: "优先级(1-254, 1最高)" }
+        - { name: rForceSSM,       type: BYTE,  desc: "接收SSM强制值(0xEE=无强制)" }
+        - { name: realSSM,          type: BYTE,  desc: "接收SSM实际值" }
+        - { name: sForceFlag,       type: BYTE,  desc: "强制发送SSM: 1=禁止, 2=允许" }
+        - { name: sForceSSM,        type: BYTE,  desc: "强制发送SSM值" }
+        - { name: lockout,          type: BYTE,  desc: "闭锁: 1=是, 2=否" }
+        - { name: alter,            type: BYTE,  desc: "强制倒换: 1=是, 2=否" }
+        - { name: manul,            type: BYTE,  desc: "人工倒换: 1=是, 2=否" }
+        - { name: selReason,        type: BYTE,  desc: "选择原因码(1-10)" }
+        - { name: delayTime,        type: SHORT, desc: "倒换延迟(ms)" }
+        - { name: recoveryTime,     type: SHORT, desc: "倒换恢复时间(s)" }
+        - { name: dnuGroupId,       type: INT,   desc: "反向DNU组ID(0=无)" }
+        - { name: sanbit,           type: BYTE,  desc: "寄存器号(4-8)" }
+        - { name: backup1,          type: BYTE,  desc: "备用" }
+        - { name: backup2,          type: SHORT, desc: "备用" }

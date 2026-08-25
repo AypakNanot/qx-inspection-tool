@@ -1,8 +1,8 @@
 package com.optel.qxinspection.reconnect;
 
-import com.optel.qx.cci.channel.QxChannelManager;
 import com.optel.qx.cci.util.ChannelID;
 import com.optel.qx.cci.util.ChannelProp;
+import com.optel.qxinspection.qx.QxDeviceServiceImpl;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -14,13 +14,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /**
  * 断线重连管理器
  * 指数退避 + 抖动 + 熔断 + 全局并发信号量
- * 参考 ext-qx 的 QxReconnectManager 模式
  */
 @Slf4j
 @Component
 public class QxReconnectManager {
 
-    private final QxChannelManager manager;
+    private final QxDeviceServiceImpl qxDeviceService;
     private final int baseSec;
     private final int maxSec;
     private final int circuitThreshold;
@@ -32,13 +31,13 @@ public class QxReconnectManager {
     private final AtomicBoolean shutdown = new AtomicBoolean(false);
 
     public QxReconnectManager(
-            QxChannelManager manager,
+            QxDeviceServiceImpl qxDeviceService,
             @Value("${app.qx.reconnect.base-sec:5}") int baseSec,
             @Value("${app.qx.reconnect.max-sec:300}") int maxSec,
             @Value("${app.qx.reconnect.max-concurrent:10}") int maxConcurrent,
             @Value("${app.qx.reconnect.circuit-threshold:5}") int circuitThreshold,
             @Value("${app.qx.reconnect.circuit-cooldown-sec:300}") int circuitCooldownSec) {
-        this.manager = manager;
+        this.qxDeviceService = qxDeviceService;
         this.baseSec = baseSec;
         this.maxSec = maxSec;
         this.circuitThreshold = circuitThreshold;
@@ -132,7 +131,7 @@ public class QxReconnectManager {
         st.inFlight.set(true);
         try {
             log.info("尝试重连 neOid={}, attempt={}", neOid, attempt);
-            manager.connect(channelId, channelProp).get(connectTimeoutSec(), TimeUnit.SECONDS);
+            qxDeviceService.getManager().connect(channelId, channelProp).get(connectTimeoutSec(), TimeUnit.SECONDS);
             log.info("重连成功 neOid={}", neOid);
             states.remove(neOid);
         } catch (Exception e) {
