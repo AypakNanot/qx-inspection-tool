@@ -36,6 +36,10 @@ public class InspectionService {
     private final DmNeRepository dmNeRepository;
     private final DmeoRepository dmeoRepository;
     private final ThresholdService thresholdService;
+    private final SysConfigService sysConfigService;
+
+    private static final String KEY_CONCURRENCY = "collect.concurrency";
+    private static final String KEY_MAX_ROUNDS = "collect.maxRounds";
 
     @Value("${app.inspection.concurrency:10}")
     private int concurrency;
@@ -49,6 +53,9 @@ public class InspectionService {
     @jakarta.annotation.PostConstruct
     public void init() {
         thresholdService.initDefaultGlobalRule();
+        // 从数据库加载采集参数（覆盖@Value默认值）
+        concurrency = Integer.parseInt(sysConfigService.get(KEY_CONCURRENCY, String.valueOf(concurrency)));
+        maxRounds = Integer.parseInt(sysConfigService.get(KEY_MAX_ROUNDS, String.valueOf(maxRounds)));
     }
 
     /** 当前运行中的轮次（用于进度查询） */
@@ -639,6 +646,8 @@ public class InspectionService {
     public void updateCollectParams(int concurrency, int maxRounds) {
         this.concurrency = concurrency;
         this.maxRounds = maxRounds;
+        sysConfigService.set(KEY_CONCURRENCY, String.valueOf(concurrency));
+        sysConfigService.set(KEY_MAX_ROUNDS, String.valueOf(maxRounds));
         log.info("采集参数已更新: concurrency={}, maxRounds={}", concurrency, maxRounds);
     }
 }
