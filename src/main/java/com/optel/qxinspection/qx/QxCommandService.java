@@ -56,28 +56,29 @@ public class QxCommandService {
     }
 
     /**
-     * 查询单盘激光器属性 (0x2410)
+     * 查询单端口激光器属性 (0x2410)
      */
     public LaserAttributeResponse queryLaserAttribute(String ip, int port, String user, String password,
-                                                       int slotId) {
+                                                       int slotId, int portType, int portSubType, int portId) {
         try {
-            byte[] reqBytes = new LaserAttributeRequest(slotId).encode();
+            byte[] reqBytes = new LaserAttributeRequest(slotId, portType, portSubType, portId).encode();
             byte[] respBytes = sendCommand(ip, port, user, password, (short) 0x2410, reqBytes);
             if (respBytes == null || respBytes.length <= 4) {
-                log.warn("0x2410 响应为空: {}:{}, slot={}", ip, port, slotId);
+                log.warn("0x2410 响应为空: {}:{}, slot={}, port={}", ip, port, slotId, portId);
                 return null;
             }
             // 跳过4字节result码
             int resultCode = ByteBuffer.wrap(respBytes).getInt();
             if (resultCode != 0) {
-                log.warn("0x2410 返回错误码: {}, 设备={}:{}, slot={}", resultCode, ip, port, slotId);
+                log.warn("0x2410 返回错误码: {}, 设备={}:{}, slot={}, port={}", resultCode, ip, port, slotId, portId);
                 return null;
             }
             byte[] payload = new byte[respBytes.length - 4];
             System.arraycopy(respBytes, 4, payload, 0, payload.length);
             return LaserAttributeResponse.decode(payload);
         } catch (Exception e) {
-            log.error("0x2410 查询失败: {}:{}, slot={}, {}", ip, port, slotId, e.getMessage());
+            log.error("0x2410 查询失败: {}:{}, slot={}, port={}, {}",
+                    ip, port, slotId, portId, e.getMessage());
             return null;
         }
     }
