@@ -66,6 +66,8 @@ app:
   inspection:
     concurrency: 10
     max-rounds: 10
+    # 光口端口过滤：dmeo表 cid=5 且 defName 匹配的模式（OR逻辑，支持扩展）
+    port-defname-patterns: "STM%,GE%,10GE%,40GE%,100GE%"
     # 定时巡检配置
     scheduled:
       enabled: false

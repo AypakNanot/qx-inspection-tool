@@ -1,5 +1,6 @@
 package com.optel.qxinspection.service;
 
+import com.optel.qxinspection.entity.mysql.Dmeo;
 import com.optel.qxinspection.entity.mysql.DmNe;
 import com.optel.qxinspection.entity.sqlite.DeviceAccessConfig;
 import com.optel.qxinspection.entity.sqlite.InspectionRound;
@@ -7,6 +8,7 @@ import com.optel.qxinspection.entity.sqlite.OpticalPowerInspection;
 import com.optel.qxinspection.qx.QxCommandService;
 import com.optel.qxinspection.qx.message.LaserAttributeResponse;
 import com.optel.qxinspection.qx.message.PortRecord;
+import com.optel.qxinspection.repository.mysql.DmeoRepository;
 import com.optel.qxinspection.repository.mysql.DmNeRepository;
 import com.optel.qxinspection.repository.sqlite.DeviceAccessConfigRepository;
 import com.optel.qxinspection.repository.sqlite.InspectionRoundRepository;
@@ -27,10 +29,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class InspectionService {
 
     private final QxCommandService qxCommandService;
+    private final QxConnectionService qxConnectionService;
     private final DeviceAccessConfigRepository deviceAccessConfigRepository;
     private final InspectionRoundRepository inspectionRoundRepository;
     private final OpticalPowerInspectionRepository powerRecordRepository;
     private final DmNeRepository dmNeRepository;
+    private final DmeoRepository dmeoRepository;
     private final ThresholdService thresholdService;
 
     @Value("${app.inspection.concurrency:10}")
@@ -38,6 +42,9 @@ public class InspectionService {
 
     @Value("${app.inspection.max-rounds:10}")
     private int maxRounds;
+
+    @Value("${app.inspection.port-defname-patterns:STM%,GE%}")
+    private String portDefnamePatterns;
 
     @jakarta.annotation.PostConstruct
     public void init() {
@@ -403,36 +410,65 @@ public class InspectionService {
 
     private void inspectDevice(InspectionRound round, DeviceAccessConfig device) {
         String ip = device.getIpAddr();
-        int port = device.getPort() != null ? device.getPort() : 9900;
+        int port = qxConnectionService.getEffectivePort(device);
         String user = device.getUsername();
         String password = device.getPassword();
 
-        // 查询端口列表
-        List<PortRecord> ports = qxCommandService.queryPorts(ip, port, user, password);
-        if (ports.isEmpty()) {
-            log.debug("设备无端口: {}", device.getNeName());
+        // 确保设备已连接（未连接则先建立连接）
+        if (!qxConnectionService.isConnected(device.getNeId())) {
+            log.debug("设备未连接，尝试建立连接: {}", device.getNeName());
+            boolean connected = qxConnectionService.connectSingle(device.getNeId());
+            if (!connected) {
+                throw new RuntimeException("设备连接失败: " + device.getNeName());
+            }
+        }
+
+        // 从 dmeo 表查询该网元下的光口端口（替代 0x2406）
+        List<Dmeo> opticalPorts = queryOpticalPorts(device.getNeId());
+        if (opticalPorts.isEmpty()) {
+            log.debug("设备无光口端口: {}", device.getNeName());
             return;
         }
 
-        // 逐端口查询激光器属性
+        // 逐端口查询激光器属性 0x2410
         List<OpticalPowerInspection> records = new ArrayList<>();
         int failPorts = 0;
 
-        for (PortRecord p : ports) {
+        for (Dmeo dmeoPort : opticalPorts) {
             try {
+                // 从 dmeo oid 解析 0x2410 所需参数
+                int[] params = parseOidForLaser(dmeoPort.getOid(), dmeoPort.getType());
+                int slotId = params[0];
+                int portType = params[1];
+                int portSubType = params[2];
+                int portId = params[3];
+
                 LaserAttributeResponse laser = qxCommandService.queryLaserAttribute(
                         ip, port, user, password,
-                        p.getSubcaseNo(), p.getPortType(), p.getPortSubType(), p.getPortId());
+                        slotId, portType, portSubType, portId);
+
+                // 构建简化的 PortRecord 用于 buildRecord
+                PortRecord p = new PortRecord();
+                p.setSubcaseNo(1);
+                p.setSlotId(slotId);
+                p.setPortType(portType);
+                p.setPortSubType(portSubType);
+                p.setPortId(portId);
 
                 OpticalPowerInspection record = buildRecord(round, device, p, laser);
                 records.add(record);
             } catch (Exception e) {
                 failPorts++;
-                // 记录失败的端口
-                OpticalPowerInspection record = buildFailRecord(round, device, p, e.getMessage());
-                records.add(record);
-                log.debug("端口查询失败: {} slot={} port={}, {}",
-                        device.getNeName(), p.getSlotId(), p.getPortId(), e.getMessage());
+                // 记录失败端口
+                PortRecord failP = new PortRecord();
+                int[] failParams = parseOidForLaser(dmeoPort.getOid(), dmeoPort.getType());
+                failP.setSlotId(failParams[0]);
+                failP.setPortType(failParams[1]);
+                failP.setPortSubType(failParams[2]);
+                failP.setPortId(failParams[3]);
+                records.add(buildFailRecord(round, device, failP, e.getMessage()));
+                log.debug("端口查询失败: {} oid={}, {}",
+                        device.getNeName(), dmeoPort.getOid(), e.getMessage());
             }
         }
 
@@ -441,7 +477,57 @@ public class InspectionService {
             powerRecordRepository.saveAll(records);
         }
 
-        log.debug("设备巡检完成: {}, 端口数={}, 失败={}", device.getNeName(), ports.size(), failPorts);
+        log.debug("设备巡检完成: {}, 光口数={}, 失败={}", device.getNeName(), opticalPorts.size(), failPorts);
+    }
+
+    /**
+     * 从 dmeo 表查询该网元下符合 defName 模式的光口端口
+     */
+    private List<Dmeo> queryOpticalPorts(String neId) {
+        String[] patterns = parsePatterns();
+        // neId 对应 dmeo 的 oid 前缀（第一段），用 LIKE 匹配
+        return dmeoRepository.findByNeOidAndDefNamePatterns(
+                5, neId,
+                patterns[0], patterns[1], patterns[2], patterns[3], patterns[4]);
+    }
+
+    private static final int MAX_PATTERNS = 5;
+
+    private String[] parsePatterns() {
+        String[] raw = portDefnamePatterns.split(",");
+        String[] result = new String[MAX_PATTERNS];
+        for (int i = 0; i < MAX_PATTERNS; i++) {
+            result[i] = i < raw.length ? raw[i].trim() : null;
+        }
+        return result;
+    }
+
+    /**
+     * 从 dmeo oid 解析 0x2410 所需参数
+     * oid 格式: "neOid:slotOid:portOid" 或更深层级
+     * 返回: [slotId, portType, portSubType, portId]
+     */
+    private int[] parseOidForLaser(String oid, Integer dmeoType) {
+        if (oid == null || oid.isEmpty()) {
+            return new int[]{1, 0xFF, 0xFF, 0xFFFF};
+        }
+        String[] parts = oid.split(":");
+        int slotId = parts.length >= 2 ? parseIntSafe(parts[1]) : 1;
+        int portId = parts.length >= 3 ? parseIntSafe(parts[2]) : 0xFFFF;
+        // portType 优先使用 dmeo.type，无则用 0xFF
+        int portType = dmeoType != null ? dmeoType : 0xFF;
+        return new int[]{slotId, portType, 0xFF, portId};
+    }
+
+    private int parseIntSafe(String s) {
+        try {
+            // oid 段可能含点分（如 "1.3.6"），取最后一段数字
+            int lastDot = s.lastIndexOf('.');
+            String num = lastDot >= 0 ? s.substring(lastDot + 1) : s;
+            return Integer.parseInt(num);
+        } catch (NumberFormatException e) {
+            return 0;
+        }
     }
 
     private OpticalPowerInspection buildRecord(InspectionRound round, DeviceAccessConfig device,

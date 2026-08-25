@@ -181,6 +181,16 @@ public class QxConnectionService {
     }
 
     /**
+     * 检查设备是否在线
+     */
+    public boolean isConnected(String neOid) {
+        ChannelID channelId = channelIdMap.get(neOid);
+        if (channelId == null) return false;
+        QxChannel ch = qxChannelManager.getRegistry().getIfPresent(channelId);
+        return ch != null && ch.isOnline();
+    }
+
+    /**
      * 单设备断开
      */
     public boolean disconnectSingle(String neOid) {
@@ -313,7 +323,15 @@ public class QxConnectionService {
         return new ChannelProp(channelId, profile.getUsername(), profile.getPassword());
     }
 
-    private int getPort(DeviceAccessConfig device, ConnProfile globalProfile) {
+    /**
+     * 获取设备有效端口（单设备覆盖 > 全局配置 > 默认9900）
+     */
+    public int getEffectivePort(DeviceAccessConfig device) {
+        ConnProfile globalProfile = connProfileRepository.findByScopeAndNeOid("GLOBAL", "").orElse(null);
+        return getPort(device, globalProfile);
+    }
+
+    public int getPort(DeviceAccessConfig device, ConnProfile globalProfile) {
         // 单设备覆盖
         Optional<ConnProfile> deviceProfile = connProfileRepository.findByScopeAndNeOid("NE", device.getNeId());
         if (deviceProfile.isPresent()) return deviceProfile.map(ConnProfile::getPort).orElse(9900);
