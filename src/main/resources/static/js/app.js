@@ -11,6 +11,7 @@ import { loadProgress, stopProgressPoll } from './progress.js';
 import { loadQueryRounds, loadQueryFilters, loadQueryResults, exportExcel, searchQuery, sortQueryBy } from './query.js';
 import { loadClockTopology, refreshClockTopology, resizeClockChart } from './clock.js';
 import { showToast } from './toast.js';
+import { loadSyncStatus, syncEssential, syncAll, syncSelectedTables } from './sync.js';
 
 /** 页面标题映射 */
 const TITLES = {
@@ -64,6 +65,9 @@ function switchPage(el) {
         loadClockTopology();
         setTimeout(resizeClockChart, 100);
     }
+    if (page === 'page-maintenance') {
+        loadSyncStatus();
+    }
 }
 
 /** 折叠面板展开/收起 */
@@ -114,6 +118,10 @@ window.searchQuery = searchQuery;
 window.sortQueryBy = sortQueryBy;
 window.refreshClockTopology = refreshClockTopology;
 window.showToast = showToast;
+window.loadSyncStatus = loadSyncStatus;
+window.syncEssential = syncEssential;
+window.syncAll = syncAll;
+window.syncSelectedTables = syncSelectedTables;
 
 // 初始化加载
 loadDevices();

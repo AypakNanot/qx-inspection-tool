@@ -536,7 +536,29 @@
 
             <!-- ========== 数据维护页 ========== -->
             <div class="page" id="page-maintenance">
+                <!-- MySQL → SQLite 同步 -->
                 <div class="card">
+                    <div class="card-title">MySQL → SQLite 数据同步</div>
+                    <div style="font-size:13px;color:#6b7280;margin-bottom:16px;">
+                        将 MySQL 老网管库中的数据同步到本地 SQLite，同步后所有查询走 SQLite（离线可用）。
+                    </div>
+                    <div id="syncStatus" style="font-size:13px;color:#374151;margin-bottom:16px;line-height:1.8;">
+                        加载中...
+                    </div>
+                    <div class="toolbar" style="margin-bottom:0;">
+                        <button class="btn btn-success" onclick="syncEssential()">同步必要表</button>
+                        <button class="btn btn-primary" onclick="syncAll()">同步全部表</button>
+                        <button class="btn btn-outline" onclick="loadSyncStatus()">刷新状态</button>
+                    </div>
+                    <div id="syncTablesSelect" style="margin-top:12px;display:none;">
+                        <div style="font-size:12px;color:#6b7280;margin-bottom:8px;">选择要同步的表：</div>
+                        <div id="syncTableList" style="max-height:200px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:6px;padding:8px;font-size:12px;"></div>
+                        <button class="btn btn-primary btn-sm" style="margin-top:8px;" onclick="syncSelectedTables()">同步选中表</button>
+                    </div>
+                    <div id="syncResult" style="margin-top:12px;font-size:12px;color:#6b7280;display:none;"></div>
+                </div>
+
+                <div class="card" style="margin-top:16px;">
                     <div class="card-title">数据清除</div>
                     <div style="font-size:13px;color:#6b7280;margin-bottom:16px;">
                         清除系统中的历史数据，包括巡检记录、巡检轮次、设备配置、连接配置、门限规则等。
