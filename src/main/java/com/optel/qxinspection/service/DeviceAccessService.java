@@ -1,90 +1,129 @@
 package com.optel.qxinspection.service;
 
-import com.optel.qxinspection.entity.mysql.*;
 import com.optel.qxinspection.entity.sqlite.ConnProfile;
 import com.optel.qxinspection.entity.sqlite.DeviceAccessConfig;
-import com.optel.qxinspection.repository.mysql.*;
 import com.optel.qxinspection.repository.sqlite.*;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
-import java.util.Map;
+import javax.sql.DataSource;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class DeviceAccessService {
 
-    private final DmNeRepository dmNeRepository;
-    private final DefDmNeRepository defDmNeRepository;
-    private final EmNeCommRepository emNeCommRepository;
-    private final DmRelationRepository dmRelationRepository;
-    private final DmNetRepository dmNetRepository;
-    private final DefDmNetworkRepository defDmNetworkRepository;
+    private final JdbcTemplate sqliteJdbc;
     private final DeviceAccessConfigRepository deviceAccessConfigRepository;
     private final ConnProfileRepository connProfileRepository;
     private final InspectionRoundRepository inspectionRoundRepository;
     private final OpticalPowerInspectionRepository opticalPowerInspectionRepository;
     private final ThresholdRuleRepository thresholdRuleRepository;
-    private final DmeoRepository dmeoRepository;
+
+    public DeviceAccessService(@Qualifier("sqliteDataSource") DataSource sqliteDs,
+                               DeviceAccessConfigRepository deviceAccessConfigRepository,
+                               ConnProfileRepository connProfileRepository,
+                               InspectionRoundRepository inspectionRoundRepository,
+                               OpticalPowerInspectionRepository opticalPowerInspectionRepository,
+                               ThresholdRuleRepository thresholdRuleRepository) {
+        this.sqliteJdbc = new JdbcTemplate(sqliteDs);
+        this.deviceAccessConfigRepository = deviceAccessConfigRepository;
+        this.connProfileRepository = connProfileRepository;
+        this.inspectionRoundRepository = inspectionRoundRepository;
+        this.opticalPowerInspectionRepository = opticalPowerInspectionRepository;
+        this.thresholdRuleRepository = thresholdRuleRepository;
+    }
 
     /**
-     * 从MySQL老库同步设备信息到SQLite本地库
-     * join: dmne + defdmne + emnecomm + dmrelation + dmnet + defdmnetwork
+     * 从SQLite已同步的表中生成设备配置
+     * 依赖维护页先同步: dmne, defdmne, dmeo, dmrelation, emnecomm
+     * @param networkFilter 网络名称筛选，为空则同步全部
      */
-    @Transactional
-    public void syncDevicesFromMySQL() {
-        log.info("开始从MySQL老库同步设备信息...");
+    @Transactional(transactionManager = "sqliteTransactionManager")
+    public void syncDevicesFromSQLite(String networkFilter) {
+        log.info("开始从SQLite同步表生成设备配置, 网络筛选: {}", networkFilter == null ? "全部" : networkFilter);
 
-        List<DmNe> allDevices = dmNeRepository.findAll();
+        // 检查必要的同步表是否存在
+        if (!isTableExists("dmne") || !isTableExists("emnecomm")) {
+            throw new IllegalStateException("设备数据尚未同步，请先在「维护 → 数据维护」页面执行同步");
+        }
+
+        // 查询所有设备
+        List<Map<String, Object>> allDevices = sqliteJdbc.queryForList("SELECT oid, type FROM \"dmne\"");
         log.info("查询到{}台设备", allDevices.size());
 
         // 预加载设备类型名称映射
-        Map<Integer, DefDmNe> typeMap = defDmNeRepository.findAll().stream()
-                .collect(Collectors.toMap(DefDmNe::getNeType, d -> d));
+        Map<Integer, Map<String, Object>> typeMap = sqliteJdbc.queryForList("SELECT neType, cName, eName FROM \"defdmne\"")
+                .stream().collect(Collectors.toMap(
+                        row -> ((Number) row.get("neType")).intValue(),
+                        row -> row, (a, b) -> a));
 
         // 从 dmeo 表（cid=2）加载网元实例名称
-        Map<String, String> neNameMap = dmeoRepository.findByCid(2).stream()
-                .collect(Collectors.toMap(Dmeo::getOid, d -> d.getName() != null ? d.getName() : ""));
+        Map<String, String> neNameMap = new HashMap<>();
+        for (Map<String, Object> row : sqliteJdbc.queryForList("SELECT oid, name FROM \"dmeo\" WHERE cid = 2")) {
+            neNameMap.put((String) row.get("oid"),
+                    row.get("name") != null ? (String) row.get("name") : "");
+        }
 
-        // 批量查询活跃通信配置
-        List<String> allOids = allDevices.stream().map(DmNe::getOid).toList();
-        Map<String, EmNeComm> commMap = emNeCommRepository.findActiveByOidIn(allOids).stream()
-                .collect(Collectors.toMap(EmNeComm::getOid, c -> c));
+        // 批量查询活跃通信配置（state=1）
+        List<String> allOids = allDevices.stream().map(d -> (String) d.get("oid")).toList();
+        Map<String, String> commMap = new HashMap<>();
+        if (!allOids.isEmpty()) {
+            int batchSize = 500;
+            for (int i = 0; i < allOids.size(); i += batchSize) {
+                List<String> batch = allOids.subList(i, Math.min(i + batchSize, allOids.size()));
+                String placeholders = batch.stream().map(o -> "?").collect(Collectors.joining(","));
+                List<Map<String, Object>> comms = sqliteJdbc.queryForList(
+                        "SELECT oid, ipAddr FROM \"emnecomm\" WHERE oid IN (" + placeholders + ") AND state = 1",
+                        batch.toArray());
+                for (Map<String, Object> c : comms) {
+                    commMap.put((String) c.get("oid"), (String) c.get("ipAddr"));
+                }
+            }
+        }
 
         // 批量查询网络归属（type=1 为归属关系）
         Map<String, String> netNameMap = buildNetworkNameMap(allOids);
 
-        // 预加载已有配置到 Map，避免循环中逐条查询
+        // 预加载已有配置
         Map<String, DeviceAccessConfig> existingMap = deviceAccessConfigRepository.findAll().stream()
                 .collect(Collectors.toMap(DeviceAccessConfig::getNeId, c -> c));
 
-        List<DeviceAccessConfig> toSave = new java.util.ArrayList<>();
+        List<DeviceAccessConfig> toSave = new ArrayList<>();
         int syncCount = 0;
-        for (DmNe dmNe : allDevices) {
-            String oid = dmNe.getOid();
-            EmNeComm comm = commMap.get(oid);
-            DefDmNe typeInfo = typeMap.get(dmNe.getType());
+        int skipCount = 0;
+        for (Map<String, Object> dmNe : allDevices) {
+            String oid = (String) dmNe.get("oid");
+            String ipAddr = commMap.get(oid);
+            Integer type = dmNe.get("type") != null ? ((Number) dmNe.get("type")).intValue() : null;
 
             // 跳过没有活跃IP的设备
-            if (comm == null || "0.0.0.0".equals(comm.getIpAddr())) {
+            if (ipAddr == null || "0.0.0.0".equals(ipAddr)) continue;
+
+            Map<String, Object> typeInfo = type != null ? typeMap.get(type) : null;
+            String neName = neNameMap.getOrDefault(oid,
+                    typeInfo != null ? (String) typeInfo.get("cName") : "Unknown");
+            String typeName = typeInfo != null ? (String) typeInfo.get("eName") :
+                    (type != null ? String.valueOf(type) : "Unknown");
+            String networkName = netNameMap.getOrDefault(oid, "");
+
+            // 按网络筛选
+            if (networkFilter != null && !networkFilter.isEmpty()
+                    && !networkFilter.equals(networkName)) {
+                skipCount++;
                 continue;
             }
-
-            String neName = neNameMap.getOrDefault(oid, typeInfo != null ? typeInfo.getCName() : "Unknown");
-            String typeName = typeInfo != null ? typeInfo.getEName() : String.valueOf(dmNe.getType());
-            String networkName = netNameMap.getOrDefault(oid, "");
 
             DeviceAccessConfig existing = existingMap.get(oid);
             if (existing != null) {
                 existing.setNeName(neName);
                 existing.setNeTypeName(typeName);
                 existing.setNetworkName(networkName);
-                existing.setIpAddr(comm.getIpAddr());
+                existing.setIpAddr(ipAddr);
                 toSave.add(existing);
             } else {
                 DeviceAccessConfig config = new DeviceAccessConfig();
@@ -92,7 +131,7 @@ public class DeviceAccessService {
                 config.setNeName(neName);
                 config.setNeTypeName(typeName);
                 config.setNetworkName(networkName);
-                config.setIpAddr(comm.getIpAddr());
+                config.setIpAddr(ipAddr);
                 config.setEnabled(true);
                 config.setConnectionStatus(0);
                 toSave.add(config);
@@ -100,42 +139,42 @@ public class DeviceAccessService {
             }
         }
 
-        // 批量保存，一次 flush
         deviceAccessConfigRepository.saveAll(toSave);
-
-        log.info("同步完成，新增{}台设备配置", syncCount);
+        log.info("同步完成，更新/新增{}台设备配置，跳过{}台", toSave.size(), skipCount);
     }
 
     /**
      * 构建网元oid → 网络名称映射
-     * 使用 dmeo 表（cid=1）获取网络实例名称，而非网络类型名称
      */
     private Map<String, String> buildNetworkNameMap(List<String> oids) {
-        // 查询所有网元的网络归属
-        List<DmRelation> relations = dmRelationRepository.findAll().stream()
-                .filter(r -> r.getType() == 1 && oids.contains(r.getOid()))
-                .toList();
+        // 查询所有归属关系（type=1）
+        List<Map<String, Object>> relations = sqliteJdbc.queryForList(
+                "SELECT oid, reo FROM \"dmrelation\" WHERE type = 1");
 
-        // 获取涉及的网络oid
+        // 筛选涉及当前网元的关系
+        Set<String> oidSet = new HashSet<>(oids);
         List<String> netOids = relations.stream()
-                .map(DmRelation::getReo)
+                .filter(r -> oidSet.contains((String) r.get("oid")))
+                .map(r -> (String) r.get("reo"))
                 .filter(reo -> reo != null && !reo.isEmpty())
                 .distinct()
                 .toList();
 
-        if (netOids.isEmpty()) {
-            return Map.of();
-        }
+        if (netOids.isEmpty()) return Map.of();
 
         // 从 dmeo 表（cid=1）获取网络实例名称
-        Map<String, String> netNameMap = dmeoRepository.findByCid(1).stream()
-                .collect(Collectors.toMap(Dmeo::getOid, d -> d.getName() != null ? d.getName() : d.getOid()));
+        Map<String, String> netNameMap = new HashMap<>();
+        for (Map<String, Object> row : sqliteJdbc.queryForList("SELECT oid, name FROM \"dmeo\" WHERE cid = 1")) {
+            String oid = (String) row.get("oid");
+            netNameMap.put(oid, row.get("name") != null ? (String) row.get("name") : oid);
+        }
 
         // 构建 网元oid → 网络名称
-        Map<String, String> result = new java.util.HashMap<>();
-        for (DmRelation rel : relations) {
-            String netName = netNameMap.getOrDefault(rel.getReo(), rel.getReo());
-            result.put(rel.getOid(), netName);
+        Map<String, String> result = new HashMap<>();
+        for (Map<String, Object> rel : relations) {
+            if (!oidSet.contains((String) rel.get("oid"))) continue;
+            String netOid = (String) rel.get("reo");
+            result.put((String) rel.get("oid"), netNameMap.getOrDefault(netOid, netOid));
         }
         return result;
     }
@@ -150,17 +189,10 @@ public class DeviceAccessService {
 
     /**
      * 选择性清除本地SQLite数据
-     * @param options 清除选项：
-     *   inspectionRecords - 巡检记录
-     *   inspectionRounds  - 巡检轮次
-     *   deviceConfigs     - 设备配置
-     *   connectionProfiles - 连接配置（值为 "all" 或网络名列表）
-     *   thresholdRules    - 门限规则
-     * @return 各表删除前的记录数
      */
     @Transactional(transactionManager = "sqliteTransactionManager")
     public Map<String, Long> clearSelectedData(Map<String, Object> options) {
-        Map<String, Long> counts = new java.util.LinkedHashMap<>();
+        Map<String, Long> counts = new LinkedHashMap<>();
 
         boolean clearRecords = Boolean.TRUE.equals(options.get("inspectionRecords"));
         boolean clearRounds = Boolean.TRUE.equals(options.get("inspectionRounds"));
@@ -179,7 +211,6 @@ public class DeviceAccessService {
             inspectionRoundRepository.deleteAllInBatch();
         }
 
-        // 连接配置：必须在设备配置删除之前处理（按网络筛选依赖设备配置数据）
         if (connOpt != null) {
             log.info("清除连接配置, connOpt type={}, value={}", connOpt.getClass().getName(), connOpt);
             if ("all".equals(connOpt)) {
@@ -193,11 +224,9 @@ public class DeviceAccessService {
                         .filter(d -> d.getNetworkName() != null && networkNames.contains(d.getNetworkName()))
                         .map(DeviceAccessConfig::getNeId)
                         .toList();
-                log.info("匹配到{}台设备, neIds={}", neIds.size(), neIds.size() > 5 ? neIds.size() + "个" : neIds);
+                log.info("匹配到{}台设备", neIds.size());
                 if (!neIds.isEmpty()) {
                     List<ConnProfile> allProfiles = connProfileRepository.findAll();
-                    log.info("总连接配置数={}, NE配置数={}", allProfiles.size(),
-                            allProfiles.stream().filter(p -> "NE".equals(p.getScope())).count());
                     List<ConnProfile> toDelete = allProfiles.stream()
                             .filter(p -> "NE".equals(p.getScope()) && neIds.contains(p.getNeOid()))
                             .toList();
@@ -205,8 +234,6 @@ public class DeviceAccessService {
                     counts.put("连接配置(" + String.join(",", networkNames) + ")", c);
                     connProfileRepository.deleteAll(toDelete);
                     log.info("已删除{}条连接配置", c);
-                } else {
-                    log.info("未匹配到设备, 跳过连接配置清除");
                 }
             }
         }
@@ -226,9 +253,6 @@ public class DeviceAccessService {
         return counts;
     }
 
-    /**
-     * 获取所有网络名称列表（从设备配置中提取）
-     */
     public List<String> getAllNetworkNames() {
         return deviceAccessConfigRepository.findAll().stream()
                 .map(DeviceAccessConfig::getNetworkName)
@@ -238,15 +262,27 @@ public class DeviceAccessService {
                 .toList();
     }
 
-    public boolean testMySQLConnection() {
-        try {
-            long count = dmNeRepository.count();
-            log.info("MySQL数据库连接测试成功，共有{}台设备", count);
-            return true;
-        } catch (Exception e) {
-            log.error("MySQL数据库连接测试失败", e);
-            return false;
+    /**
+     * 从 SQLite 同步表中获取可用网络列表（无需先同步设备配置）
+     */
+    public List<String> getAvailableNetworkNames() {
+        if (!isTableExists("dmrelation") || !isTableExists("dmeo")) {
+            return List.of();
         }
+        // 从 dmeo(cid=1) 获取网络实例名称
+        Map<String, String> netNameMap = new HashMap<>();
+        for (Map<String, Object> row : sqliteJdbc.queryForList("SELECT oid, name FROM \"dmeo\" WHERE cid = 1")) {
+            String oid = (String) row.get("oid");
+            netNameMap.put(oid, row.get("name") != null ? (String) row.get("name") : oid);
+        }
+        // 从 dmrelation 获取归属关系中的网络 oid，取网络名称
+        return sqliteJdbc.queryForList("SELECT DISTINCT reo FROM \"dmrelation\" WHERE type = 1 AND reo IS NOT NULL AND reo != ''")
+                .stream()
+                .map(row -> netNameMap.getOrDefault((String) row.get("reo"), ""))
+                .filter(n -> !n.isEmpty())
+                .distinct()
+                .sorted()
+                .toList();
     }
 
     public boolean testSQLiteConnection() {
@@ -258,5 +294,12 @@ public class DeviceAccessService {
             log.error("SQLite数据库连接测试失败", e);
             return false;
         }
+    }
+
+    private boolean isTableExists(String table) {
+        Long count = sqliteJdbc.queryForObject(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?",
+                Long.class, table);
+        return count != null && count > 0;
     }
 }

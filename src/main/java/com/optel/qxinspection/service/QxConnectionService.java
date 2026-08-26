@@ -183,9 +183,14 @@ public class QxConnectionService {
     /**
      * 单设备连接
      */
-    public boolean connectSingle(String neOid) {
+    public Map<String, Object> connectSingle(String neOid) {
+        Map<String, Object> result = new LinkedHashMap<>();
         DeviceAccessConfig config = deviceAccessConfigRepository.findByNeId(neOid).orElse(null);
-        if (config == null) return false;
+        if (config == null) {
+            result.put("success", false);
+            result.put("message", "设备配置不存在");
+            return result;
+        }
 
         ConnProfile globalProfile = connProfileRepository.findByScopeAndNeOid("GLOBAL", "").orElse(null);
         int port = getPort(config, globalProfile);
@@ -198,16 +203,27 @@ public class QxConnectionService {
         channelIdMap.put(neOid, channelId);
 
         ChannelProp prop = buildChannelProp(neOid);
-        if (prop == null) return false;
+        if (prop == null) {
+            result.put("success", false);
+            result.put("message", "未配置连接凭证，请先设置连接配置");
+            return result;
+        }
 
         try {
             qxDeviceService.getManager().connect(channelId, prop)
                     .get(30, java.util.concurrent.TimeUnit.SECONDS);
-            return true;
+            result.put("success", true);
+            result.put("message", "连接成功");
+        } catch (java.util.concurrent.TimeoutException e) {
+            log.warn("connectSingle timeout neOid={}", neOid);
+            result.put("success", false);
+            result.put("message", "连接超时，请检查设备地址和端口是否正确");
         } catch (Exception e) {
             log.warn("connectSingle failed neOid={}: {}", neOid, e.getMessage());
-            return false;
+            result.put("success", false);
+            result.put("message", "连接失败: " + e.getMessage());
         }
+        return result;
     }
 
     /**
@@ -223,18 +239,26 @@ public class QxConnectionService {
     /**
      * 单设备断开
      */
-    public boolean disconnectSingle(String neOid) {
+    public Map<String, Object> disconnectSingle(String neOid) {
+        Map<String, Object> result = new LinkedHashMap<>();
         ChannelID channelId = channelIdMap.get(neOid);
-        if (channelId == null) return false;
+        if (channelId == null) {
+            result.put("success", false);
+            result.put("message", "设备未连接");
+            return result;
+        }
 
         reconnectManager.cancel(neOid);
         try {
             qxDeviceService.getManager().shut(channelId);
-            return true;
+            result.put("success", true);
+            result.put("message", "已断开");
         } catch (Exception e) {
             log.warn("disconnectSingle failed neOid={}: {}", neOid, e.getMessage());
-            return false;
+            result.put("success", false);
+            result.put("message", "断开失败: " + e.getMessage());
         }
+        return result;
     }
 
     /**

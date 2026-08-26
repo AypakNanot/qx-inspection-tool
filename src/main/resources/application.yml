@@ -1,32 +1,17 @@
 spring:
   application:
     name: qx-inspection-tool
-  
-  # 主数据源配置 - MySQL（老库只读）
+
   datasource:
-    mysql:
-      url: jdbc:mysql://127.0.0.1:3306/Uniview?useUnicode=true&characterEncoding=GBK&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
-      username: root
-      password: root123
-      driver-class-name: com.mysql.jdbc.Driver
-      # 连接池配置
-      hikari:
-        maximum-pool-size: 10
-        minimum-idle: 5
-        connection-timeout: 30000
-        idle-timeout: 600000
-        max-lifetime: 1800000
-    
     # SQLite数据源配置（本地缓存库）
     sqlite:
       url: "jdbc:sqlite:./data/qx_inspection.db?busy_timeout=5000&journal_mode=WAL"
       driver-class-name: org.sqlite.JDBC
-      # SQLite不需要用户名密码
       hikari:
         maximum-pool-size: 1
         minimum-idle: 1
 
-  # JPA配置（各数据源方言和ddl-auto在Config类中单独设置）
+  # JPA配置
   jpa:
     open-in-view: false
     show-sql: false

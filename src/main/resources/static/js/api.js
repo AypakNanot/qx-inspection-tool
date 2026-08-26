@@ -32,7 +32,7 @@ export async function put(path, body) {
         body: JSON.stringify(body)
     });
     if (!res.ok) throw new Error(res.statusText);
-    return res;
+    return res.json();
 }
 
 /** DELETE 请求 */

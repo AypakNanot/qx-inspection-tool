@@ -424,11 +424,12 @@ public class InspectionService {
         // 确保设备已连接（未连接则先建立连接）
         if (!qxConnectionService.isConnected(device.getNeId())) {
             log.debug("设备未连接，尝试建立连接: {}", device.getNeName());
-            boolean connected = qxConnectionService.connectSingle(device.getNeId());
-            if (!connected) {
-                records.add(buildDeviceFailRecord(round, device, "设备连接失败"));
+            Map<String, Object> connResult = qxConnectionService.connectSingle(device.getNeId());
+            if (!Boolean.TRUE.equals(connResult.get("success"))) {
+                String reason = (String) connResult.getOrDefault("message", "设备连接失败");
+                records.add(buildDeviceFailRecord(round, device, reason));
                 powerRecordRepository.saveAll(records);
-                throw new RuntimeException("设备连接失败");
+                throw new RuntimeException(reason);
             }
         }
 

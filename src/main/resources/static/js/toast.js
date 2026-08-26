@@ -13,9 +13,9 @@ function ensureContainer() {
     return container;
 }
 
-const ICONS = { success: '✓', error: '✗', info: 'ℹ' };
-const COLORS = { success: '#16a34a', error: '#dc2626', info: '#1a73e8' };
-const BGS = { success: '#f0fdf4', error: '#fef2f2', info: '#eff6ff' };
+const ICONS = { success: '✓', error: '✗', warning: '!', info: 'ℹ' };
+const COLORS = { success: '#16a34a', error: '#dc2626', warning: '#d97706', info: '#1a73e8' };
+const BGS = { success: '#f0fdf4', error: '#fef2f2', warning: '#fffbeb', info: '#eff6ff' };
 
 /**
  * 显示 toast 通知

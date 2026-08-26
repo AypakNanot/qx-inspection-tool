@@ -86,8 +86,8 @@ public class ClockInspectionService {
 
         // 确保设备已连接
         if (!qxConnectionService.isConnected(neId)) {
-            boolean connected = qxConnectionService.connectSingle(neId);
-            if (!connected) {
+            Map<String, Object> connResult = qxConnectionService.connectSingle(neId);
+            if (!Boolean.TRUE.equals(connResult.get("success"))) {
                 return null;
             }
         }

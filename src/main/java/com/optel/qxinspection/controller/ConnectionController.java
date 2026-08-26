@@ -34,14 +34,12 @@ public class ConnectionController {
 
     @PostMapping("/connect/{neOid}")
     public ResponseEntity<Map<String, Object>> connectSingle(@PathVariable String neOid) {
-        boolean ok = qxConnectionService.connectSingle(neOid);
-        return ResponseEntity.ok(Map.of("neOid", neOid, "success", ok));
+        return ResponseEntity.ok(qxConnectionService.connectSingle(neOid));
     }
 
     @PostMapping("/disconnect/{neOid}")
     public ResponseEntity<Map<String, Object>> disconnectSingle(@PathVariable String neOid) {
-        boolean ok = qxConnectionService.disconnectSingle(neOid);
-        return ResponseEntity.ok(Map.of("neOid", neOid, "success", ok));
+        return ResponseEntity.ok(qxConnectionService.disconnectSingle(neOid));
     }
 
     // ===== 状态查询 =====

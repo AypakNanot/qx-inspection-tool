@@ -536,11 +536,47 @@
 
             <!-- ========== 数据维护页 ========== -->
             <div class="page" id="page-maintenance">
-                <!-- MySQL → SQLite 同步 -->
+                <!-- MySQL 连接配置 -->
                 <div class="card">
+                    <div class="card-title">MySQL 连接配置</div>
+                    <div style="font-size:13px;color:#6b7280;margin-bottom:16px;">
+                        配置 MySQL 老网管库连接参数，仅在数据同步时使用，同步完成后自动断开。
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:600px;">
+                        <div class="form-group">
+                            <label style="font-size:12px;color:#6b7280;">主机地址</label>
+                            <input type="text" id="mysqlHost" placeholder="127.0.0.1" style="width:100%;padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+                        </div>
+                        <div class="form-group">
+                            <label style="font-size:12px;color:#6b7280;">端口</label>
+                            <input type="number" id="mysqlPort" value="3306" style="width:100%;padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+                        </div>
+                        <div class="form-group">
+                            <label style="font-size:12px;color:#6b7280;">数据库名</label>
+                            <input type="text" id="mysqlDatabase" placeholder="Uniview" style="width:100%;padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+                        </div>
+                        <div class="form-group">
+                            <label style="font-size:12px;color:#6b7280;">用户名</label>
+                            <input type="text" id="mysqlUsername" placeholder="root" style="width:100%;padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+                        </div>
+                        <div class="form-group" style="grid-column:span 2;">
+                            <label style="font-size:12px;color:#6b7280;">密码</label>
+                            <input type="password" id="mysqlPassword" placeholder="密码" style="width:100%;padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+                        </div>
+                    </div>
+                    <div class="toolbar" style="margin-top:12px;margin-bottom:0;">
+                        <button class="btn btn-outline btn-sm" onclick="testMysqlConnection()">测试连接</button>
+                        <button class="btn btn-primary btn-sm" onclick="saveMysqlConfig()">保存配置</button>
+                        <span id="mysqlTestResult" style="font-size:12px;margin-left:8px;"></span>
+                    </div>
+                </div>
+
+                <!-- MySQL → SQLite 同步 -->
+                <div class="card" style="margin-top:16px;">
                     <div class="card-title">MySQL → SQLite 数据同步</div>
                     <div style="font-size:13px;color:#6b7280;margin-bottom:16px;">
                         将 MySQL 老网管库中的数据同步到本地 SQLite，同步后所有查询走 SQLite（离线可用）。
+                        <br>同步完成后 MySQL 连接自动断开。
                     </div>
                     <div id="syncStatus" style="font-size:13px;color:#374151;margin-bottom:16px;line-height:1.8;">
                         加载中...

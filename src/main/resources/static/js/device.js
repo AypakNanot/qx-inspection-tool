@@ -251,8 +251,15 @@ export async function loadDevices() {
 }
 
 /** 加载网络筛选下拉框 */
-function loadNetworkFilter() {
-    const networks = [...new Set(allDevices.map(d => d.networkName).filter(Boolean))];
+async function loadNetworkFilter() {
+    // 优先从同步表获取网络列表（即使未同步设备也能选择）
+    let networks = [];
+    try {
+        networks = await get('/database/networks');
+    } catch (e) {
+        // 接口不存在或失败，回退到从设备列表提取
+        networks = [...new Set(allDevices.map(d => d.networkName).filter(Boolean))];
+    }
     // 筛选下拉框
     const select = document.getElementById('filterNetwork');
     if (select) {
@@ -270,7 +277,7 @@ function loadNetworkFilter() {
         });
         select.value = current;
     }
-    // 连接/断开网络选择
+    // 连接/断开/同步网络选择
     const connSel = document.getElementById('connNetwork');
     if (connSel) {
         const current = connSel.value;
@@ -319,9 +326,16 @@ export async function saveGlobalConfig() {
 /** 同步设备列表（从MySQL导入） */
 export async function syncDevices() {
     try {
-        await post('/database/sync-devices');
-        showToast('设备同步完成', 'success');
-        loadDevices();
+        var network = document.getElementById('connNetwork').value || '';
+        var body = network ? { network: network } : {};
+        var result = await post('/database/sync-devices', body);
+        if (result.status === 'SUCCESS') {
+            var msg = network ? '设备同步完成（' + network + '）' : '设备同步完成';
+            showToast(msg, 'success');
+            loadDevices();
+        } else {
+            showToast(result.message || '同步失败', 'error');
+        }
     } catch (e) { showToast('同步失败: ' + e.message, 'error'); }
 }
 
@@ -384,11 +398,11 @@ export function connectAll(btn) {
         const params = network ? '?network=' + encodeURIComponent(network) : '';
         const d = await post('/connection/connect-all' + params);
         const scope = network || '全网';
-        let msg = '[' + scope + '] 连接完成: 共 ' + d.total + ' 台, 成功 ' + d.success + ' 台, 失败 ' + d.fail + ' 台';
-        if (d.failedDevices && d.failedDevices.length > 0) {
-            msg += ' (' + d.failedDevices.join(', ') + ')';
+        let msg = '[' + scope + '] 连接完成: 共 ' + d.total + ' 台，成功 ' + d.success + ' 台';
+        if (d.fail > 0) {
+            msg += '，失败 ' + d.fail + ' 台';
         }
-        showToast(msg, d.fail > 0 ? 'error' : 'success');
+        showToast(msg, d.fail > 0 ? 'warning' : 'success');
         loadDevices();
     });
 }
@@ -410,7 +424,11 @@ export async function disconnectAll() {
 export async function connectSingle(neOid, neName) {
     try {
         const d = await post('/connection/connect/' + encodeURIComponent(neOid));
-        showToast((neName || neOid) + ' 连接' + (d.success ? '成功' : '失败'), d.success ? 'success' : 'error');
+        if (d.success) {
+            showToast((neName || neOid) + ' 连接成功', 'success');
+        } else {
+            showToast((neName || neOid) + ' ' + (d.message || '连接失败'), 'error');
+        }
         loadDevices();
     } catch (e) { showToast('连接失败: ' + e.message, 'error'); }
 }
@@ -419,7 +437,11 @@ export async function connectSingle(neOid, neName) {
 export async function disconnectSingle(neOid, neName) {
     try {
         const d = await post('/connection/disconnect/' + encodeURIComponent(neOid));
-        showToast((neName || neOid) + ' 已断开', 'success');
+        if (d.success) {
+            showToast((neName || neOid) + ' 已断开', 'success');
+        } else {
+            showToast((neName || neOid) + ' ' + (d.message || '断开失败'), 'error');
+        }
         loadDevices();
     } catch (e) { showToast('断开失败: ' + e.message, 'error'); }
 }

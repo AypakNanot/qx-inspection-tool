@@ -1,12 +1,12 @@
 package com.optel.qxinspection.service;
 
 import com.optel.qxinspection.config.SyncConfig;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.BatchPreparedStatementSetter;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import javax.sql.DataSource;
 import java.sql.PreparedStatement;
@@ -19,9 +19,10 @@ import java.util.stream.Collectors;
 @Service
 public class DynamicSyncService {
 
-    private final JdbcTemplate mysqlJdbc;
     private final JdbcTemplate sqliteJdbc;
+    private final MysqlConnectionManager mysqlConnectionManager;
     private final SyncConfig syncConfig;
+    private final TransactionTemplate sqliteTransactionTemplate;
 
     private static final Map<String, String> TYPE_MAP = Map.ofEntries(
             Map.entry("varchar", "TEXT"),
@@ -56,18 +57,21 @@ public class DynamicSyncService {
             Map.entry("json", "TEXT")
     );
 
-    public DynamicSyncService(@Qualifier("mysqlDataSource") DataSource mysqlDs,
-                               @Qualifier("sqliteDataSource") DataSource sqliteDs,
-                               SyncConfig syncConfig) {
-        this.mysqlJdbc = new JdbcTemplate(mysqlDs);
+    public DynamicSyncService(@Qualifier("sqliteDataSource") DataSource sqliteDs,
+                               MysqlConnectionManager mysqlConnectionManager,
+                               SyncConfig syncConfig,
+                               @Qualifier("sqliteTransactionManager") org.springframework.transaction.PlatformTransactionManager sqliteTxManager) {
         this.sqliteJdbc = new JdbcTemplate(sqliteDs);
+        this.mysqlConnectionManager = mysqlConnectionManager;
         this.syncConfig = syncConfig;
+        this.sqliteTransactionTemplate = new TransactionTemplate(sqliteTxManager);
     }
 
     /**
      * 获取 MySQL 中所有用户表
      */
     public List<String> getAllTables() {
+        JdbcTemplate mysqlJdbc = mysqlConnectionManager.getJdbcTemplate();
         return mysqlJdbc.queryForList(
                 "SELECT TABLE_NAME FROM information_schema.TABLES " +
                 "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE' " +
@@ -81,7 +85,19 @@ public class DynamicSyncService {
      */
     public Map<String, Object> getSyncStatus() {
         Map<String, Object> status = new LinkedHashMap<>();
-        List<String> allTables = getAllTables();
+        List<String> allTables;
+        try {
+            allTables = getAllTables();
+        } catch (Exception e) {
+            status.put("error", "MySQL 未连接: " + e.getMessage());
+            status.put("totalTables", 0);
+            status.put("essentialTables", syncConfig.getEssential());
+            status.put("syncedCount", 0);
+            status.put("notSyncedCount", 0);
+            status.put("synced", List.of());
+            status.put("notSynced", List.of());
+            return status;
+        }
         List<String> essential = syncConfig.getEssential();
         List<String> exclude = syncConfig.getExclude();
 
@@ -128,19 +144,24 @@ public class DynamicSyncService {
      * 同步指定表
      */
     public Map<String, Object> syncTables(List<String> tables) {
+        JdbcTemplate mysqlJdbc = mysqlConnectionManager.getJdbcTemplate();
         Map<String, Object> result = new LinkedHashMap<>();
         long totalRows = 0;
         long startTime = System.currentTimeMillis();
 
-        for (String table : tables) {
-            try {
-                long rows = syncSingleTable(table);
-                result.put(table, rows);
-                totalRows += rows;
-            } catch (Exception e) {
-                log.error("同步表 {} 失败", table, e);
-                result.put(table, "ERROR: " + e.getMessage());
+        try {
+            for (String table : tables) {
+                try {
+                    long rows = syncSingleTable(mysqlJdbc, table);
+                    result.put(table, rows);
+                    totalRows += rows;
+                } catch (Exception e) {
+                    log.error("同步表 {} 失败", table, e);
+                    result.put(table, "ERROR: " + e.getMessage());
+                }
             }
+        } finally {
+            mysqlConnectionManager.close();
         }
 
         long elapsed = System.currentTimeMillis() - startTime;
@@ -152,25 +173,19 @@ public class DynamicSyncService {
     /**
      * 同步单张表
      */
-    private long syncSingleTable(String table) {
+    private long syncSingleTable(JdbcTemplate mysqlJdbc, String table) {
         log.info("开始同步表: {}", table);
 
         // 1. 获取 MySQL 表结构
-        List<Map<String, String>> columns = getMysqlColumns(table);
+        List<Map<String, String>> columns = getMysqlColumns(mysqlJdbc, table);
         if (columns.isEmpty()) {
-            throw new RuntimeException("表 " + table + " 不存在或无列信息");
+            throw new RuntimeException("同步表结构获取失败，请检查 MySQL 连接是否正常");
         }
 
         // 2. 获取主键列
-        List<String> primaryKeys = getMysqlPrimaryKeys(table);
+        List<String> primaryKeys = getMysqlPrimaryKeys(mysqlJdbc, table);
 
-        // 3. 在 SQLite 中建表
-        createSqliteTable(table, columns, primaryKeys);
-
-        // 4. 清空旧数据
-        sqliteJdbc.execute("DELETE FROM \"" + table + "\"");
-
-        // 5. 批量读取 MySQL 数据，写入 SQLite
+        // 3. 从 MySQL 读取所有数据（不在事务中）
         String mysqlSql = "SELECT * FROM `" + table + "`";
         String[] colNames = columns.stream()
                 .map(c -> c.get("COLUMN_NAME"))
@@ -182,11 +197,8 @@ public class DynamicSyncService {
                 Arrays.stream(colNames).map(c -> "\"" + c + "\"").collect(Collectors.joining(","))
                 + ") VALUES (" + placeholders + ")";
 
-        long rowCount = 0;
         int batchSize = syncConfig.getBatchSize();
-
-        // 分页读取 MySQL 数据，批量写入 SQLite
-        List<Object[]> batch = new ArrayList<>();
+        List<Object[]> allData = new ArrayList<>();
         int offset = 0;
         while (true) {
             String pagedSql = mysqlSql + " LIMIT " + batchSize + " OFFSET " + offset;
@@ -198,25 +210,36 @@ public class DynamicSyncService {
                 for (int i = 0; i < colNames.length; i++) {
                     values[i] = row.get(colNames[i]);
                 }
-                batch.add(values);
-                rowCount++;
+                allData.add(values);
             }
-
-            batchInsert(sqliteSql, batch);
-            batch.clear();
             offset += batchSize;
-
             if (rows.size() < batchSize) break;
         }
+        log.info("表 {} 从 MySQL 读取 {} 行", table, allData.size());
 
-        log.info("表 {} 同步完成, 共 {} 行", table, rowCount);
-        return rowCount;
+        // 4. 在事务中写入 SQLite（建表 + 清空 + 批量插入）
+        final long[] rowCount = {0};
+        sqliteTransactionTemplate.execute(status -> {
+            createSqliteTable(table, columns, primaryKeys);
+            sqliteJdbc.execute("DELETE FROM \"" + table + "\"");
+
+            // 分批写入
+            for (int i = 0; i < allData.size(); i += batchSize) {
+                List<Object[]> batch = allData.subList(i, Math.min(i + batchSize, allData.size()));
+                batchInsert(sqliteSql, batch);
+                rowCount[0] += batch.size();
+            }
+            return null;
+        });
+
+        log.info("表 {} 同步完成, 共 {} 行", table, rowCount[0]);
+        return rowCount[0];
     }
 
     /**
      * 获取 MySQL 表的列信息
      */
-    private List<Map<String, String>> getMysqlColumns(String table) {
+    private List<Map<String, String>> getMysqlColumns(JdbcTemplate mysqlJdbc, String table) {
         return mysqlJdbc.queryForList(
                 "SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT, " +
                 "CHARACTER_MAXIMUM_LENGTH, NUMERIC_PRECISION, NUMERIC_SCALE " +
@@ -240,7 +263,7 @@ public class DynamicSyncService {
     /**
      * 获取 MySQL 表的主键列
      */
-    private List<String> getMysqlPrimaryKeys(String table) {
+    private List<String> getMysqlPrimaryKeys(JdbcTemplate mysqlJdbc, String table) {
         return mysqlJdbc.queryForList(
                 "SELECT COLUMN_NAME FROM information_schema.KEY_COLUMN_USAGE " +
                 "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND CONSTRAINT_NAME = 'PRIMARY' " +
@@ -254,7 +277,6 @@ public class DynamicSyncService {
      */
     private void createSqliteTable(String table, List<Map<String, String>> columns,
                                     List<String> primaryKeys) {
-        // 先删除旧表
         sqliteJdbc.execute("DROP TABLE IF EXISTS \"" + table + "\"");
 
         StringBuilder sql = new StringBuilder();
@@ -268,7 +290,6 @@ public class DynamicSyncService {
             colDefs.add("  \"" + colName + "\" " + sqliteType + nullable);
         }
 
-        // 添加主键约束
         if (!primaryKeys.isEmpty()) {
             String pkCols = primaryKeys.stream()
                     .map(pk -> "\"" + pk + "\"")
@@ -283,20 +304,13 @@ public class DynamicSyncService {
         sqliteJdbc.execute(sql.toString());
     }
 
-    /**
-     * MySQL 类型 → SQLite 类型
-     */
     private String mapType(String mysqlType) {
         if (mysqlType == null) return "TEXT";
         String lower = mysqlType.toLowerCase();
-        // 处理 varchar(N) 等带长度的类型
         String base = lower.contains("(") ? lower.substring(0, lower.indexOf("(")) : lower;
         return TYPE_MAP.getOrDefault(base, "TEXT");
     }
 
-    /**
-     * 批量插入
-     */
     private void batchInsert(String sql, List<Object[]> batch) {
         sqliteJdbc.batchUpdate(sql, new BatchPreparedStatementSetter() {
             @Override
@@ -329,9 +343,6 @@ public class DynamicSyncService {
         });
     }
 
-    /**
-     * 检查 SQLite 中表是否存在
-     */
     private boolean isTableExistsSqlite(String table) {
         Long count = sqliteJdbc.queryForObject(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?",
@@ -340,11 +351,11 @@ public class DynamicSyncService {
     }
 
     /**
-     * 清除所有动态同步的表（非 JPA 实体表）
+     * 清除所有动态同步的表
      */
     public Map<String, Long> clearSyncData() {
         Map<String, Long> result = new LinkedHashMap<>();
-        List<String> allTables = getAllTables();
+        List<String> allTables = getSyncedTableNames();
         for (String table : allTables) {
             if (isTableExistsSqlite(table)) {
                 long count = sqliteJdbc.queryForObject(
@@ -357,7 +368,19 @@ public class DynamicSyncService {
     }
 
     /**
-     * 从 SQLite 动态查询（指定表、字段、条件）
+     * 获取 SQLite 中已同步的表名（不依赖 MySQL 连接）
+     */
+    private List<String> getSyncedTableNames() {
+        return sqliteJdbc.queryForList(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' " +
+                "AND name NOT IN ('device_access_config','conn_profile','inspection_round'," +
+                "'optical_power_inspection','threshold_rule','sys_config')",
+                String.class
+        );
+    }
+
+    /**
+     * 从 SQLite 动态查询
      */
     public List<Map<String, Object>> query(String table, List<String> fields,
                                             Map<String, Object> conditions, String orderBy,

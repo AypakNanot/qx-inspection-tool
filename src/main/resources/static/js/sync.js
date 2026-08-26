@@ -2,8 +2,65 @@
  * MySQL → SQLite 动态同步模块
  */
 
-import { get, post } from './api.js';
+import { get, post, put } from './api.js';
 import { showToast, withLoading } from './toast.js';
+
+/** 加载 MySQL 配置到表单 */
+export async function loadMysqlConfig() {
+    try {
+        const cfg = await get('/sync/mysql-config');
+        document.getElementById('mysqlHost').value = cfg.host || '';
+        document.getElementById('mysqlPort').value = cfg.port || 3306;
+        document.getElementById('mysqlDatabase').value = cfg.database || '';
+        document.getElementById('mysqlUsername').value = cfg.username || '';
+        // 密码不回显，只标记是否已配置
+        if (cfg.password) {
+            document.getElementById('mysqlPassword').placeholder = '已配置（留空保持不变）';
+        }
+    } catch (e) {
+        console.error('loadMysqlConfig', e);
+    }
+}
+
+/** 保存 MySQL 配置 */
+export function saveMysqlConfig() {
+    var btn = event.target;
+    withLoading(btn, async function() {
+        var body = {
+            host: document.getElementById('mysqlHost').value.trim(),
+            port: parseInt(document.getElementById('mysqlPort').value) || 3306,
+            database: document.getElementById('mysqlDatabase').value.trim(),
+            username: document.getElementById('mysqlUsername').value.trim(),
+            password: document.getElementById('mysqlPassword').value
+        };
+        var result = await put('/sync/mysql-config', body);
+        if (result.status === 'SUCCESS') {
+            showToast('MySQL 配置已保存', 'success');
+            document.getElementById('mysqlPassword').value = '';
+            document.getElementById('mysqlPassword').placeholder = '已配置（留空保持不变）';
+        } else {
+            showToast(result.message || '保存失败', 'error');
+        }
+    });
+}
+
+/** 测试 MySQL 连接（测试已保存的配置） */
+export function testMysqlConnection() {
+    var btn = event.target;
+    var resultEl = document.getElementById('mysqlTestResult');
+    withLoading(btn, async function() {
+        var result = await post('/sync/mysql-test');
+        if (result.status === 'SUCCESS') {
+            resultEl.textContent = result.message;
+            resultEl.style.color = '#16a34a';
+            showToast(result.message, 'success');
+        } else {
+            resultEl.textContent = result.message;
+            resultEl.style.color = '#dc2626';
+            showToast(result.message, 'error');
+        }
+    });
+}
 
 /** 加载同步状态 */
 export async function loadSyncStatus() {
@@ -16,12 +73,15 @@ export async function loadSyncStatus() {
         const essential = status.essentialTables || [];
 
         el.textContent = '';
-        addStatusLine(el, 'MySQL 总表数：' + total);
-        addStatusLine(el, '已同步：' + synced + '  ', '#16a34a');
-        addStatusLine(el, '未同步：' + notSynced + '  ', notSynced > 0 ? '#dc2626' : '#16a34a');
+        if (status.error) {
+            addStatusLine(el, status.error, '#dc2626');
+        } else {
+            addStatusLine(el, 'MySQL 总表数：' + total);
+            addStatusLine(el, '已同步：' + synced + '  ', '#16a34a');
+            addStatusLine(el, '未同步：' + notSynced + '  ', notSynced > 0 ? '#dc2626' : '#16a34a');
+        }
         addStatusLine(el, '必要表：' + essential.length + ' 张 (' + essential.join(', ') + ')');
 
-        // 渲染表选择列表
         renderTableList(status);
     } catch (e) {
         document.getElementById('syncStatus').textContent = '加载失败: ' + e.message;
