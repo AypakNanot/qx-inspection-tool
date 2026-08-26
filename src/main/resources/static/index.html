@@ -329,10 +329,6 @@
                                 <label>保留轮次上限</label>
                                 <input type="number" id="paramMaxRounds" value="10" min="1" max="100" style="width:80px">
                             </div>
-                            <div class="form-group" style="justify-content:flex-end">
-                                <label>&nbsp;</label>
-                                <button class="btn btn-primary btn-sm" onclick="saveCollectParams()">保存</button>
-                            </div>
                         </div>
                         <div id="collectParamsMsg" style="font-size:12px;color:#16a34a;margin-top:8px;display:none"></div>
                         <div class="form-row" style="margin-top:10px;gap:24px;">
@@ -346,6 +342,10 @@
                             </label>
                         </div>
                         <div style="font-size:12px;color:#9ca3af;margin-top:8px;">并发设备数：多设备同时采集的线程数；保留轮次：超龄轮次自动清理<br>自动连接：未在线设备跳过采集；自动断开：巡检结束后释放所有设备连接</div>
+                        <div style="margin-top:10px;">
+                            <button class="btn btn-outline btn-sm" onclick="loadCollectParams()">查询</button>
+                            <button class="btn btn-primary btn-sm" onclick="saveCollectParams()">保存</button>
+                        </div>
                     </div>
                 </div>
 

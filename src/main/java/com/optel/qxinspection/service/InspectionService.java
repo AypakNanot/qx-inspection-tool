@@ -59,6 +59,8 @@ public class InspectionService {
         maxRounds = Integer.parseInt(sysConfigService.get(KEY_MAX_ROUNDS, String.valueOf(maxRounds)));
         autoConnect = Boolean.parseBoolean(sysConfigService.get(KEY_AUTO_CONNECT, "true"));
         autoDisconnect = Boolean.parseBoolean(sysConfigService.get(KEY_AUTO_DISCONNECT, "true"));
+        log.info("采集参数加载: concurrency={}, maxRounds={}, autoConnect={}, autoDisconnect={}",
+                concurrency, maxRounds, autoConnect, autoDisconnect);
     }
 
     /** 是否巡检时自动连接未在线设备 */
@@ -709,10 +711,14 @@ public class InspectionService {
         this.maxRounds = maxRounds;
         this.autoConnect = autoConnect;
         this.autoDisconnect = autoDisconnect;
-        sysConfigService.set(KEY_CONCURRENCY, String.valueOf(concurrency));
-        sysConfigService.set(KEY_MAX_ROUNDS, String.valueOf(maxRounds));
-        sysConfigService.set(KEY_AUTO_CONNECT, String.valueOf(autoConnect));
-        sysConfigService.set(KEY_AUTO_DISCONNECT, String.valueOf(autoDisconnect));
+        try {
+            sysConfigService.set(KEY_CONCURRENCY, String.valueOf(concurrency));
+            sysConfigService.set(KEY_MAX_ROUNDS, String.valueOf(maxRounds));
+            sysConfigService.set(KEY_AUTO_CONNECT, String.valueOf(autoConnect));
+            sysConfigService.set(KEY_AUTO_DISCONNECT, String.valueOf(autoDisconnect));
+        } catch (Exception e) {
+            log.error("采集参数持久化失败: {}", e.getMessage(), e);
+        }
         log.info("采集参数已更新: concurrency={}, maxRounds={}, autoConnect={}, autoDisconnect={}",
                 concurrency, maxRounds, autoConnect, autoDisconnect);
     }

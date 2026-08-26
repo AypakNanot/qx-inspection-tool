@@ -10,6 +10,7 @@ import com.optel.qxinspection.service.InspectionService;
 import com.optel.qxinspection.service.ThresholdService;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.ss.util.CellRangeAddress;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
@@ -21,6 +22,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/inspection")
 @RequiredArgsConstructor
@@ -260,7 +262,9 @@ public class InspectionController {
      */
     @GetMapping("/collect-params")
     public Map<String, Object> getCollectParams() {
-        return inspectionService.getCollectParams();
+        Map<String, Object> params = inspectionService.getCollectParams();
+        log.debug("getCollectParams: {}", params);
+        return params;
     }
 
     /**
