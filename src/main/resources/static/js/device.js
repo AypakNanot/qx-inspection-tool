@@ -28,12 +28,12 @@ function createTextCell(text) {
     return td;
 }
 
-/** 创建操作按钮 */
+/** 创建操作按钮（onclick 接收 btn 元素作为第一个参数） */
 function createBtn(text, className, onclick) {
     const btn = document.createElement('button');
     btn.className = className;
     btn.textContent = text;
-    btn.onclick = onclick;
+    btn.onclick = () => onclick(btn);
     return btn;
 }
 
@@ -89,9 +89,9 @@ function renderDeviceTable(devices) {
 
         const opTd = document.createElement('td');
         if (isOnline) {
-            opTd.appendChild(createBtn('断开', 'btn btn-danger btn-sm', () => disconnectSingle(d.neId, d.neName)));
+            opTd.appendChild(createBtn('断开', 'btn btn-danger btn-sm', (btn) => withLoading(btn, () => disconnectSingle(d.neId, d.neName))));
         } else {
-            opTd.appendChild(createBtn('连接', 'btn btn-success btn-sm', () => connectSingle(d.neId, d.neName)));
+            opTd.appendChild(createBtn('连接', 'btn btn-success btn-sm', (btn) => withLoading(btn, () => connectSingle(d.neId, d.neName))));
         }
         opTd.appendChild(document.createTextNode(' '));
         opTd.appendChild(createBtn('配置', 'btn btn-outline btn-sm', () => openDeviceModal(d)));

@@ -335,7 +335,17 @@
                             </div>
                         </div>
                         <div id="collectParamsMsg" style="font-size:12px;color:#16a34a;margin-top:8px;display:none"></div>
-                        <div style="font-size:12px;color:#9ca3af;margin-top:8px;">并发设备数：多设备同时采集的线程数；保留轮次：超龄轮次自动清理</div>
+                        <div class="form-row" style="margin-top:10px;gap:24px;">
+                            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
+                                <input type="checkbox" id="paramAutoConnect" checked style="width:16px;height:16px;cursor:pointer;">
+                                巡检时自动连接未在线设备
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
+                                <input type="checkbox" id="paramAutoDisconnect" checked style="width:16px;height:16px;cursor:pointer;">
+                                巡检完成后自动断开所有连接
+                            </label>
+                        </div>
+                        <div style="font-size:12px;color:#9ca3af;margin-top:8px;">并发设备数：多设备同时采集的线程数；保留轮次：超龄轮次自动清理<br>自动连接：未在线设备跳过采集；自动断开：巡检结束后释放所有设备连接</div>
                     </div>
                 </div>
 

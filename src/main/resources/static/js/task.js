@@ -202,6 +202,8 @@ export async function loadCollectParams() {
         const d = await get('/inspection/collect-params');
         document.getElementById('paramConcurrency').value = d.concurrency || 10;
         document.getElementById('paramMaxRounds').value = d.maxRounds || 10;
+        document.getElementById('paramAutoConnect').checked = d.autoConnect !== false;
+        document.getElementById('paramAutoDisconnect').checked = d.autoDisconnect !== false;
     } catch (e) { console.error('loadCollectParams', e); }
 }
 
@@ -209,7 +211,9 @@ export async function loadCollectParams() {
 export async function saveCollectParams() {
     const body = {
         concurrency: parseInt(document.getElementById('paramConcurrency').value) || 10,
-        maxRounds: parseInt(document.getElementById('paramMaxRounds').value) || 10
+        maxRounds: parseInt(document.getElementById('paramMaxRounds').value) || 10,
+        autoConnect: document.getElementById('paramAutoConnect').checked,
+        autoDisconnect: document.getElementById('paramAutoDisconnect').checked
     };
     try {
         await post('/inspection/collect-params', body);

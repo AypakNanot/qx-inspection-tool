@@ -39,6 +39,8 @@ public class InspectionService {
 
     private static final String KEY_CONCURRENCY = "collect.concurrency";
     private static final String KEY_MAX_ROUNDS = "collect.maxRounds";
+    private static final String KEY_AUTO_CONNECT = "inspect.autoConnect";
+    private static final String KEY_AUTO_DISCONNECT = "inspect.autoDisconnect";
 
     @Value("${app.inspection.concurrency:10}")
     private int concurrency;
@@ -55,7 +57,14 @@ public class InspectionService {
         // 从数据库加载采集参数（覆盖@Value默认值）
         concurrency = Integer.parseInt(sysConfigService.get(KEY_CONCURRENCY, String.valueOf(concurrency)));
         maxRounds = Integer.parseInt(sysConfigService.get(KEY_MAX_ROUNDS, String.valueOf(maxRounds)));
+        autoConnect = Boolean.parseBoolean(sysConfigService.get(KEY_AUTO_CONNECT, "true"));
+        autoDisconnect = Boolean.parseBoolean(sysConfigService.get(KEY_AUTO_DISCONNECT, "true"));
     }
+
+    /** 是否巡检时自动连接未在线设备 */
+    private volatile boolean autoConnect = true;
+    /** 是否巡检完成后自动断开所有连接 */
+    private volatile boolean autoDisconnect = true;
 
     /** 当前运行中的轮次（用于进度查询） */
     private volatile InspectionRound currentRound;
@@ -401,6 +410,22 @@ public class InspectionService {
             // 等待全部完成
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
 
+        // 巡检完成后自动断开连接（在保存轮次状态之前，确保进度查询不会提前返回COMPLETED）
+        if (autoDisconnect) {
+            int disconnected = 0;
+            for (DeviceAccessConfig device : targets) {
+                if (qxConnectionService.isConnected(device.getNeId())) {
+                    try {
+                        qxConnectionService.disconnectSingle(device.getNeId());
+                        disconnected++;
+                    } catch (Exception e) {
+                        log.debug("断开连接失败: {}", device.getNeName());
+                    }
+                }
+            }
+            log.info("巡检完成，已断开 {} 台设备连接", disconnected);
+        }
+
         // 更新轮次状态
         round.setDoneCount(doneCount.get());
         round.setFailCount(failCount.get());
@@ -423,6 +448,12 @@ public class InspectionService {
 
         // 确保设备已连接（未连接则先建立连接）
         if (!qxConnectionService.isConnected(device.getNeId())) {
+            if (!autoConnect) {
+                log.debug("设备未连接且自动连接已关闭，跳过: {}", device.getNeName());
+                records.add(buildDeviceFailRecord(round, device, "设备未连接"));
+                powerRecordRepository.saveAll(records);
+                throw new RuntimeException("设备未连接");
+            }
             log.debug("设备未连接，尝试建立连接: {}", device.getNeName());
             Map<String, Object> connResult = qxConnectionService.connectSingle(device.getNeId());
             if (!Boolean.TRUE.equals(connResult.get("success"))) {
@@ -665,17 +696,24 @@ public class InspectionService {
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("concurrency", concurrency);
         params.put("maxRounds", maxRounds);
+        params.put("autoConnect", autoConnect);
+        params.put("autoDisconnect", autoDisconnect);
         return params;
     }
 
     /**
      * 更新采集参数
      */
-    public void updateCollectParams(int concurrency, int maxRounds) {
+    public void updateCollectParams(int concurrency, int maxRounds, boolean autoConnect, boolean autoDisconnect) {
         this.concurrency = concurrency;
         this.maxRounds = maxRounds;
+        this.autoConnect = autoConnect;
+        this.autoDisconnect = autoDisconnect;
         sysConfigService.set(KEY_CONCURRENCY, String.valueOf(concurrency));
         sysConfigService.set(KEY_MAX_ROUNDS, String.valueOf(maxRounds));
-        log.info("采集参数已更新: concurrency={}, maxRounds={}", concurrency, maxRounds);
+        sysConfigService.set(KEY_AUTO_CONNECT, String.valueOf(autoConnect));
+        sysConfigService.set(KEY_AUTO_DISCONNECT, String.valueOf(autoDisconnect));
+        log.info("采集参数已更新: concurrency={}, maxRounds={}, autoConnect={}, autoDisconnect={}",
+                concurrency, maxRounds, autoConnect, autoDisconnect);
     }
 }

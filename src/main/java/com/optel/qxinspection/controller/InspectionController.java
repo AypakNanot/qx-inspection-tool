@@ -270,7 +270,9 @@ public class InspectionController {
     public Map<String, Object> saveCollectParams(@RequestBody Map<String, Object> body) {
         int concurrency = ((Number) body.getOrDefault("concurrency", 10)).intValue();
         int maxRounds = ((Number) body.getOrDefault("maxRounds", 10)).intValue();
-        inspectionService.updateCollectParams(concurrency, maxRounds);
+        boolean autoConnect = Boolean.TRUE.equals(body.get("autoConnect"));
+        boolean autoDisconnect = Boolean.TRUE.equals(body.get("autoDisconnect"));
+        inspectionService.updateCollectParams(concurrency, maxRounds, autoConnect, autoDisconnect);
         return inspectionService.getCollectParams();
     }
 
