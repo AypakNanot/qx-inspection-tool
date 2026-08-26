@@ -1,6 +1,5 @@
 package com.optel.qxinspection.service;
 
-import com.optel.qxinspection.entity.mysql.Dmeo;
 import com.optel.qxinspection.entity.sqlite.DeviceAccessConfig;
 import com.optel.qxinspection.entity.sqlite.InspectionRound;
 import com.optel.qxinspection.entity.sqlite.OpticalPowerInspection;
@@ -8,14 +7,14 @@ import com.optel.qxinspection.laser.LaserAttributeAckData;
 import com.optel.qxinspection.laser.LaserAttributeGetData;
 import com.optel.qxinspection.laser.service.ILaserService;
 import com.optel.qxinspection.util.OidUtil;
-import com.optel.qxinspection.repository.mysql.DmeoRepository;
-import com.optel.qxinspection.repository.mysql.DmNeRepository;
 import com.optel.qxinspection.repository.sqlite.DeviceAccessConfigRepository;
 import com.optel.qxinspection.repository.sqlite.InspectionRoundRepository;
 import com.optel.qxinspection.repository.sqlite.OpticalPowerInspectionRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -33,8 +32,8 @@ public class InspectionService {
     private final DeviceAccessConfigRepository deviceAccessConfigRepository;
     private final InspectionRoundRepository inspectionRoundRepository;
     private final OpticalPowerInspectionRepository powerRecordRepository;
-    private final DmNeRepository dmNeRepository;
-    private final DmeoRepository dmeoRepository;
+    @Qualifier("sqliteJdbc")
+    private final JdbcTemplate sqliteJdbc;
     private final ThresholdService thresholdService;
     private final SysConfigService sysConfigService;
 
@@ -434,7 +433,7 @@ public class InspectionService {
         }
 
         // 从 dmeo 表查询该网元下的光口端口（替代 0x2406）
-        List<Dmeo> opticalPorts = queryOpticalPorts(device.getNeId());
+        List<Map<String, Object>> opticalPorts = queryOpticalPorts(device.getNeId());
         if (opticalPorts.isEmpty()) {
             log.debug("设备无光口端口: {}", device.getNeName());
             return;
@@ -443,11 +442,12 @@ public class InspectionService {
         String neId = device.getNeId();
         int failPorts = 0;
 
-        for (Dmeo dmeoPort : opticalPorts) {
-            int subrackId = OidUtil.getSubrackId(dmeoPort.getOid());
-            int slotId = OidUtil.getSlotId(dmeoPort.getOid());
-            int portId = OidUtil.getPortId(dmeoPort.getOid());
-            int portType = dmeoPort.getType() != null ? dmeoPort.getType() : 0xFF;
+        for (Map<String, Object> dmeoPort : opticalPorts) {
+            String oid = (String) dmeoPort.get("oid");
+            int subrackId = OidUtil.getSubrackId(oid);
+            int slotId = OidUtil.getSlotId(oid);
+            int portId = OidUtil.getPortId(oid);
+            int portType = dmeoPort.get("type") != null ? ((Number) dmeoPort.get("type")).intValue() : 0xFF;
 
             try {
                 LaserAttributeGetData req = LaserAttributeGetData.builder()
@@ -460,12 +460,12 @@ public class InspectionService {
                         .build();
 
                 LaserAttributeAckData laser = laserService.attributeGet(neId, req);
-                records.add(buildRecord(round, device, slotId, portType, 0xFF, portId, dmeoPort.getName(), laser));
+                records.add(buildRecord(round, device, slotId, portType, 0xFF, portId, (String) dmeoPort.get("name"), laser));
             } catch (Exception e) {
                 failPorts++;
-                records.add(buildFailRecord(round, device, slotId, portType, 0xFF, portId, dmeoPort.getName(), e.getMessage()));
+                records.add(buildFailRecord(round, device, slotId, portType, 0xFF, portId, (String) dmeoPort.get("name"), e.getMessage()));
                 log.debug("端口查询失败: {} oid={}, {}",
-                        device.getNeName(), dmeoPort.getOid(), e.getMessage());
+                        device.getNeName(), oid, e.getMessage());
             }
         }
 
@@ -478,14 +478,30 @@ public class InspectionService {
     }
 
     /**
-     * 从 dmeo 表查询该网元下符合 defName 模式的光口端口
+     * 从 SQLite dmeo 表查询该网元下符合 defName 模式的光口端口
      */
-    private List<Dmeo> queryOpticalPorts(String neId) {
+    private List<Map<String, Object>> queryOpticalPorts(String neId) {
         String[] patterns = parsePatterns();
-        // neId 对应 dmeo 的 oid 前缀（第一段），用 LIKE 匹配
-        return dmeoRepository.findByNeOidAndDefNamePatterns(
-                5, neId,
-                patterns[0], patterns[1], patterns[2], patterns[3], patterns[4]);
+        // 构建 defName LIKE 条件（OR 逻辑）
+        StringBuilder where = new StringBuilder("cid = 5 AND oid LIKE ? || ':%' AND (");
+        List<Object> params = new ArrayList<>();
+        params.add(neId);
+
+        List<String> likeConditions = new ArrayList<>();
+        for (String p : patterns) {
+            if (p != null) {
+                likeConditions.add("defName LIKE ?");
+                params.add(p);
+            }
+        }
+        if (likeConditions.isEmpty()) {
+            return List.of();
+        }
+        where.append(String.join(" OR ", likeConditions));
+        where.append(")");
+
+        return sqliteJdbc.queryForList(
+                "SELECT * FROM \"dmeo\" WHERE " + where, params.toArray());
     }
 
     private static final int MAX_PATTERNS = 5;

@@ -1,26 +1,25 @@
 package com.optel.qxinspection.service;
 
-import com.optel.qxinspection.entity.mysql.*;
-import com.optel.qxinspection.repository.mysql.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * 库存统计服务 - 从MySQL老库查询设备/盘/端口的静态统计数据
+ * 库存统计服务 - 从SQLite查询设备/盘/端口的静态统计数据
+ * 数据来源：dmne, defdmne, dmeo, dmrelation（由同步操作写入）
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class InventoryStatsService {
 
-    private final DmeoRepository dmeoRepository;
-    private final DmNeRepository dmNeRepository;
-    private final DefDmNeRepository defDmNeRepository;
-    private final DmRelationRepository dmRelationRepository;
+    @Qualifier("sqliteJdbc")
+    private final JdbcTemplate sqliteJdbc;
 
     private static final int CID_NETWORK = 1;
     private static final int CID_NE = 2;
@@ -31,12 +30,10 @@ public class InventoryStatsService {
      * 获取所有网络名列表（从 dmeo cid=1）
      */
     public List<String> getNetworkNames() {
-        return dmeoRepository.findByCid(CID_NETWORK).stream()
-                .map(Dmeo::getName)
-                .filter(n -> n != null && !n.isEmpty())
-                .distinct()
-                .sorted()
-                .toList();
+        return sqliteJdbc.queryForList(
+                "SELECT DISTINCT name FROM \"dmeo\" WHERE cid = ? AND name IS NOT NULL AND name != '' ORDER BY name",
+                CID_NETWORK
+        ).stream().map(row -> (String) row.get("name")).toList();
     }
 
     /**
@@ -44,12 +41,14 @@ public class InventoryStatsService {
      */
     public Map<String, Object> getOverview() {
         Map<String, Object> result = new LinkedHashMap<>();
-        long neCount = dmNeRepository.count();
-        long slotCount = dmeoRepository.countGroupByNePrefix(CID_SLOT).stream()
-                .mapToLong(row -> (long) row[1]).sum();
-        long portCount = dmeoRepository.countGroupByNePrefix(CID_PORT).stream()
-                .mapToLong(row -> (long) row[1]).sum();
-        long networkCount = dmeoRepository.countByCid(CID_NETWORK);
+        long neCount = sqliteJdbc.queryForObject(
+                "SELECT COUNT(*) FROM \"dmne\"", Long.class);
+        long slotCount = sqliteJdbc.queryForObject(
+                "SELECT COUNT(*) FROM \"dmeo\" WHERE cid = ?", Long.class, CID_SLOT);
+        long portCount = sqliteJdbc.queryForObject(
+                "SELECT COUNT(*) FROM \"dmeo\" WHERE cid = ?", Long.class, CID_PORT);
+        long networkCount = sqliteJdbc.queryForObject(
+                "SELECT COUNT(*) FROM \"dmeo\" WHERE cid = ?", Long.class, CID_NETWORK);
 
         result.put("neCount", neCount);
         result.put("slotCount", slotCount);
@@ -63,22 +62,22 @@ public class InventoryStatsService {
      */
     public Map<String, Object> getNeStats(String network) {
         Map<String, Object> result = new LinkedHashMap<>();
-
-        List<DmNe> allNe = dmNeRepository.findAll();
         Map<String, String> neTypeMap = buildNeTypeMap();
         Map<String, String> neNetworkMap = buildNeNetworkMap();
 
-        // 按网络筛选
-        if (network != null && !network.isEmpty()) {
-            allNe = allNe.stream()
-                    .filter(ne -> network.equals(neNetworkMap.get(ne.getOid())))
-                    .toList();
-        }
+        // 查询所有网元
+        List<Map<String, Object>> allNe = sqliteJdbc.queryForList("SELECT oid FROM \"dmne\"");
 
         // 按设备类型分组
         Map<String, Long> byType = new LinkedHashMap<>();
-        for (DmNe ne : allNe) {
-            String typeName = neTypeMap.getOrDefault(ne.getOid(), "未知");
+        for (Map<String, Object> ne : allNe) {
+            String oid = (String) ne.get("oid");
+            // 按网络筛选
+            if (network != null && !network.isEmpty()) {
+                String netName = neNetworkMap.getOrDefault(oid, "");
+                if (!network.equals(netName)) continue;
+            }
+            String typeName = neTypeMap.getOrDefault(oid, "未知");
             byType.merge(typeName, 1L, Long::sum);
         }
         result.put("byNeTypeName", toSortedList(byType));
@@ -90,12 +89,10 @@ public class InventoryStatsService {
      * 获取盘/端口的类型列表（用于筛选下拉框）
      */
     public List<Integer> getObjectTypes(int cid) {
-        return dmeoRepository.findByCid(cid).stream()
-                .map(Dmeo::getType)
-                .filter(Objects::nonNull)
-                .distinct()
-                .sorted()
-                .toList();
+        return sqliteJdbc.queryForList(
+                "SELECT DISTINCT type FROM \"dmeo\" WHERE cid = ? AND type IS NOT NULL ORDER BY type",
+                cid
+        ).stream().map(row -> ((Number) row.get("type")).intValue()).toList();
     }
 
     /**
@@ -114,41 +111,29 @@ public class InventoryStatsService {
 
     private Map<String, Object> getDmeoStats(int cid, String network, Integer objectType) {
         Map<String, Object> result = new LinkedHashMap<>();
-
         Map<String, String> neNetworkMap = buildNeNetworkMap();
 
-        // 加载全部 dmeo 按 cid
-        List<Dmeo> allDmeo = dmeoRepository.findByCid(cid);
+        List<Map<String, Object>> allDmeo = sqliteJdbc.queryForList(
+                "SELECT oid, type FROM \"dmeo\" WHERE cid = ?", cid);
 
-        // 按对象类型分组
         Map<String, Long> byType = new LinkedHashMap<>();
-
-        for (Dmeo d : allDmeo) {
-            String neOid = extractNeOid(d.getOid());
+        for (Map<String, Object> d : allDmeo) {
+            String oid = (String) d.get("oid");
+            String neOid = extractNeOid(oid);
             String networkName = neNetworkMap.getOrDefault(neOid, "未分配");
 
-            // 按网络筛选
-            if (network != null && !network.isEmpty() && !network.equals(networkName)) {
-                continue;
-            }
-            // 按对象类型筛选
-            if (objectType != null && !objectType.equals(d.getType())) {
-                continue;
-            }
+            if (network != null && !network.isEmpty() && !network.equals(networkName)) continue;
+            Integer type = d.get("type") != null ? ((Number) d.get("type")).intValue() : null;
+            if (objectType != null && !objectType.equals(type)) continue;
 
-            String typeName = d.getType() != null ? String.valueOf(d.getType()) : "未知";
+            String typeName = d.get("type") != null ? String.valueOf(d.get("type")) : "未知";
             byType.merge(typeName, 1L, Long::sum);
         }
 
         result.put("byTypeName", toSortedList(byType));
-
         return result;
     }
 
-    /**
-     * 从 dmeo 的 oid 中提取 NE 的 oid 前缀
-     * 盘/端口的 oid 格式如 "neOid:slotOid" 或 "neOid:slotOid:portOid"
-     */
     private String extractNeOid(String dmeoOid) {
         if (dmeoOid == null) return "";
         int firstColon = dmeoOid.indexOf(':');
@@ -158,51 +143,49 @@ public class InventoryStatsService {
 
     /**
      * 构建 neOid → 设备类型名 映射
-     * neOid 来自 dmne.oid，设备类型来自 defdmne.cName
      */
     private Map<String, String> buildNeTypeMap() {
-        List<DmNe> allNe = dmNeRepository.findAll();
-        Map<Integer, String> typeDefMap = defDmNeRepository.findAll().stream()
-                .collect(Collectors.toMap(DefDmNe::getNeType,
-                        d -> d.getCName() != null ? d.getCName() : d.getEName(),
+        // 从 defdmne 加载类型定义
+        Map<Integer, String> typeDefMap = sqliteJdbc.queryForList("SELECT \"neType\", \"cName\", \"eName\" FROM \"defdmne\"")
+                .stream().collect(Collectors.toMap(
+                        row -> ((Number) row.get("neType")).intValue(),
+                        row -> row.get("cName") != null ? (String) row.get("cName") : (String) row.get("eName"),
                         (a, b) -> a));
 
+        // 从 dmne 加载所有网元
         Map<String, String> result = new HashMap<>();
-        for (DmNe ne : allNe) {
-            String typeName = ne.getType() != null
-                    ? typeDefMap.getOrDefault(ne.getType(), "未知(" + ne.getType() + ")")
+        for (Map<String, Object> ne : sqliteJdbc.queryForList("SELECT oid, type FROM \"dmne\"")) {
+            String oid = (String) ne.get("oid");
+            Integer type = ne.get("type") != null ? ((Number) ne.get("type")).intValue() : null;
+            String typeName = type != null
+                    ? typeDefMap.getOrDefault(type, "未知(" + type + ")")
                     : "未知";
-            result.put(ne.getOid(), typeName);
+            result.put(oid, typeName);
         }
         return result;
     }
 
     /**
-     * 构建 netOid → 网络名 映射（从 dmeo cid=1）
-     */
-    private Map<String, String> buildNetNameMap() {
-        Map<String, String> netNameMap = new HashMap<>();
-        for (Dmeo net : dmeoRepository.findByCid(CID_NETWORK)) {
-            netNameMap.put(net.getOid(), net.getName() != null ? net.getName() : net.getOid());
-        }
-        return netNameMap;
-    }
-
-    /**
-     * 构建 neOid → 网络名 映射
-     * 通过 dmrelation 表（type=1）获取 NE 归属网络，再从 dmeo cid=1 查网络名
+     * 构建 neOid → 网络名 映射（通过 dmrelation + dmeo cid=1）
      */
     private Map<String, String> buildNeNetworkMap() {
-        Map<String, String> netNameMap = buildNetNameMap();
-        Map<String, String> result = new HashMap<>();
+        // 从 dmeo cid=1 获取网络实例名称
+        Map<String, String> netNameMap = new HashMap<>();
+        for (Map<String, Object> row : sqliteJdbc.queryForList(
+                "SELECT oid, name FROM \"dmeo\" WHERE cid = ?", CID_NETWORK)) {
+            String oid = (String) row.get("oid");
+            String name = row.get("name") != null ? (String) row.get("name") : oid;
+            netNameMap.put(oid, name);
+        }
 
-        // 从 dmrelation 表获取 NE→网络的归属关系（type=1）
-        List<DmRelation> relations = dmRelationRepository.findAll();
-        for (DmRelation r : relations) {
-            if (r.getType() != null && r.getType() == 1) {
-                String networkName = netNameMap.getOrDefault(r.getReo(), r.getReo());
-                result.put(r.getOid(), networkName);
-            }
+        // 从 dmrelation 获取 NE→网络的归属关系（type=1）
+        Map<String, String> result = new HashMap<>();
+        for (Map<String, Object> row : sqliteJdbc.queryForList(
+                "SELECT oid, reo FROM \"dmrelation\" WHERE type = 1")) {
+            String neOid = (String) row.get("oid");
+            String netOid = (String) row.get("reo");
+            String networkName = netNameMap.getOrDefault(netOid, netOid);
+            result.put(neOid, networkName);
         }
         return result;
     }
