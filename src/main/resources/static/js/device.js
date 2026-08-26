@@ -89,9 +89,9 @@ function renderDeviceTable(devices) {
 
         const opTd = document.createElement('td');
         if (isOnline) {
-            opTd.appendChild(createBtn('断开', 'btn btn-danger btn-sm', () => disconnectSingle(d.neId)));
+            opTd.appendChild(createBtn('断开', 'btn btn-danger btn-sm', () => disconnectSingle(d.neId, d.neName)));
         } else {
-            opTd.appendChild(createBtn('连接', 'btn btn-success btn-sm', () => connectSingle(d.neId)));
+            opTd.appendChild(createBtn('连接', 'btn btn-success btn-sm', () => connectSingle(d.neId, d.neName)));
         }
         opTd.appendChild(document.createTextNode(' '));
         opTd.appendChild(createBtn('配置', 'btn btn-outline btn-sm', () => openDeviceModal(d)));
@@ -253,21 +253,40 @@ export async function loadDevices() {
 /** 加载网络筛选下拉框 */
 function loadNetworkFilter() {
     const networks = [...new Set(allDevices.map(d => d.networkName).filter(Boolean))];
+    // 筛选下拉框
     const select = document.getElementById('filterNetwork');
-    if (!select) return;
-    const current = select.value;
-    while (select.firstChild) select.removeChild(select.firstChild);
-    const defaultOpt = document.createElement('option');
-    defaultOpt.value = '';
-    defaultOpt.textContent = '全部网络';
-    select.appendChild(defaultOpt);
-    networks.sort().forEach(n => {
-        const opt = document.createElement('option');
-        opt.value = n;
-        opt.textContent = n;
-        select.appendChild(opt);
-    });
-    select.value = current;
+    if (select) {
+        const current = select.value;
+        select.textContent = '';
+        const defaultOpt = document.createElement('option');
+        defaultOpt.value = '';
+        defaultOpt.textContent = '全部网络';
+        select.appendChild(defaultOpt);
+        networks.sort().forEach(n => {
+            const opt = document.createElement('option');
+            opt.value = n;
+            opt.textContent = n;
+            select.appendChild(opt);
+        });
+        select.value = current;
+    }
+    // 连接/断开网络选择
+    const connSel = document.getElementById('connNetwork');
+    if (connSel) {
+        const current = connSel.value;
+        connSel.textContent = '';
+        const defaultOpt = document.createElement('option');
+        defaultOpt.value = '';
+        defaultOpt.textContent = '全网';
+        connSel.appendChild(defaultOpt);
+        networks.sort().forEach(n => {
+            const opt = document.createElement('option');
+            opt.value = n;
+            opt.textContent = n;
+            connSel.appendChild(opt);
+        });
+        connSel.value = current;
+    }
 }
 
 /** 加载全局连接配置 */
@@ -289,6 +308,7 @@ export async function saveGlobalConfig() {
     };
     try {
         await put('/connection/config/global', body);
+        showToast('全局配置保存成功', 'success');
         const msg = document.getElementById('globalConfigMsg');
         msg.textContent = '保存成功';
         msg.style.display = 'block';
@@ -410,36 +430,48 @@ export async function executeClearData() {
 /** 一键连接所有设备 */
 export function connectAll(btn) {
     withLoading(btn, async () => {
-        const d = await post('/connection/connect-all');
-        showToast('连接完成: 成功 ' + d.success + ' 台, 失败 ' + d.fail + ' 台', d.fail > 0 ? 'error' : 'success');
+        const network = document.getElementById('connNetwork').value;
+        const params = network ? '?network=' + encodeURIComponent(network) : '';
+        const d = await post('/connection/connect-all' + params);
+        const scope = network || '全网';
+        let msg = '[' + scope + '] 连接完成: 共 ' + d.total + ' 台, 成功 ' + d.success + ' 台, 失败 ' + d.fail + ' 台';
+        if (d.failedDevices && d.failedDevices.length > 0) {
+            msg += ' (' + d.failedDevices.join(', ') + ')';
+        }
+        showToast(msg, d.fail > 0 ? 'error' : 'success');
         loadDevices();
     });
 }
 
 /** 一键断开所有设备 */
 export async function disconnectAll() {
-    if (!confirm('确认断开所有设备连接？')) return;
+    const network = document.getElementById('connNetwork').value;
+    const scope = network || '全网';
+    if (!confirm('确认断开' + scope + '的所有设备连接？')) return;
     try {
-        const d = await post('/connection/disconnect-all');
-        showToast('已断开 ' + d.disconnected + ' 台设备', 'success');
+        const params = network ? '?network=' + encodeURIComponent(network) : '';
+        const d = await post('/connection/disconnect-all' + params);
+        showToast('[' + scope + '] 已断开 ' + d.disconnected + ' 台设备', 'success');
         loadDevices();
     } catch (e) { showToast('断开失败: ' + e.message, 'error'); }
 }
 
 /** 连接单台设备 */
-export async function connectSingle(neOid) {
+export async function connectSingle(neOid, neName) {
     try {
-        await post('/connection/connect/' + encodeURIComponent(neOid));
+        const d = await post('/connection/connect/' + encodeURIComponent(neOid));
+        showToast((neName || neOid) + ' 连接' + (d.success ? '成功' : '失败'), d.success ? 'success' : 'error');
         loadDevices();
-    } catch (e) { console.error('connectSingle', e); }
+    } catch (e) { showToast('连接失败: ' + e.message, 'error'); }
 }
 
 /** 断开单台设备 */
-export async function disconnectSingle(neOid) {
+export async function disconnectSingle(neOid, neName) {
     try {
-        await post('/connection/disconnect/' + encodeURIComponent(neOid));
+        const d = await post('/connection/disconnect/' + encodeURIComponent(neOid));
+        showToast((neName || neOid) + ' 已断开', 'success');
         loadDevices();
-    } catch (e) { console.error('disconnectSingle', e); }
+    } catch (e) { showToast('断开失败: ' + e.message, 'error'); }
 }
 
 /** 打开设备配置弹窗 */

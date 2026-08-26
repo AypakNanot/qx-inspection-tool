@@ -17,6 +17,7 @@ import jakarta.annotation.PostConstruct;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -80,9 +81,15 @@ public class QxConnectionService {
 
     /**
      * 一键全部连接
+     * @param network 网络名称，null 表示全网
      */
-    public Map<String, Object> connectAll() {
+    public Map<String, Object> connectAll(String network) {
         List<DeviceAccessConfig> devices = deviceAccessConfigRepository.findByEnabledTrue();
+        if (network != null && !network.isEmpty()) {
+            devices = devices.stream()
+                    .filter(d -> network.equals(d.getNetworkName()))
+                    .collect(Collectors.toList());
+        }
         AtomicInteger success = new AtomicInteger();
         AtomicInteger fail = new AtomicInteger();
         List<String> failedDevices = new ArrayList<>();
@@ -139,20 +146,34 @@ public class QxConnectionService {
 
     /**
      * 一键断开
+     * @param network 网络名称，null 表示全网
      */
-    public Map<String, Object> disconnectAll() {
-        Collection<QxChannel> channels = qxDeviceService.getManager().allChannels();
-        int count = channels.size();
+    public Map<String, Object> disconnectAll(String network) {
+        Set<String> targetNeIds;
+        if (network != null && !network.isEmpty()) {
+            targetNeIds = channelIdMap.keySet().stream()
+                    .filter(neId -> {
+                        DeviceAccessConfig cfg = deviceAccessConfigRepository.findByNeId(neId).orElse(null);
+                        return cfg != null && network.equals(cfg.getNetworkName());
+                    })
+                    .collect(java.util.stream.Collectors.toSet());
+        } else {
+            targetNeIds = new HashSet<>(channelIdMap.keySet());
+        }
 
-        for (QxChannel ch : new ArrayList<>(channels)) {
+        int count = 0;
+        for (String neId : targetNeIds) {
+            ChannelID channelId = channelIdMap.get(neId);
+            if (channelId == null) continue;
             try {
-                qxDeviceService.getManager().shut(ch.getChannelId());
+                qxDeviceService.getManager().shut(channelId);
+                count++;
             } catch (Exception e) {
-                log.warn("Failed to shut channel: {}", ch.getChannelId(), e);
+                log.warn("Failed to shut channel: {}", channelId, e);
             }
         }
 
-        channelIdMap.keySet().forEach(reconnectManager::cancel);
+        targetNeIds.forEach(reconnectManager::cancel);
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("disconnected", count);

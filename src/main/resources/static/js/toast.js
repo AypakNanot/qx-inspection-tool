@@ -43,6 +43,7 @@ export function showToast(msg, type = 'info') {
 
     requestAnimationFrame(() => { el.style.opacity = '1'; el.style.transform = 'translateX(0)'; });
 
+    const duration = type === 'error' ? 7000 : 5000;
     setTimeout(() => {
         el.style.opacity = '0';
         el.style.transform = 'translateX(20px)';
@@ -53,7 +54,7 @@ export function showToast(msg, type = 'info') {
                 container = null;
             }
         }, 300);
-    }, 3000);
+    }, duration);
 }
 
 /**

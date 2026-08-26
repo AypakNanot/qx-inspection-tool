@@ -19,13 +19,15 @@ public class ConnectionController {
     // ===== 批量操作 =====
 
     @PostMapping("/connect-all")
-    public ResponseEntity<Map<String, Object>> connectAll() {
-        return ResponseEntity.ok(qxConnectionService.connectAll());
+    public ResponseEntity<Map<String, Object>> connectAll(
+            @RequestParam(required = false) String network) {
+        return ResponseEntity.ok(qxConnectionService.connectAll(network));
     }
 
     @PostMapping("/disconnect-all")
-    public ResponseEntity<Map<String, Object>> disconnectAll() {
-        return ResponseEntity.ok(qxConnectionService.disconnectAll());
+    public ResponseEntity<Map<String, Object>> disconnectAll(
+            @RequestParam(required = false) String network) {
+        return ResponseEntity.ok(qxConnectionService.disconnectAll(network));
     }
 
     // ===== 单设备操作 =====
