@@ -325,105 +325,55 @@ export async function syncDevices() {
     } catch (e) { showToast('同步失败: ' + e.message, 'error'); }
 }
 
-/** 打开清除数据弹窗 */
-export async function openClearDataModal() {
-    document.getElementById('clearInspectionRecords').checked = false;
-    document.getElementById('clearInspectionRounds').checked = false;
-    document.getElementById('clearDeviceConfigs').checked = false;
-    document.getElementById('clearConnProfiles').checked = false;
-    document.getElementById('clearThresholdRules').checked = false;
-    document.getElementById('clearConnNetworks').style.display = 'none';
-    document.querySelector('input[name="connScope"][value="all"]').checked = true;
-    document.getElementById('clearNetworkSelect').style.display = 'none';
-
-    // 加载网络列表
+/** 独立清除指定类型的数据 */
+export async function clearDataType(type, label) {
+    if (!confirm('确认清除所有' + label + '？\n\n此操作不可恢复！')) return;
     try {
-        const networks = await get('/database/networks');
-        const select = document.getElementById('clearNetworkList');
-        select.textContent = '';
-        networks.forEach(n => {
-            const opt = document.createElement('option');
-            opt.value = n;
-            opt.textContent = n;
-            select.appendChild(opt);
-        });
+        const options = {};
+        options[type] = true;
+        const d = await post('/database/clear-selected', options);
+        const counts = d.deletedCounts || {};
+        const lines = Object.entries(counts).map(([k, v]) => k + ': ' + v + '条');
+        showToast(label + '清除完成：' + (lines.length > 0 ? lines.join(', ') : '无数据被删除'), 'success');
+    } catch (e) { showToast('清除失败: ' + e.message, 'error'); }
+}
+
+/** 清除连接配置（支持网络范围选择） */
+export async function clearConnProfiles() {
+    let networks = [];
+    try {
+        networks = await get('/database/networks');
     } catch (e) { console.error('load networks', e); }
 
-    document.getElementById('clearDataModal').classList.remove('hidden');
-}
+    const scope = confirm('清除全部连接配置？\n\n确定 = 清除全部\n取消 = 选择指定网络') ? 'all' : 'network';
 
-/** 关闭清除数据弹窗 */
-export function closeClearDataModal() {
-    document.getElementById('clearDataModal').classList.add('hidden');
-}
-
-/** 切换连接配置网络选择区域显示 */
-export function toggleClearConnNetworks() {
-    const checked = document.getElementById('clearConnProfiles').checked;
-    document.getElementById('clearConnNetworks').style.display = checked ? 'block' : 'none';
-}
-
-/** 切换指定网络下拉框显示 */
-export function toggleNetworkSelect() {
-    const isNetwork = document.querySelector('input[name="connScope"]:checked').value === 'network';
-    document.getElementById('clearNetworkSelect').style.display = isNetwork ? 'block' : 'none';
-}
-
-/** 执行清除数据 */
-export async function executeClearData() {
-    const options = {};
-    let hasSelection = false;
-
-    if (document.getElementById('clearInspectionRecords').checked) {
-        options.inspectionRecords = true; hasSelection = true;
-    }
-    if (document.getElementById('clearInspectionRounds').checked) {
-        options.inspectionRounds = true; hasSelection = true;
-    }
-    if (document.getElementById('clearDeviceConfigs').checked) {
-        options.deviceConfigs = true; hasSelection = true;
-    }
-    if (document.getElementById('clearThresholdRules').checked) {
-        options.thresholdRules = true; hasSelection = true;
-    }
-    if (document.getElementById('clearConnProfiles').checked) {
-        hasSelection = true;
-        const scope = document.querySelector('input[name="connScope"]:checked').value;
-        if (scope === 'all') {
-            options.connectionProfiles = 'all';
-        } else {
-            const select = document.getElementById('clearNetworkList');
-            const selected = Array.from(select.selectedOptions).map(o => o.value);
-            if (selected.length === 0) {
-                showToast('请至少选择一个网络', 'error');
-                return;
-            }
-            options.connectionProfiles = selected;
+    let options = {};
+    if (scope === 'all') {
+        options.connectionProfiles = 'all';
+    } else {
+        if (networks.length === 0) {
+            showToast('没有可用的网络', 'info');
+            return;
         }
+        const msg = '可选网络：\n' + networks.map((n, i) => (i + 1) + '. ' + n).join('\n') + '\n\n输入网络编号（多个用逗号分隔）：';
+        const input = prompt(msg);
+        if (!input) return;
+        const indices = input.split(',').map(s => parseInt(s.trim()) - 1).filter(i => i >= 0 && i < networks.length);
+        if (indices.length === 0) {
+            showToast('未选择有效网络', 'error');
+            return;
+        }
+        options.connectionProfiles = indices.map(i => networks[i]);
     }
 
-    if (!hasSelection) {
-        showToast('请至少选择一项数据', 'error');
-        return;
-    }
-
-    const labels = [];
-    if (options.inspectionRecords) labels.push('巡检记录');
-    if (options.inspectionRounds) labels.push('巡检轮次');
-    if (options.deviceConfigs) labels.push('设备配置');
-    if (options.thresholdRules) labels.push('门限规则');
-    if (options.connectionProfiles) {
-        labels.push('连接配置' + (options.connectionProfiles === 'all' ? '(全部)' : '(' + options.connectionProfiles.join(',') + ')'));
-    }
-
-    if (!confirm('确认清除以下数据？\n\n' + labels.join('\n') + '\n\n此操作不可恢复！')) return;
+    const scopeLabel = scope === 'all' ? '全部' : options.connectionProfiles.join(',');
+    if (!confirm('确认清除连接配置（' + scopeLabel + '）？\n\n此操作不可恢复！')) return;
 
     try {
         const d = await post('/database/clear-selected', options);
-        closeClearDataModal();
-        const lines = Object.entries(d.deletedCounts).map(([k, v]) => k + ': ' + v + '条');
-        showToast('清除完成：' + (lines.length > 0 ? lines.join(', ') : '无数据被删除'), 'success');
-        loadDevices();
+        const counts = d.deletedCounts || {};
+        const lines = Object.entries(counts).map(([k, v]) => k + ': ' + v + '条');
+        showToast('连接配置清除完成：' + (lines.length > 0 ? lines.join(', ') : '无数据被删除'), 'success');
     } catch (e) { showToast('清除失败: ' + e.message, 'error'); }
 }
 

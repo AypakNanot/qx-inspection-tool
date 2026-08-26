@@ -51,4 +51,13 @@ public class SyncController {
         return ResponseEntity.ok(dynamicSyncService.query(
                 table, fieldList, null, orderBy, limit));
     }
+
+    @PostMapping("/clear")
+    public ResponseEntity<Map<String, Object>> clearSyncData() {
+        Map<String, Long> counts = dynamicSyncService.clearSyncData();
+        Map<String, Object> result = new java.util.LinkedHashMap<>();
+        result.put("status", "SUCCESS");
+        result.put("deletedCounts", counts);
+        return ResponseEntity.ok(result);
+    }
 }

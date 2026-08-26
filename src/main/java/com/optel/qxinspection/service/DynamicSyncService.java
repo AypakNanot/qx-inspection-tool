@@ -340,6 +340,23 @@ public class DynamicSyncService {
     }
 
     /**
+     * 清除所有动态同步的表（非 JPA 实体表）
+     */
+    public Map<String, Long> clearSyncData() {
+        Map<String, Long> result = new LinkedHashMap<>();
+        List<String> allTables = getAllTables();
+        for (String table : allTables) {
+            if (isTableExistsSqlite(table)) {
+                long count = sqliteJdbc.queryForObject(
+                        "SELECT COUNT(*) FROM \"" + table + "\"", Long.class);
+                sqliteJdbc.execute("DELETE FROM \"" + table + "\"");
+                result.put(table, count);
+            }
+        }
+        return result;
+    }
+
+    /**
      * 从 SQLite 动态查询（指定表、字段、条件）
      */
     public List<Map<String, Object>> query(String table, List<String> fields,

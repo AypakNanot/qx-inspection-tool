@@ -3,7 +3,7 @@
  * 初始化页面、注册全局事件、挂载onclick处理器
  */
 
-import { loadDevices, loadGlobalConfig, saveGlobalConfig, syncDevices, openClearDataModal, closeClearDataModal, toggleClearConnNetworks, toggleNetworkSelect, executeClearData, connectAll, disconnectAll, connectSingle, disconnectSingle, closeDeviceModal, saveDeviceConfig, deleteDeviceConfig, searchDevices, filterByNetwork, filterByStatus, sortBy } from './device.js';
+import { loadDevices, loadGlobalConfig, saveGlobalConfig, syncDevices, clearDataType, clearConnProfiles, connectAll, disconnectAll, connectSingle, disconnectSingle, closeDeviceModal, saveDeviceConfig, deleteDeviceConfig, searchDevices, filterByNetwork, filterByStatus, sortBy } from './device.js';
 import { loadStatsOverview, loadStatsNetworks, loadStats, switchStatsChart, resizeChart } from './stats.js';
 import { loadGlobalThreshold, saveGlobalThreshold, loadThresholds, openThresholdModal, closeThresholdModal, saveThreshold } from './threshold.js';
 import { loadScheduleStatus, toggleSchedule, toggleSchedScope, toggleManualScope, loadTaskNetworks, loadTaskDevices, startManualInspection, onSchedPresetChange, saveScheduleConfig, loadCollectParams, saveCollectParams } from './task.js';
@@ -11,7 +11,7 @@ import { loadProgress, stopProgressPoll } from './progress.js';
 import { loadQueryRounds, loadQueryFilters, loadQueryResults, exportExcel, searchQuery, sortQueryBy } from './query.js';
 import { loadClockTopology, refreshClockTopology, resizeClockChart } from './clock.js';
 import { showToast } from './toast.js';
-import { loadSyncStatus, syncEssential, syncAll, syncSelectedTables } from './sync.js';
+import { loadSyncStatus, syncEssential, syncAll, syncSelectedTables, clearSyncData } from './sync.js';
 
 /** 页面标题映射 */
 const TITLES = {
@@ -82,11 +82,8 @@ window.togglePanel = togglePanel;
 window.loadDevices = loadDevices;
 window.saveGlobalConfig = saveGlobalConfig;
 window.syncDevices = syncDevices;
-window.clearAllData = openClearDataModal;
-window.closeClearDataModal = closeClearDataModal;
-window.toggleClearConnNetworks = toggleClearConnNetworks;
-window.toggleNetworkSelect = toggleNetworkSelect;
-window.executeClearData = executeClearData;
+window.clearDataType = (type, label) => clearDataType(type, label);
+window.clearConnProfiles = clearConnProfiles;
 window.connectAll = (e) => connectAll(e.target);
 window.disconnectAll = disconnectAll;
 window.connectSingle = connectSingle;
@@ -122,6 +119,7 @@ window.loadSyncStatus = loadSyncStatus;
 window.syncEssential = syncEssential;
 window.syncAll = syncAll;
 window.syncSelectedTables = syncSelectedTables;
+window.clearSyncData = clearSyncData;
 
 // 初始化加载
 loadDevices();

@@ -106,3 +106,16 @@ function showSyncResult(result) {
     el.textContent = result._summary || JSON.stringify(result);
     showToast(result._summary || '同步完成', 'success');
 }
+
+/** 清除所有同步数据 */
+export function clearSyncData() {
+    const btn = event.target;
+    withLoading(btn, async function() {
+        if (!confirm('确认清除所有同步到 SQLite 的数据？\n\n此操作不可恢复！')) return;
+        const result = await post('/sync/clear');
+        const counts = result.deletedCounts || {};
+        const lines = Object.entries(counts).map(function(entry) { return entry[0] + ': ' + entry[1] + '条'; });
+        showToast('同步数据清除完成：' + (lines.length > 0 ? lines.join(', ') : '无数据被删除'), 'success');
+        loadSyncStatus();
+    });
+}
