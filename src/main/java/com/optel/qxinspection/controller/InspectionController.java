@@ -4,6 +4,7 @@ import com.optel.qxinspection.entity.sqlite.InspectionRound;
 import com.optel.qxinspection.entity.sqlite.OpticalPowerInspection;
 import com.optel.qxinspection.entity.sqlite.ThresholdRule;
 import com.optel.qxinspection.repository.sqlite.ThresholdRuleRepository;
+import com.optel.qxinspection.service.ClockInspectionService;
 import com.optel.qxinspection.service.InspectionScheduler;
 import com.optel.qxinspection.service.InspectionService;
 import com.optel.qxinspection.service.ThresholdService;
@@ -29,6 +30,7 @@ public class InspectionController {
     private final InspectionScheduler inspectionScheduler;
     private final ThresholdService thresholdService;
     private final ThresholdRuleRepository thresholdRuleRepository;
+    private final ClockInspectionService clockInspectionService;
 
     private static final DateTimeFormatter DT_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
@@ -355,5 +357,23 @@ public class InspectionController {
     public Map<String, Object> deleteThreshold(@PathVariable Long id) {
         thresholdRuleRepository.deleteById(id);
         return Map.of("success", true);
+    }
+
+    // ========== 时钟拓扑 ==========
+
+    /**
+     * 获取全网时钟拓扑
+     */
+    @GetMapping("/clock/topology")
+    public List<ClockInspectionService.ClockNode> getClockTopology() {
+        return clockInspectionService.getTopology();
+    }
+
+    /**
+     * 刷新时钟拓扑数据
+     */
+    @PostMapping("/clock/refresh")
+    public List<ClockInspectionService.ClockNode> refreshClockTopology() {
+        return clockInspectionService.refreshTopology();
     }
 }

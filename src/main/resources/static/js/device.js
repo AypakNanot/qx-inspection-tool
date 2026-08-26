@@ -5,6 +5,7 @@
  */
 
 import { get, post, put, del } from './api.js';
+import { showToast, withLoading } from './toast.js';
 
 /** 当前弹窗操作的设备ID */
 let currentModalNeOid = null;
@@ -292,16 +293,16 @@ export async function saveGlobalConfig() {
         msg.textContent = '保存成功';
         msg.style.display = 'block';
         setTimeout(() => { msg.style.display = 'none'; }, 2000);
-    } catch (e) { alert('保存失败: ' + e.message); }
+    } catch (e) { showToast('保存失败: ' + e.message, 'error'); }
 }
 
 /** 同步设备列表（从MySQL导入） */
 export async function syncDevices() {
     try {
         await post('/database/sync-devices');
-        alert('设备同步完成');
+        showToast('设备同步完成', 'success');
         loadDevices();
-    } catch (e) { alert('同步失败: ' + e.message); }
+    } catch (e) { showToast('同步失败: ' + e.message, 'error'); }
 }
 
 /** 打开清除数据弹窗 */
@@ -374,7 +375,7 @@ export async function executeClearData() {
             const select = document.getElementById('clearNetworkList');
             const selected = Array.from(select.selectedOptions).map(o => o.value);
             if (selected.length === 0) {
-                alert('请至少选择一个网络');
+                showToast('请至少选择一个网络', 'error');
                 return;
             }
             options.connectionProfiles = selected;
@@ -382,7 +383,7 @@ export async function executeClearData() {
     }
 
     if (!hasSelection) {
-        alert('请至少选择一项数据');
+        showToast('请至少选择一项数据', 'error');
         return;
     }
 
@@ -401,22 +402,18 @@ export async function executeClearData() {
         const d = await post('/database/clear-selected', options);
         closeClearDataModal();
         const lines = Object.entries(d.deletedCounts).map(([k, v]) => k + ': ' + v + '条');
-        alert('清除完成：\n' + (lines.length > 0 ? lines.join('\n') : '无数据被删除'));
+        showToast('清除完成：' + (lines.length > 0 ? lines.join(', ') : '无数据被删除'), 'success');
         loadDevices();
-    } catch (e) { alert('清除失败: ' + e.message); }
+    } catch (e) { showToast('清除失败: ' + e.message, 'error'); }
 }
 
 /** 一键连接所有设备 */
-export async function connectAll(btn) {
-    btn.disabled = true;
-    btn.textContent = '连接中...';
-    try {
+export function connectAll(btn) {
+    withLoading(btn, async () => {
         const d = await post('/connection/connect-all');
-        alert('连接完成: 成功 ' + d.success + ' 台, 失败 ' + d.fail + ' 台');
+        showToast('连接完成: 成功 ' + d.success + ' 台, 失败 ' + d.fail + ' 台', d.fail > 0 ? 'error' : 'success');
         loadDevices();
-    } catch (e) { alert('连接失败: ' + e.message); }
-    btn.disabled = false;
-    btn.textContent = '一键连接';
+    });
 }
 
 /** 一键断开所有设备 */
@@ -424,9 +421,9 @@ export async function disconnectAll() {
     if (!confirm('确认断开所有设备连接？')) return;
     try {
         const d = await post('/connection/disconnect-all');
-        alert('已断开 ' + d.disconnected + ' 台设备');
+        showToast('已断开 ' + d.disconnected + ' 台设备', 'success');
         loadDevices();
-    } catch (e) { alert('断开失败: ' + e.message); }
+    } catch (e) { showToast('断开失败: ' + e.message, 'error'); }
 }
 
 /** 连接单台设备 */
@@ -484,7 +481,7 @@ export async function saveDeviceConfig() {
         await put('/connection/config/' + encodeURIComponent(currentModalNeOid), body);
         closeDeviceModal();
         loadDevices();
-    } catch (e) { alert('保存失败: ' + e.message); }
+    } catch (e) { showToast('保存失败: ' + e.message, 'error'); }
 }
 
 /** 删除单设备配置（恢复使用全局配置） */
@@ -495,5 +492,5 @@ export async function deleteDeviceConfig() {
         await del('/connection/config/' + encodeURIComponent(currentModalNeOid));
         closeDeviceModal();
         loadDevices();
-    } catch (e) { alert('删除失败: ' + e.message); }
+    } catch (e) { showToast('删除失败: ' + e.message, 'error'); }
 }

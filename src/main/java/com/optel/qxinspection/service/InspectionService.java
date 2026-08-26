@@ -532,8 +532,8 @@ public class InspectionService {
         r.setModuleTypeKey(toLaserTypeName(laser.getLaserType()) + "-" + toDistanceName(laser.getLaserType(), laser.getDistance()));
         r.setPartNumber(laser.getPartNumber());
         r.setLaserWave(toLaserWaveName(laser.getLaserWave()));
-        r.setTxPower((double) laser.getTranLaserPower());
-        r.setRxPower((double) laser.getRecvLaserPower());
+        r.setTxPower(toOpticalPower(laser.getTranLaserPower(), laser.getLaserState()));
+        r.setRxPower(toOpticalPower(laser.getRecvLaserPower(), laser.getLaserState()));
 
         return r;
     }
@@ -607,6 +607,17 @@ public class InspectionService {
             case 3 -> "850nm";
             default -> "Unknown(" + laserWave + ")";
         };
+    }
+
+    /**
+     * 将原始整数光功率转换为 dBm 值。
+     * 设备返回 0xFFFFFFFF 表示无光功率读数。
+     */
+    private static Double toOpticalPower(int rawPower, int laserState) {
+        if (rawPower == 0xFFFFFFFF) {
+            return null; // 无光功率
+        }
+        return (double) Float.intBitsToFloat(rawPower);
     }
 
 

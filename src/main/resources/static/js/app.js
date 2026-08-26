@@ -9,6 +9,8 @@ import { loadGlobalThreshold, saveGlobalThreshold, loadThresholds, openThreshold
 import { loadScheduleStatus, toggleSchedule, toggleSchedScope, toggleManualScope, loadTaskNetworks, loadTaskDevices, startManualInspection, onSchedPresetChange, saveScheduleConfig, loadCollectParams, saveCollectParams } from './task.js';
 import { loadProgress, stopProgressPoll } from './progress.js';
 import { loadQueryRounds, loadQueryFilters, loadQueryResults, exportExcel, searchQuery, sortQueryBy } from './query.js';
+import { loadClockTopology, refreshClockTopology, resizeClockChart } from './clock.js';
+import { showToast } from './toast.js';
 
 /** 页面标题映射 */
 const TITLES = {
@@ -18,6 +20,7 @@ const TITLES = {
     'page-task': ['任务配置', '光功率巡检 / 任务配置'],
     'page-progress': ['任务进度', '光功率巡检 / 任务进度'],
     'page-query': ['数据查询', '光功率巡检 / 数据查询'],
+    'page-clock': ['时钟拓扑', '时钟管理 / 时钟拓扑'],
     'page-maintenance': ['数据维护', '维护 / 数据维护']
 };
 
@@ -56,6 +59,10 @@ function switchPage(el) {
         loadQueryRounds();
         loadQueryFilters();
         loadQueryResults();
+    }
+    if (page === 'page-clock') {
+        loadClockTopology();
+        setTimeout(resizeClockChart, 100);
     }
 }
 
@@ -105,6 +112,8 @@ window.loadQueryResults = loadQueryResults;
 window.exportExcel = exportExcel;
 window.searchQuery = searchQuery;
 window.sortQueryBy = sortQueryBy;
+window.refreshClockTopology = refreshClockTopology;
+window.showToast = showToast;
 
 // 初始化加载
 loadDevices();
@@ -112,4 +121,4 @@ loadGlobalConfig();
 loadStatsOverview();
 loadStatsNetworks();
 
-window.addEventListener('resize', resizeChart);
+window.addEventListener('resize', () => { resizeChart(); resizeClockChart(); });

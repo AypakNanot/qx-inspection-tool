@@ -34,6 +34,12 @@
                 </div>
             </div>
             <div class="nav-group">
+                <div class="nav-group-title">时钟管理</div>
+                <div class="nav-item" data-page="page-clock" onclick="switchPage(this)">
+                    <span class="icon">&#9202;</span> 时钟拓扑
+                </div>
+            </div>
+            <div class="nav-group">
                 <div class="nav-group-title">光功率巡检</div>
                 <div class="nav-item" data-page="page-threshold" onclick="switchPage(this)">
                     <span class="icon">&#9879;</span> 门限配置
@@ -100,7 +106,7 @@
                 <!-- 操作栏 -->
                 <div class="toolbar">
                     <button class="btn btn-primary" onclick="syncDevices()">同步设备</button>
-                    <button class="btn btn-success" onclick="connectAll()">一键连接</button>
+                    <button class="btn btn-success" onclick="connectAll(event)">一键连接</button>
                     <button class="btn btn-danger" onclick="disconnectAll()">一键断开</button>
                     <div class="toolbar-right">
                         <button class="btn btn-outline" onclick="loadDevices()">刷新</button>
@@ -478,7 +484,7 @@
                                 <th onclick="sortQueryBy('slotNo')" style="cursor:pointer">槽位 ↕</th>
                                 <th onclick="sortQueryBy('portNo')" style="cursor:pointer">端口 ↕</th>
                                 <th onclick="sortQueryBy('portName')" style="cursor:pointer">端口名称 ↕</th>
-                                <th onclick="sortQueryBy('moduleTypeKey')" style="cursor:pointer">模块类型 ↕</th>
+                                <th onclick="sortQueryBy('laserWave')" style="cursor:pointer">波长 ↕</th>
                                 <th onclick="sortQueryBy('txPower')" style="cursor:pointer">发送功率(dBm) ↕</th>
                                 <th onclick="sortQueryBy('rxPower')" style="cursor:pointer">接收功率(dBm) ↕</th>
                                 <th>状态</th>
@@ -496,6 +502,33 @@
                 <!-- 下方分页 -->
                 <div id="queryPagination" style="display:none;align-items:center;gap:8px;margin-top:10px;"></div>
                 <div style="font-size:12px;color:#9ca3af;margin-top:8px;" id="queryCount"></div>
+            </div>
+
+            <!-- ========== 时钟拓扑页 ========== -->
+            <div class="page" id="page-clock">
+                <!-- 统计卡片 -->
+                <div class="cards">
+                    <div class="card"><div class="label">网元总数</div><div class="value blue" id="clockTotal">-</div></div>
+                    <div class="card"><div class="label">锁定</div><div class="value green" id="clockLocked">-</div></div>
+                    <div class="card"><div class="label">保持</div><div class="value" style="color:#eab308" id="clockHoldover">-</div></div>
+                    <div class="card"><div class="label">自由振荡</div><div class="value red" id="clockFreeRun">-</div></div>
+                </div>
+
+                <!-- 工具栏 -->
+                <div class="toolbar">
+                    <button class="btn btn-primary" id="btnRefreshClock" onclick="refreshClockTopology()">刷新</button>
+                    <div class="toolbar-right">
+                        <span style="font-size:12px;color:#6b7280;">点击节点查看详情 | 拖拽调整布局 | 滚轮缩放</span>
+                    </div>
+                </div>
+
+                <!-- 拓扑图 -->
+                <div style="display:flex;gap:16px;">
+                    <div class="table-wrap" style="flex:1;">
+                        <div id="clockChart" style="width:100%;height:500px;"></div>
+                    </div>
+                    <div id="clockDetail" style="width:300px;display:none;background:white;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.1);"></div>
+                </div>
             </div>
 
             <!-- ========== 数据维护页 ========== -->

@@ -4,6 +4,7 @@
  */
 
 import { get, post, del } from './api.js';
+import { showToast } from './toast.js';
 
 /** 创建文本单元格 */
 function createTextCell(text) {
@@ -50,7 +51,7 @@ export async function saveGlobalThreshold() {
         const msg = document.getElementById('globalThresholdMsg');
         msg.textContent = '保存成功'; msg.style.display = 'block';
         setTimeout(() => { msg.style.display = 'none'; }, 2000);
-    } catch (e) { alert('保存失败: ' + e.message); }
+    } catch (e) { showToast('保存失败: ' + e.message, 'error'); }
 }
 
 /** 加载所有门限规则（模块类型+型号） */
@@ -140,12 +141,12 @@ export async function saveThreshold() {
         txHigh: parseFloat(document.getElementById('thTxHigh').value),
         description: document.getElementById('thDesc').value.trim()
     };
-    if (!body.matchKey) { alert('请输入匹配键'); return; }
+    if (!body.matchKey) { showToast('请输入匹配键', 'error'); return; }
     try {
         await post('/inspection/thresholds', body);
         closeThresholdModal();
         loadThresholds();
-    } catch (e) { alert('保存失败: ' + e.message); }
+    } catch (e) { showToast('保存失败: ' + e.message, 'error'); }
 }
 
 /** 删除门限规则 */
@@ -154,5 +155,5 @@ async function deleteThreshold(id) {
     try {
         await del('/inspection/thresholds/' + id);
         loadThresholds();
-    } catch (e) { alert('删除失败: ' + e.message); }
+    } catch (e) { showToast('删除失败: ' + e.message, 'error'); }
 }

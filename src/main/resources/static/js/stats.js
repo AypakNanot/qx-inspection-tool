@@ -4,6 +4,7 @@
  */
 
 import { get } from './api.js';
+import { showToast } from './toast.js';
 
 /** ECharts 图表实例 */
 let statsChart = null;
@@ -29,7 +30,7 @@ export async function loadStatsOverview() {
         document.getElementById('stSlot').textContent = d.slotCount || 0;
         document.getElementById('stPort').textContent = d.portCount || 0;
         document.getElementById('stNetwork').textContent = d.networkCount || 0;
-    } catch (e) { console.error('loadStatsOverview', e); }
+    } catch (e) { console.error('loadStatsOverview', e); document.getElementById('stNe').textContent = '-'; }
 }
 
 /** 加载网络列表（用于筛选下拉框） */
@@ -56,7 +57,7 @@ export async function loadStats() {
         statsChartData = await get(url);
         renderStatsChart();
         renderStatsTable(statsChartData);
-    } catch (e) { console.error('loadStats', e); }
+    } catch (e) { console.error('loadStats', e); showToast('加载统计数据失败: ' + e.message, 'error'); }
 }
 
 /** 切换图表类型（柱状图/饼图/折线图） */

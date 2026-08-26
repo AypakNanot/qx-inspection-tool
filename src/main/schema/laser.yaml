@@ -25,7 +25,6 @@ messages:
         - { name: portId,         type: SHORT,    desc: "端口号" }
         - { name: laserWave,      type: BYTE,     desc: "波长: 1=1310nm, 2=1550nm, 3=850nm" }
         - { name: autoProState,   type: BYTE,     desc: "ALS状态" }
-        - { name: autoProControl, type: BYTE,     desc: "ALS控制" }
         - { name: manualControl,  type: BYTE,     desc: "手动控制" }
         - { name: laserState,     type: BYTE,     desc: "激光器状态: 1=开, 2=关" }
         - { name: delayTime,      type: SHORT,    desc: "ALS延迟" }
@@ -43,5 +42,5 @@ messages:
         - { name: laserOpenTime,  type: BYTE,     desc: "LOS后打开时间" }
         - { name: moduleBackup,   type: BIN,   len: 6,  desc: "备用x6" }
         - { name: supportFlag,    type: BYTE,     desc: "bit0: 1=支持光功率" }
-        - { name: recvLaserPower, type: FLOAT,    desc: "接收光功率 dBm" }
-        - { name: tranLaserPower, type: FLOAT,    desc: "发送光功率 dBm" }
+        - { name: recvLaserPower, type: INT,      desc: "接收光功率 dBm (原始整数,需Float.intBitsToFloat转换)" }
+        - { name: tranLaserPower, type: INT,      desc: "发送光功率 dBm (原始整数,需Float.intBitsToFloat转换)" }

@@ -4,6 +4,7 @@
  */
 
 import { get, post } from './api.js';
+import { showToast, withLoading } from './toast.js';
 
 /** 预设 Cron 表达式列表，用于匹配当前值 */
 const PRESET_CRONS = [
@@ -90,7 +91,7 @@ export async function toggleSchedule(enabled) {
     try {
         await post('/inspection/schedule/toggle?enabled=' + enabled);
         loadScheduleStatus();
-    } catch (e) { alert('设置失败: ' + e.message); }
+    } catch (e) { showToast('设置失败: ' + e.message, 'error'); }
 }
 
 /** 预设频率切换 */
@@ -128,7 +129,7 @@ export async function saveScheduleConfig() {
         setTimeout(() => { msg.style.display = 'none'; }, 2000);
         loadScheduleStatus();
     } catch (e) {
-        alert('保存失败: ' + e.message);
+        showToast('保存失败: ' + e.message, 'error');
     }
 }
 
@@ -175,28 +176,24 @@ export async function loadTaskDevices() {
 }
 
 /** 启动手动巡检 */
-export async function startManualInspection(switchPageFn) {
+export function startManualInspection(switchPageFn) {
     const btn = document.getElementById('btnManualInspection');
-    btn.disabled = true;
-    btn.textContent = '启动中...';
-    const scope = document.getElementById('manualScope').value;
-    const params = new URLSearchParams();
-    if (scope === 'NETWORK') {
-        const network = document.getElementById('manualNetwork').value.trim();
-        if (!network) { alert('请选择网络'); btn.disabled = false; btn.textContent = '立即巡检'; return; }
-        params.set('network', network);
-    } else if (scope === 'SINGLE') {
-        const neId = document.getElementById('manualNe').value.trim();
-        if (!neId) { alert('请选择网元'); btn.disabled = false; btn.textContent = '立即巡检'; return; }
-        params.set('neId', neId);
-    }
-    try {
+    withLoading(btn, async () => {
+        const scope = document.getElementById('manualScope').value;
+        const params = new URLSearchParams();
+        if (scope === 'NETWORK') {
+            const network = document.getElementById('manualNetwork').value.trim();
+            if (!network) { showToast('请选择网络', 'error'); return; }
+            params.set('network', network);
+        } else if (scope === 'SINGLE') {
+            const neId = document.getElementById('manualNe').value.trim();
+            if (!neId) { showToast('请选择网元', 'error'); return; }
+            params.set('neId', neId);
+        }
         const d = await post('/inspection/start' + (params.toString() ? '?' + params : ''));
-        alert('巡检已启动: 轮次 #' + d.roundId + ', ' + d.totalDevices + ' 台设备');
+        showToast('巡检已启动: 轮次 #' + d.roundId + ', ' + d.totalDevices + ' 台设备', 'success');
         switchPageFn(document.querySelector('[data-page="page-progress"]'));
-    } catch (e) { alert('启动失败: ' + e.message); }
-    btn.disabled = false;
-    btn.textContent = '立即巡检';
+    });
 }
 
 /** 加载采集参数 */
@@ -221,6 +218,6 @@ export async function saveCollectParams() {
         msg.style.display = 'block';
         setTimeout(() => { msg.style.display = 'none'; }, 2000);
     } catch (e) {
-        alert('保存失败: ' + e.message);
+        showToast('保存失败: ' + e.message, 'error');
     }
 }

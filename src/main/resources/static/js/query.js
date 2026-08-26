@@ -90,8 +90,11 @@ function applyFilterAndSort() {
         // 状态筛选
         if (statusFilter !== '') {
             if (statusFilter === '-1') {
-                if (r.supported && r.supported !== false) return false;
+                // 只看无效
+                if (r.supported) return false;
             } else {
+                // 先排除无效记录
+                if (!r.supported) return false;
                 const st = parseInt(statusFilter);
                 if (r.txPowerStatus !== st && r.rxPowerStatus !== st) return false;
             }
@@ -102,7 +105,7 @@ function applyFilterAndSort() {
             const match = (r.neName || '').toLowerCase().includes(text) ||
                          (r.neId || '').toLowerCase().includes(text) ||
                          (r.portName || '').toLowerCase().includes(text) ||
-                         (r.moduleTypeKey || '').toLowerCase().includes(text) ||
+                         (r.laserWave || '').toLowerCase().includes(text) ||
                          (r.slotNo != null && String(r.slotNo).includes(text)) ||
                          (r.portNo != null && String(r.portNo).includes(text));
             if (!match) return false;
@@ -188,7 +191,7 @@ function renderQueryTable() {
         tr.appendChild(createTextCell(r.slotNo != null ? String(r.slotNo) : '-'));
         tr.appendChild(createTextCell(r.portNo != null ? String(r.portNo) : '-'));
         tr.appendChild(createTextCell(r.portName || '-'));
-        tr.appendChild(createTextCell(r.moduleTypeKey || '--'));
+        tr.appendChild(createTextCell(r.laserWave || '-'));
 
         const txTd = document.createElement('td');
         if (r.supported && r.txPower != null) {
