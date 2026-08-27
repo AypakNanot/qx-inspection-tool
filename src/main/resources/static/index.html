@@ -261,6 +261,42 @@
 
             <!-- ========== 任务配置页 ========== -->
             <div class="page" id="page-task">
+                <!-- 采集参数 -->
+                <div class="panel">
+                    <div class="panel-header" onclick="togglePanel(this)">
+                        <h3>采集参数</h3>
+                        <span class="toggle">&#9660;</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>并发设备数</label>
+                                <input type="number" id="paramConcurrency" value="10" min="1" max="50" style="width:80px">
+                            </div>
+                            <div class="form-group">
+                                <label>保留轮次上限</label>
+                                <input type="number" id="paramMaxRounds" value="10" min="5" max="200" style="width:80px">
+                            </div>
+                        </div>
+                        <div id="collectParamsMsg" style="font-size:12px;color:#16a34a;margin-top:8px;display:none"></div>
+                        <div class="form-row" style="margin-top:10px;gap:24px;">
+                            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
+                                <input type="checkbox" id="paramAutoConnect" checked style="width:16px;height:16px;cursor:pointer;">
+                                巡检时自动连接未在线设备
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
+                                <input type="checkbox" id="paramAutoDisconnect" checked style="width:16px;height:16px;cursor:pointer;">
+                                巡检完成后自动断开所有连接
+                            </label>
+                        </div>
+                        <div style="font-size:12px;color:#9ca3af;margin-top:8px;">并发设备数：多设备同时采集的线程数；保留轮次：超龄轮次自动清理<br>自动连接：未在线设备跳过采集；自动断开：巡检结束后释放所有设备连接</div>
+                        <div style="margin-top:10px;">
+                            <button class="btn btn-outline btn-sm" onclick="loadCollectParams()">查询</button>
+                            <button class="btn btn-primary btn-sm" onclick="saveCollectParams()">保存</button>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- 定时巡检配置 -->
                 <div class="panel">
                     <div class="panel-header" onclick="togglePanel(this)">
@@ -310,42 +346,6 @@
                         </div>
                         <div id="schedConfigMsg" style="font-size:12px;color:#16a34a;margin-top:8px;display:none"></div>
                         <div style="font-size:12px;color:#6b7280;margin-top:8px;padding-top:8px;border-top:1px solid #f1f5f9;" id="schedStatus">加载中...</div>
-                    </div>
-                </div>
-
-                <!-- 采集参数 -->
-                <div class="panel">
-                    <div class="panel-header collapsed" onclick="togglePanel(this)">
-                        <h3>采集参数</h3>
-                        <span class="toggle">&#9660;</span>
-                    </div>
-                    <div class="panel-body hidden">
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label>并发设备数</label>
-                                <input type="number" id="paramConcurrency" value="10" min="1" max="50" style="width:80px">
-                            </div>
-                            <div class="form-group">
-                                <label>保留轮次上限</label>
-                                <input type="number" id="paramMaxRounds" value="10" min="1" max="100" style="width:80px">
-                            </div>
-                        </div>
-                        <div id="collectParamsMsg" style="font-size:12px;color:#16a34a;margin-top:8px;display:none"></div>
-                        <div class="form-row" style="margin-top:10px;gap:24px;">
-                            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
-                                <input type="checkbox" id="paramAutoConnect" checked style="width:16px;height:16px;cursor:pointer;">
-                                巡检时自动连接未在线设备
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
-                                <input type="checkbox" id="paramAutoDisconnect" checked style="width:16px;height:16px;cursor:pointer;">
-                                巡检完成后自动断开所有连接
-                            </label>
-                        </div>
-                        <div style="font-size:12px;color:#9ca3af;margin-top:8px;">并发设备数：多设备同时采集的线程数；保留轮次：超龄轮次自动清理<br>自动连接：未在线设备跳过采集；自动断开：巡检结束后释放所有设备连接</div>
-                        <div style="margin-top:10px;">
-                            <button class="btn btn-outline btn-sm" onclick="loadCollectParams()">查询</button>
-                            <button class="btn btn-primary btn-sm" onclick="saveCollectParams()">保存</button>
-                        </div>
                     </div>
                 </div>
 
@@ -448,8 +448,8 @@
                     <div class="panel-body">
                         <div class="table-wrap">
                             <table>
-                                <thead><tr><th>轮次</th><th>触发</th><th>范围</th><th>状态</th><th>设备数</th><th>完成</th><th>失败</th><th>开始时间</th></tr></thead>
-                                <tbody id="roundsTable"><tr><td colspan="8" class="loading">加载中...</td></tr></tbody>
+                                <thead><tr><th>轮次</th><th>触发</th><th>范围</th><th>状态</th><th>设备数</th><th>完成</th><th>失败</th><th>开始时间</th><th>耗时</th></tr></thead>
+                                <tbody id="roundsTable"><tr><td colspan="9" class="loading">加载中...</td></tr></tbody>
                             </table>
                         </div>
                     </div>
@@ -500,6 +500,7 @@
                                 <th onclick="sortQueryBy('portNo')" style="cursor:pointer">端口 ↕</th>
                                 <th onclick="sortQueryBy('portName')" style="cursor:pointer">端口名称 ↕</th>
                                 <th onclick="sortQueryBy('laserWave')" style="cursor:pointer">波长 ↕</th>
+                                <th onclick="sortQueryBy('laserType')" style="cursor:pointer">激光器类型 ↕</th>
                                 <th onclick="sortQueryBy('txPower')" style="cursor:pointer">发送功率(dBm) ↕</th>
                                 <th onclick="sortQueryBy('rxPower')" style="cursor:pointer">接收功率(dBm) ↕</th>
                                 <th>状态</th>
@@ -553,6 +554,7 @@
                     <div class="card-title">MySQL 连接配置</div>
                     <div style="font-size:13px;color:#6b7280;margin-bottom:16px;">
                         配置 MySQL 老网管库连接参数，仅在数据同步时使用，同步完成后自动断开。
+                        <br>端口（3306）、数据库名（Uniview）、用户名（sa）已预配置，如需修改请编辑 application.yml。
                     </div>
                     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:600px;">
                         <div class="form-group">
@@ -560,20 +562,8 @@
                             <input type="text" id="mysqlHost" placeholder="127.0.0.1" style="width:100%;padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
                         </div>
                         <div class="form-group">
-                            <label style="font-size:12px;color:#6b7280;">端口</label>
-                            <input type="number" id="mysqlPort" value="3306" style="width:100%;padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
-                        </div>
-                        <div class="form-group">
-                            <label style="font-size:12px;color:#6b7280;">数据库名</label>
-                            <input type="text" id="mysqlDatabase" placeholder="Uniview" style="width:100%;padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
-                        </div>
-                        <div class="form-group">
-                            <label style="font-size:12px;color:#6b7280;">用户名</label>
-                            <input type="text" id="mysqlUsername" placeholder="root" style="width:100%;padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
-                        </div>
-                        <div class="form-group" style="grid-column:span 2;">
                             <label style="font-size:12px;color:#6b7280;">密码</label>
-                            <input type="password" id="mysqlPassword" placeholder="密码" style="width:100%;padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+                            <input type="password" id="mysqlPassword" placeholder="留空保持预配置密码" style="width:100%;padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
                         </div>
                     </div>
                     <div class="toolbar" style="margin-top:12px;margin-bottom:0;">
@@ -598,26 +588,46 @@
                         <button class="btn btn-primary" onclick="syncAll()">同步全部表</button>
                         <button class="btn btn-outline" onclick="loadSyncStatus()">刷新状态</button>
                     </div>
-                    <div id="syncTablesSelect" style="margin-top:12px;display:none;">
-                        <div style="font-size:12px;color:#6b7280;margin-bottom:8px;">选择要同步的表：</div>
-                        <div id="syncTableList" style="max-height:200px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:6px;padding:8px;font-size:12px;"></div>
-                        <button class="btn btn-primary btn-sm" style="margin-top:8px;" onclick="syncSelectedTables()">同步选中表</button>
-                    </div>
                     <div id="syncResult" style="margin-top:12px;font-size:12px;color:#6b7280;display:none;"></div>
                 </div>
 
                 <div class="card" style="margin-top:16px;">
                     <div class="card-title">数据清除</div>
                     <div style="font-size:13px;color:#6b7280;margin-bottom:16px;">
-                        独立清除各类历史数据，每项操作单独执行。清除后不可恢复，请谨慎操作。
+                        勾选需要清除的数据类型，点击"清除选中"执行。清除后不可恢复，请谨慎操作。
                     </div>
-                    <div style="display:flex;flex-wrap:wrap;gap:10px;">
-                        <button class="btn btn-danger btn-sm" onclick="clearDataType('inspectionRecords', '巡检记录')">清除巡检记录</button>
-                        <button class="btn btn-danger btn-sm" onclick="clearDataType('inspectionRounds', '巡检轮次')">清除巡检轮次</button>
-                        <button class="btn btn-danger btn-sm" onclick="clearDataType('deviceConfigs', '设备配置')">清除设备配置</button>
-                        <button class="btn btn-danger btn-sm" onclick="clearConnProfiles()">清除连接配置</button>
-                        <button class="btn btn-danger btn-sm" onclick="clearDataType('thresholdRules', '门限规则')">清除门限规则</button>
-                        <button class="btn btn-danger btn-sm" onclick="clearSyncData()">清除同步数据</button>
+                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:16px;">
+                        <div style="border:1px solid #e5e7eb;border-radius:8px;padding:12px;">
+                            <div style="font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;border-bottom:1px solid #f1f5f9;padding-bottom:6px;">同步的数据</div>
+                            <label style="display:flex;align-items:center;gap:6px;padding:3px 0;cursor:pointer;font-size:13px;">
+                                <input type="checkbox" class="clear-cb" value="syncData"> 清除同步数据
+                            </label>
+                        </div>
+                        <div style="border:1px solid #e5e7eb;border-radius:8px;padding:12px;">
+                            <div style="font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;border-bottom:1px solid #f1f5f9;padding-bottom:6px;">生成的配置数据</div>
+                            <label style="display:flex;align-items:center;gap:6px;padding:3px 0;cursor:pointer;font-size:13px;">
+                                <input type="checkbox" class="clear-cb" value="deviceConfigs"> 设备配置
+                            </label>
+                            <label style="display:flex;align-items:center;gap:6px;padding:3px 0;cursor:pointer;font-size:13px;">
+                                <input type="checkbox" class="clear-cb" value="connectionProfiles"> 连接配置
+                            </label>
+                            <label style="display:flex;align-items:center;gap:6px;padding:3px 0;cursor:pointer;font-size:13px;">
+                                <input type="checkbox" class="clear-cb" value="thresholdRules"> 门限规则
+                            </label>
+                        </div>
+                        <div style="border:1px solid #e5e7eb;border-radius:8px;padding:12px;">
+                            <div style="font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;border-bottom:1px solid #f1f5f9;padding-bottom:6px;">巡检产生的数据</div>
+                            <label style="display:flex;align-items:center;gap:6px;padding:3px 0;cursor:pointer;font-size:13px;">
+                                <input type="checkbox" class="clear-cb" value="inspectionRecords"> 巡检记录
+                            </label>
+                            <label style="display:flex;align-items:center;gap:6px;padding:3px 0;cursor:pointer;font-size:13px;">
+                                <input type="checkbox" class="clear-cb" value="inspectionRounds"> 巡检轮次
+                            </label>
+                        </div>
+                    </div>
+                    <div style="display:flex;gap:10px;align-items:center;">
+                        <button class="btn btn-outline btn-sm" onclick="toggleAllClearCb()">全选/取消</button>
+                        <button class="btn btn-danger btn-sm" onclick="clearSelectedData()">清除选中</button>
                     </div>
                 </div>
                 <div class="card" style="margin-top:16px;">

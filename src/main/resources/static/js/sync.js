@@ -10,9 +10,6 @@ export async function loadMysqlConfig() {
     try {
         const cfg = await get('/sync/mysql-config');
         document.getElementById('mysqlHost').value = cfg.host || '';
-        document.getElementById('mysqlPort').value = cfg.port || 3306;
-        document.getElementById('mysqlDatabase').value = cfg.database || '';
-        document.getElementById('mysqlUsername').value = cfg.username || '';
         // 密码不回显，只标记是否已配置
         if (cfg.password) {
             document.getElementById('mysqlPassword').placeholder = '已配置（留空保持不变）';
@@ -28,9 +25,6 @@ export function saveMysqlConfig() {
     withLoading(btn, async function() {
         var body = {
             host: document.getElementById('mysqlHost').value.trim(),
-            port: parseInt(document.getElementById('mysqlPort').value) || 3306,
-            database: document.getElementById('mysqlDatabase').value.trim(),
-            username: document.getElementById('mysqlUsername').value.trim(),
             password: document.getElementById('mysqlPassword').value
         };
         var result = await put('/sync/mysql-config', body);

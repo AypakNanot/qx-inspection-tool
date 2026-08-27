@@ -3,7 +3,7 @@
  * 初始化页面、注册全局事件、挂载onclick处理器
  */
 
-import { loadDevices, loadGlobalConfig, saveGlobalConfig, syncDevices, clearDataType, clearConnProfiles, connectAll, disconnectAll, connectSingle, disconnectSingle, closeDeviceModal, saveDeviceConfig, deleteDeviceConfig, searchDevices, filterByNetwork, filterByStatus, sortBy } from './device.js';
+import { loadDevices, loadGlobalConfig, saveGlobalConfig, syncDevices, clearDataType, clearConnProfiles, toggleAllClearCb, clearSelectedData, connectAll, disconnectAll, connectSingle, disconnectSingle, closeDeviceModal, saveDeviceConfig, deleteDeviceConfig, searchDevices, filterByNetwork, filterByStatus, sortBy } from './device.js';
 import { loadStatsOverview, loadStatsNetworks, loadStats, switchStatsChart, resizeChart } from './stats.js';
 import { loadGlobalThreshold, saveGlobalThreshold, loadThresholds, openThresholdModal, closeThresholdModal, saveThreshold } from './threshold.js';
 import { loadScheduleStatus, toggleSchedule, toggleSchedScope, toggleManualScope, loadTaskNetworks, loadTaskDevices, startManualInspection, onSchedPresetChange, saveScheduleConfig, loadCollectParams, saveCollectParams } from './task.js';
@@ -85,6 +85,8 @@ window.saveGlobalConfig = saveGlobalConfig;
 window.syncDevices = syncDevices;
 window.clearDataType = (type, label) => clearDataType(type, label);
 window.clearConnProfiles = clearConnProfiles;
+window.toggleAllClearCb = toggleAllClearCb;
+window.clearSelectedData = clearSelectedData;
 window.connectAll = (e) => connectAll(e.target);
 window.disconnectAll = disconnectAll;
 window.connectSingle = connectSingle;

@@ -3,6 +3,7 @@ package com.optel.qxinspection.service;
 import com.zaxxer.hikari.HikariDataSource;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -13,7 +14,7 @@ import java.util.Map;
 
 /**
  * MySQL 按需连接管理器
- * 同步时创建连接，完成后断开，参数从 SQLite 配置读取
+ * 同步时创建连接，完成后断开，参数从 YAML 默认值 + SQLite 覆盖读取
  */
 @Slf4j
 @Service
@@ -27,6 +28,21 @@ public class MysqlConnectionManager {
     private static final String KEY_DATABASE = "mysql.database";
     private static final String KEY_USERNAME = "mysql.username";
     private static final String KEY_PASSWORD = "mysql.password";
+
+    @Value("${app.mysql.host:127.0.0.1}")
+    private String defaultHost;
+
+    @Value("${app.mysql.port:3306}")
+    private int defaultPort;
+
+    @Value("${app.mysql.database:Uniview}")
+    private String defaultDatabase;
+
+    @Value("${app.mysql.username:sa}")
+    private String defaultUsername;
+
+    @Value("${app.mysql.password:DB_Admin123}")
+    private String defaultPassword;
 
     private volatile HikariDataSource dataSource;
     private volatile JdbcTemplate jdbcTemplate;
@@ -43,23 +59,16 @@ public class MysqlConnectionManager {
 
     /**
      * 测试 MySQL 连接
-     * @return 测试结果（含错误信息）
      */
     public Map<String, Object> testConnection() {
         Map<String, Object> result = new LinkedHashMap<>();
-        String host = sysConfigService.get(KEY_HOST, "");
-        int port = Integer.parseInt(sysConfigService.get(KEY_PORT, "3306"));
-        String database = sysConfigService.get(KEY_DATABASE, "");
-        String username = sysConfigService.get(KEY_USERNAME, "");
-        String password = sysConfigService.get(KEY_PASSWORD, "");
-        log.info("=== 测试连接 === 从SQLite读取: host='{}', port={}, database='{}', username='{}', password='{}'",
-                host, port, database, username, password.isEmpty() ? "(空)" : "****");
-
-        if (host.isEmpty() || database.isEmpty()) {
-            result.put("status", "FAILED");
-            result.put("message", "请先配置 MySQL 连接参数");
-            return result;
-        }
+        String host = getEffectiveHost();
+        int port = getEffectivePort();
+        String database = getEffectiveDatabase();
+        String username = getEffectiveUsername();
+        String password = getEffectivePassword();
+        log.info("=== 测试连接 === host='{}', port={}, database='{}', username='{}'",
+                host, port, database, username);
 
         HikariDataSource testDs = null;
         try {
@@ -96,53 +105,38 @@ public class MysqlConnectionManager {
     }
 
     /**
-     * 保存 MySQL 配置到 SQLite
+     * 保存 MySQL 配置到 SQLite（仅保存用户修改的字段）
      */
-    public void saveConfig(String host, int port, String database, String username, String password) {
-        log.info("保存MySQL配置: host={}, port={}, database={}, username={}, password={}",
-                host, port, database, username, password.isEmpty() ? "(空)" : "****");
+    public void saveConfig(String host, String username, String password) {
+        log.info("保存MySQL配置: host={}, username={}", host, username);
         sysConfigService.set(KEY_HOST, host);
-        sysConfigService.set(KEY_PORT, String.valueOf(port));
-        sysConfigService.set(KEY_DATABASE, database);
         sysConfigService.set(KEY_USERNAME, username);
-        // 密码为空时保留旧密码
         if (password != null && !password.isEmpty()) {
             sysConfigService.set(KEY_PASSWORD, password);
         }
-        log.info("MySQL 配置已保存: {}@{}:{}/{}", username, host, port, database);
-        // 配置变更后关闭旧连接，下次同步时会用新参数重建
+        log.info("MySQL 配置已保存: {}@{}", username, host);
         close();
     }
 
     /**
-     * 获取当前配置（隐藏密码）
+     * 获取当前生效配置（YAML默认值 + SQLite覆盖）
      */
     public Map<String, Object> getConfig() {
         Map<String, Object> config = new LinkedHashMap<>();
-        String host = sysConfigService.get(KEY_HOST, "");
-        String database = sysConfigService.get(KEY_DATABASE, "");
-        String username = sysConfigService.get(KEY_USERNAME, "");
-        String pwd = sysConfigService.get(KEY_PASSWORD, "");
-        config.put("host", host);
-        config.put("port", Integer.parseInt(sysConfigService.get(KEY_PORT, "3306")));
-        config.put("database", database);
-        config.put("username", username);
+        config.put("host", getEffectiveHost());
+        config.put("port", getEffectivePort());
+        config.put("database", getEffectiveDatabase());
+        config.put("username", getEffectiveUsername());
+        String pwd = getEffectivePassword();
         config.put("password", pwd.isEmpty() ? "" : "******");
-        config.put("configured", !host.isEmpty());
-        log.info("获取MySQL配置: host='{}', database='{}', username='{}'", host, database, username);
+        config.put("configured", true);
         return config;
     }
 
-    /**
-     * 获取密码（内部使用）
-     */
     public String getPassword() {
-        return sysConfigService.get(KEY_PASSWORD, "");
+        return getEffectivePassword();
     }
 
-    /**
-     * 关闭连接池
-     */
     public synchronized void close() {
         if (dataSource != null && !dataSource.isClosed()) {
             try {
@@ -156,16 +150,37 @@ public class MysqlConnectionManager {
         jdbcTemplate = null;
     }
 
-    private void createDataSource() {
-        String host = sysConfigService.get(KEY_HOST, "");
-        int port = Integer.parseInt(sysConfigService.get(KEY_PORT, "3306"));
-        String database = sysConfigService.get(KEY_DATABASE, "");
-        String username = sysConfigService.get(KEY_USERNAME, "");
-        String password = sysConfigService.get(KEY_PASSWORD, "");
+    private String getEffectiveHost() {
+        String v = sysConfigService.get(KEY_HOST, null);
+        return (v != null && !v.isEmpty()) ? v : defaultHost;
+    }
 
-        if (host.isEmpty() || database.isEmpty()) {
-            throw new IllegalStateException("请先在数据维护页配置 MySQL 连接参数");
-        }
+    private int getEffectivePort() {
+        String v = sysConfigService.get(KEY_PORT, null);
+        return (v != null && !v.isEmpty()) ? Integer.parseInt(v) : defaultPort;
+    }
+
+    private String getEffectiveDatabase() {
+        String v = sysConfigService.get(KEY_DATABASE, null);
+        return (v != null && !v.isEmpty()) ? v : defaultDatabase;
+    }
+
+    private String getEffectiveUsername() {
+        String v = sysConfigService.get(KEY_USERNAME, null);
+        return (v != null && !v.isEmpty()) ? v : defaultUsername;
+    }
+
+    private String getEffectivePassword() {
+        String v = sysConfigService.get(KEY_PASSWORD, null);
+        return (v != null && !v.isEmpty()) ? v : defaultPassword;
+    }
+
+    private void createDataSource() {
+        String host = getEffectiveHost();
+        int port = getEffectivePort();
+        String database = getEffectiveDatabase();
+        String username = getEffectiveUsername();
+        String password = getEffectivePassword();
 
         this.dataSource = createDataSource(host, port, database, username, password);
         this.jdbcTemplate = new JdbcTemplate(this.dataSource);

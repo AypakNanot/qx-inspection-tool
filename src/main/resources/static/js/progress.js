@@ -145,6 +145,22 @@ async function loadRounds() {
     } catch (e) { console.error('loadRounds', e); }
 }
 
+/** 格式化耗时 */
+function formatDuration(startTime, endTime) {
+    if (!startTime || !endTime) return '-';
+    const start = new Date(startTime);
+    const end = new Date(endTime);
+    const diffMs = end - start;
+    if (diffMs < 0) return '-';
+    const diffSec = Math.floor(diffMs / 1000);
+    const h = Math.floor(diffSec / 3600);
+    const m = Math.floor((diffSec % 3600) / 60);
+    const s = diffSec % 60;
+    if (h > 0) return h + '时' + m + '分' + s + '秒';
+    if (m > 0) return m + '分' + s + '秒';
+    return s + '秒';
+}
+
 /** 渲染历史轮次表格 */
 function renderRoundsTable(rounds) {
     const tbody = document.getElementById('roundsTable');
@@ -152,7 +168,7 @@ function renderRoundsTable(rounds) {
     if (!rounds || rounds.length === 0) {
         const tr = document.createElement('tr');
         const td = document.createElement('td');
-        td.colSpan = 8; td.className = 'empty'; td.textContent = '暂无巡检记录';
+        td.colSpan = 9; td.className = 'empty'; td.textContent = '暂无巡检记录';
         tr.appendChild(td); tbody.appendChild(tr);
         return;
     }
@@ -173,6 +189,7 @@ function renderRoundsTable(rounds) {
         tr.appendChild(createTextCell(String(r.doneCount || 0)));
         tr.appendChild(createTextCell(String(r.failCount || 0)));
         tr.appendChild(createTextCell(r.startTime || '-'));
+        tr.appendChild(createTextCell(formatDuration(r.startTime, r.endTime)));
         tbody.appendChild(tr);
     });
 }

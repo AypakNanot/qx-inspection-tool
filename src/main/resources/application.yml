@@ -37,6 +37,13 @@ server:
 
 # 应用自定义配置
 app:
+  # MySQL 老网管库连接配置
+  mysql:
+    host: "127.0.0.1"
+    port: 3306
+    database: "Uniview"
+    username: "sa"
+    password: "DB_Admin123"
   # MySQL → SQLite 动态同步配置
   sync:
     # 必要表（同步模式=essential时，只同步这些）

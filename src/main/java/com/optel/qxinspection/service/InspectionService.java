@@ -738,13 +738,13 @@ public class InspectionService {
      * 更新采集参数
      */
     public void updateCollectParams(int concurrency, int maxRounds, boolean autoConnect, boolean autoDisconnect) {
-        this.concurrency = concurrency;
-        this.maxRounds = maxRounds;
+        this.concurrency = Math.max(1, Math.min(50, concurrency));
+        this.maxRounds = Math.max(5, Math.min(200, maxRounds));
         this.autoConnect = autoConnect;
         this.autoDisconnect = autoDisconnect;
         try {
-            sysConfigService.set(KEY_CONCURRENCY, String.valueOf(concurrency));
-            sysConfigService.set(KEY_MAX_ROUNDS, String.valueOf(maxRounds));
+            sysConfigService.set(KEY_CONCURRENCY, String.valueOf(this.concurrency));
+            sysConfigService.set(KEY_MAX_ROUNDS, String.valueOf(this.maxRounds));
             sysConfigService.set(KEY_AUTO_CONNECT, String.valueOf(autoConnect));
             sysConfigService.set(KEY_AUTO_DISCONNECT, String.valueOf(autoDisconnect));
         } catch (Exception e) {

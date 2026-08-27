@@ -200,8 +200,10 @@ export function startManualInspection(switchPageFn) {
 export async function loadCollectParams() {
     try {
         const d = await get('/inspection/collect-params');
-        document.getElementById('paramConcurrency').value = d.concurrency || 10;
-        document.getElementById('paramMaxRounds').value = d.maxRounds || 10;
+        const concurrency = Math.max(1, Math.min(50, d.concurrency || 10));
+        const maxRounds = Math.max(5, Math.min(200, d.maxRounds || 10));
+        document.getElementById('paramConcurrency').value = concurrency;
+        document.getElementById('paramMaxRounds').value = maxRounds;
         document.getElementById('paramAutoConnect').checked = d.autoConnect !== false;
         document.getElementById('paramAutoDisconnect').checked = d.autoDisconnect !== false;
     } catch (e) { console.error('loadCollectParams', e); }
@@ -209,9 +211,15 @@ export async function loadCollectParams() {
 
 /** 保存采集参数 */
 export async function saveCollectParams() {
+    let concurrency = parseInt(document.getElementById('paramConcurrency').value) || 10;
+    let maxRounds = parseInt(document.getElementById('paramMaxRounds').value) || 10;
+    concurrency = Math.max(1, Math.min(50, concurrency));
+    maxRounds = Math.max(5, Math.min(200, maxRounds));
+    document.getElementById('paramConcurrency').value = concurrency;
+    document.getElementById('paramMaxRounds').value = maxRounds;
     const body = {
-        concurrency: parseInt(document.getElementById('paramConcurrency').value) || 10,
-        maxRounds: parseInt(document.getElementById('paramMaxRounds').value) || 10,
+        concurrency,
+        maxRounds,
         autoConnect: document.getElementById('paramAutoConnect').checked,
         autoDisconnect: document.getElementById('paramAutoDisconnect').checked
     };

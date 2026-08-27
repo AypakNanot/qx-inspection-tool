@@ -391,6 +391,47 @@ export async function clearConnProfiles() {
     } catch (e) { showToast('清除失败: ' + e.message, 'error'); }
 }
 
+/** 全选/取消全选清除复选框 */
+export function toggleAllClearCb() {
+    const cbs = document.querySelectorAll('.clear-cb');
+    const allChecked = Array.from(cbs).every(cb => cb.checked);
+    cbs.forEach(cb => { cb.checked = !allChecked; });
+}
+
+/** 清除选中的数据 */
+export async function clearSelectedData() {
+    const checked = document.querySelectorAll('.clear-cb:checked');
+    if (checked.length === 0) {
+        showToast('请至少选择一项', 'error');
+        return;
+    }
+    const types = Array.from(checked).map(cb => cb.value);
+    const labels = { syncData: '同步数据', deviceConfigs: '设备配置', connectionProfiles: '连接配置', thresholdRules: '门限规则', inspectionRecords: '巡检记录', inspectionRounds: '巡检轮次' };
+    const names = types.map(t => labels[t] || t).join('、');
+    if (!confirm('确认清除所选数据（' + names + '）？\n\n此操作不可恢复！')) return;
+
+    try {
+        // 同步数据走单独接口
+        if (types.includes('syncData')) {
+            const syncResult = await post('/sync/clear');
+            const syncCounts = syncResult.deletedCounts || {};
+            const syncLines = Object.entries(syncCounts).map(([k, v]) => k + ': ' + v + '条');
+            showToast('同步数据清除完成：' + (syncLines.length > 0 ? syncLines.join(', ') : '无数据被删除'), 'success');
+        }
+        // 其他数据走统一接口
+        const otherTypes = types.filter(t => t !== 'syncData');
+        if (otherTypes.length > 0) {
+            const options = {};
+            otherTypes.forEach(t => { options[t] = true; });
+            const d = await post('/database/clear-selected', options);
+            const counts = d.deletedCounts || {};
+            const lines = Object.entries(counts).map(([k, v]) => k + ': ' + v + '条');
+            showToast('清除完成：' + (lines.length > 0 ? lines.join(', ') : '无数据被删除'), 'success');
+        }
+        document.querySelectorAll('.clear-cb').forEach(cb => { cb.checked = false; });
+    } catch (e) { showToast('清除失败: ' + e.message, 'error'); }
+}
+
 /** 一键连接所有设备 */
 export function connectAll(btn) {
     withLoading(btn, async () => {

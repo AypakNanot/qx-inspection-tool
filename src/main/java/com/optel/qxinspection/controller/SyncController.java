@@ -77,18 +77,16 @@ public class SyncController {
         Map<String, Object> result = new java.util.LinkedHashMap<>();
         try {
             String host = (String) body.getOrDefault("host", "");
-            int port = body.get("port") != null ? ((Number) body.get("port")).intValue() : 3306;
-            String database = (String) body.getOrDefault("database", "");
             String username = (String) body.getOrDefault("username", "");
             String password = (String) body.getOrDefault("password", "");
 
-            if (host.isEmpty() || database.isEmpty()) {
+            if (host.isEmpty()) {
                 result.put("status", "FAILED");
-                result.put("message", "主机地址和数据库名不能为空");
+                result.put("message", "主机地址不能为空");
                 return ResponseEntity.ok(result);
             }
 
-            mysqlConnectionManager.saveConfig(host, port, database, username, password);
+            mysqlConnectionManager.saveConfig(host, username, password);
             result.put("status", "SUCCESS");
             result.put("message", "MySQL 配置已保存");
         } catch (Exception e) {

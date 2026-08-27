@@ -210,7 +210,7 @@ function renderQueryTable() {
     if (!filteredResults || filteredResults.length === 0) {
         const tr = document.createElement('tr');
         const td = document.createElement('td');
-        td.colSpan = 11; td.className = 'empty'; td.textContent = '暂无数据';
+        td.colSpan = 12; td.className = 'empty'; td.textContent = '暂无数据';
         tr.appendChild(td); tbody.appendChild(tr);
         renderQueryPagination(0);
         return;
@@ -281,7 +281,8 @@ function renderQueryTable() {
         if (statusTd.childNodes.length === 0) statusTd.textContent = '-';
         groupTr.appendChild(statusTd);
 
-        // 空列占位（txPower, rxPower, status, thresholdTx）
+        // 空列占位（laserType, txPower, rxPower, status, thresholdTx）
+        groupTr.appendChild(createTextCell(''));
         groupTr.appendChild(createTextCell(''));
         groupTr.appendChild(createTextCell(''));
         groupTr.appendChild(createTextCell(''));
@@ -308,6 +309,7 @@ function renderQueryTable() {
                 tr.appendChild(createTextCell(r.portNo != null ? String(r.portNo) : '-'));
                 tr.appendChild(createTextCell(r.portName || '-'));
                 tr.appendChild(createTextCell(r.laserWave || '-'));
+                tr.appendChild(createTextCell(r.laserType || '-'));
 
                 // 发送功率
                 const txTd = document.createElement('td');
