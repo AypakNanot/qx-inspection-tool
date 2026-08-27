@@ -356,14 +356,18 @@ public class DynamicSyncService {
     public Map<String, Long> clearSyncData() {
         Map<String, Long> result = new LinkedHashMap<>();
         List<String> allTables = getSyncedTableNames();
-        for (String table : allTables) {
-            if (isTableExistsSqlite(table)) {
-                long count = sqliteJdbc.queryForObject(
-                        "SELECT COUNT(*) FROM \"" + table + "\"", Long.class);
-                sqliteJdbc.execute("DELETE FROM \"" + table + "\"");
-                result.put(table, count);
+        log.info("clearSyncData: 发现 {} 张同步表待清除", allTables.size());
+        sqliteTransactionTemplate.executeWithoutResult(status -> {
+            for (String table : allTables) {
+                if (isTableExistsSqlite(table)) {
+                    long count = sqliteJdbc.queryForObject(
+                            "SELECT COUNT(*) FROM \"" + table + "\"", Long.class);
+                    sqliteJdbc.execute("DROP TABLE \"" + table + "\"");
+                    result.put(table, count);
+                }
             }
-        }
+        });
+        log.info("clearSyncData: 已清除 {} 张表", result.size());
         return result;
     }
 
