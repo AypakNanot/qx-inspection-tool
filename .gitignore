@@ -46,3 +46,6 @@ application-prod.yml
 *.bak
 *.swp
 *~
+
+# cc-connect
+.cc-connect/
