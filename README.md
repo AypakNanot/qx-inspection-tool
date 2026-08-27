@@ -1,257 +1,312 @@
 # QX设备直连巡检工具
 
-## 项目简介
-
-独立工具直连QX设备进行光功率巡检，使用独立用户避免与老网管冲突。
-
-核心场景：
-1. 批量连接设备并统一管理连接
-2. 统计设备类型分布
-3. 定期巡检端口光功率，结果可查、可筛、可导出
+独立工具直连QX设备进行光功率巡检，使用独立用户登录，与老网管互不影响。
 
 ## 技术栈
 
-- **Java**: JDK 21
-- **Spring Boot**: 3.2.0
-- **Qx协议SDK**: opt-qx-cci-core（Netty 4.1，TCP 9900）
-- **数据库**: MySQL 5.6（老库只读，GBK） + SQLite（本地缓存）
-- **构建工具**: Maven
+- Java 17 + Spring Boot 3.2.0
+- Qx协议SDK: opt-qx-cci-core（Netty 4.1，TCP 9900）
+- 数据库: MySQL 5.6（老库只读，GBK） + SQLite（本地缓存，WAL模式）
+- 前端: 原生HTML/CSS/JS（ES6模块），ECharts图表
+- 构建: Maven
 
-## 术语
-
-| 术语 | 说明 |
-|---|---|
-| Qx | 设备管理协议，TCP 9900，登录后命令交互 |
-| NE / 网元 | 一台被管理设备 |
-| 网络 | 网元的分组（对应库中 dmnet） |
-| 光功率 | 光口的收/发光功率，单位 dBm |
-| 巡检 | 周期性批量采集光功率的任务 |
-
-## 总体架构
+## 项目结构
 
 ```
-┌──────────────────────────────────────────────┐
-│              巡检工具（独立进程）              │
-│                                              │
-│  ┌─────────┐  ┌──────────┐  ┌────────────┐  │
-│  │ Web界面  │  │ 巡检调度器 │  │  数据缓存   │  │
-│  └────┬────┘  └────┬─────┘  └──────┬─────┘  │
-│       │            │               │        │
-│  ┌────┴────────────┴───────────────┴─────┐  │
-│  │        连接管理（防雪崩：限流+退避）      │  │
-│  └────────────────────┬──────────────────┘  │
-└───────────────────────┼──────────────────────┘
-                        │ Qx (TCP:9900, 独立用户)
-              ┌─────────┼─────────┐
-              ▼         ▼         ▼
-           设备1      设备2     设备N
-                        ▲
-                        │ 只读查询（设备清单）
-                  ┌─────┴─────┐
-                  │ MySQL 老库 │
-                  │ (dmne等)   │
-                  └───────────┘
+src/main/java/com/optel/qxinspection/
+├── config/                  # 数据源配置
+│   ├── SQLiteDataSourceConfig.java    # SQLite双数据源 + JPA配置
+│   ├── SchedulingConfig.java          # 定时任务线程池
+│   └── SyncConfig.java               # MySQL同步白名单
+├── controller/              # REST API
+│   ├── ConnectionController.java      # 设备连接管理
+│   ├── InspectionController.java      # 巡检核心（触发/进度/结果/导出/门限/时钟）
+│   ├── StatsController.java           # 设备类型统计
+│   ├── SyncController.java            # MySQL数据同步
+│   └── DatabaseTestController.java    # 数据库连通测试
+├── entity/
+│   ├── mysql/               # 老库只读实体（DmNe/DmNet/Dmeo/EmNeComm等）
+│   └── sqlite/              # 本地缓存实体
+│       ├── DeviceAccessConfig.java    # 设备连接配置（全局+单设备覆盖）
+│       ├── ConnProfile.java           # 连接画像
+│       ├── OpticalPowerInspection.java # 巡检结果（核心表）
+│       ├── InspectionRound.java       # 巡检轮次
+│       ├── ThresholdRule.java         # 门限规则
+│       └── SysConfig.java             # 系统配置KV
+├── qx/                      # Qx协议层
+│   ├── QxDeviceServiceImpl.java       # 设备通信封装
+│   └── error/QxErrorCode.java         # Qx错误码
+├── reconnect/
+│   └── QxReconnectManager.java        # 断线重连（指数退避+熔断）
+├── repository/              # JPA Repository（mysql/sqlite双数据源）
+├── service/                 # 业务逻辑
+│   ├── QxConnectionService.java       # 连接管理（状态监听+缓存）
+│   ├── InspectionService.java         # 巡检核心逻辑
+│   ├── InspectionScheduler.java       # 定时巡检调度
+│   ├── ThresholdService.java          # 门限判定（实时计算）
+│   ├── DeviceAccessService.java       # 设备发现（从MySQL读取）
+│   ├── DeviceStatsService.java        # 设备类型统计
+│   ├── DynamicSyncService.java        # MySQL→SQLite动态同步
+│   ├── MysqlConnectionManager.java    # MySQL按需连接
+│   ├── ClockInspectionService.java    # 时钟拓扑
+│   ├── SysConfigService.java          # 系统配置持久化
+│   └── InventoryStatsService.java     # 库存统计
+└── util/
+    └── OidUtil.java                  # OID层级解析工具
+
+src/main/resources/static/            # 前端
+├── index.html                         # 主页面（SPA，侧边栏导航）
+├── css/style.css                      # 全局样式
+└── js/
+    ├── api.js          # API请求封装 + Toast通知
+    ├── app.js          # 应用入口（页面切换、全局事件）
+    ├── device.js       # 设备管理页
+    ├── stats.js        # 统计页
+    ├── threshold.js    # 门限配置页
+    ├── task.js         # 任务配置页
+    ├── progress.js     # 任务进度页
+    ├── query.js        # 数据查询页（树形分组表格）
+    ├── clock.js        # 时钟拓扑页
+    ├── sync.js         # 数据维护页
+    └── toast.js        # Toast通知组件
+
+src/main/schema/            # Qx协议YAML Schema
+├── laser.yaml              # 0x2410 激光器属性查询
+├── device.yaml             # 设备命令
+└── clock.yaml              # 时钟命令
 ```
 
-## 功能需求
+## 功能模块
 
-优先级：P0 = 首版必须，P1 = 首版尽量，P2 = 后续迭代。
+### F1 设备管理
+- 从MySQL老库发现设备（DmNe/DmNet/DmRelation + 字典表）
+- 全局连接配置 + 单设备覆盖（用户名/密码/端口）
+- 一键全部连接/断开，单设备连接/断开（带loading动效）
+- 断线自动重连（指数退避+抖动+熔断+全局并发信号量）
+- 设备列表：网元名、IP、所属网络、设备类型、连接状态
 
-### F1 设备接入管理
+### F2 类型统计
+- 按设备类型统计数量/占比，饼图/柱状图展示
+- 支持按网络筛选
 
-#### F1.1 设备发现（P0）
-- 从老库读取设备清单：`DmNe`（oid、type、commuState、location）、`DmNet`（网络）、`DmRelation`（网元-网络归属），字典表 `DefDmNe`（类型名）、`DefDmNetwork`（网络类型名）
-- 设备 IP 来源：`EmNeComm` 表（oid, ipAddr, state），取 state=1 的有效条目
-- 支持手动刷新设备列表
+### F3 光功率巡检
+- **采集**: 0x2410激光器属性查询，逐端口采集收/发光功率
+- **门限判定**: 三级匹配（PART精确 > MODULE类型 > GLOBAL默认），查询时实时计算
+- **数据查询**: 按网元分组的树形表格，可展开/收缩，分页/排序/搜索
+- **导出**: Excel（xlsx），含门限快照
+- **定时调度**: Cron表达式，配置持久化到SQLite
 
-#### F1.2 统一连接配置（P0）
-- 全局默认配置：一套用户名/密码/端口（默认 9900），用于所有设备一键连接
-- 单设备覆盖：允许对个别设备单独指定用户/密码/端口
-- 独立用户账号，与老网管所用账号不同
-- 配置持久化（SQLite），重启后保留
+### F4 时钟拓扑
+- 全网时钟拓扑可视化（ECharts关系图）
 
-#### F1.3 连接管理（P0）
-- 一键全部连接 / 一键断开；单设备连接/断开
-- 设备列表页展示：网元名、IP、端口、所属网络、设备类型、连接状态、登录用户
-- 断线自动重连：指数退避 + 抖动 + 熔断 + 全局并发上限
-- 连接统计：在线数 / 离线数 / 总数
+### F5 数据维护
+- MySQL→SQLite按需同步（动态建表+批量写入）
+- 同步状态查看、全量/增量同步
 
-### F2 设备类型统计（P0）
-- 按设备类型统计数量：类型名称 | 数量 | 占比
-- 统计口径可选：库存口径（库里有几台）/ 在线口径（当前连通几台）
-- 支持按网络筛选后再统计
+## 特殊逻辑详解
 
-### F3 光功率巡检任务
+### 1. 双数据源架构
 
-#### F3.1 任务配置（P0）
-- 采集周期可配置（Cron 或间隔）
-- 采集范围可选：全网 / 指定网络 / 指定网元
-- 支持手动触发一次立即巡检
-- 同一时刻仅允许一个巡检任务实例
+```
+MySQL（只读副源）                SQLite（主源，可写）
+├── dmne, defdmne              ├── device_access_config
+├── emnecomm                   ├── optical_power_inspection
+├── dmrelation, dmeo           ├── inspection_round
+├── dmnet, defdmnetwork        ├── threshold_rule
+└── 设备发现用                  ├── sys_config, conn_profile
+                               └── 巡检数据+配置
+```
 
-#### F3.2 采集执行（P0）
-- 数据来源：C19 激光器属性查询命令 **0x2410**（`CFG_Qx_LaserAttribute_Get`）
-  - `fRecvLaserPower` / `fTranLaserPower`：float 精度 dBm（0.1）
-  - `bSupportFlag` 能力位：bit0=1 支持光功率查询，0=不支持（显示 `--`）
-  - 同报文自带光模块属性：`bLaserType`（速率）、`bDistance`（距离档）、`bLaserWave`（波长）、`bmPartNumber`（型号编码）
-- 逐端口查询（报文按槽位+端口单端口返回）
-- 离线/登录失败设备：跳过并记录，不阻塞其他设备
-- 限速：单设备串行逐口查；多设备并发数可配（默认 ≤ 10）
-- 采集进度可见
+- MySQL: `@EnableJpaRepositories(basePackages="repository.mysql")`，GBK编码，连接池3
+- SQLite: `@EnableJpaRepositories(basePackages="repository.sqlite")`，WAL模式，连接池1（单写限制）
+- SQLite `@Transactional` 必须指定 `transactionManager = "sqliteTransactionManager"`，否则事务不生效
 
-#### F3.3 数据缓存（P0）
-- 巡检结果写入 SQLite，保留最近 N 轮（默认 10，可配），超龄轮次自动清理
-- 界面默认查询最新一轮，支持切换查看历史轮次
+### 2. 门限判定（三级匹配，实时计算）
 
-#### F3.4 查询与筛选（P0）
-- 筛选维度：范围（全网/网络/网元）、端口类型、是否支持、判定状态
-- 判定状态：正常 / 劣化 / 过载 / 无效（基于门限，见 F3.5）
-- 导出与筛选结果一致
+```
+匹配优先级: PART(型号编码) > MODULE(模块类型) > GLOBAL(全局默认)
 
-#### F3.5 光功率门限判定（P0，工具侧）
-- 现网设备不支持性能越限上报，门限判定完全由工具侧承担
-- 门限配置按光模块类型定义：`bmPartNumber` 精确匹配 > `速率+距离档` 类型匹配 > 全局默认
-- 全局默认门限（兜底）：接收 [-28, -8] dBm、发送 [-6, 0] dBm
-- 配置界面即时生效，无需重新采集（判定与数据分离）
+例: 端口 partNumber="XXXX", moduleTypeKey="L16.1"
+  → 先找 PART:XXXX → 找到用它
+  → 没找到 → 找 MODULE:L16.1 → 找到用它
+  → 没找到 → 用 GLOBAL 默认值
+```
 
-判定规则：
-| 条件 | 状态 |
-|---|---|
-| bSupportFlag=0 或功率值无效 | 无效（显示 `--`） |
-| 接收功率 < 接收下限 | 劣化（红色） |
-| 接收功率 > 接收上限 | 过载（橙色） |
-| 发送功率超出对应上下限 | 劣化/过载 |
-| 其余 | 正常 |
+**关键设计**: 门限**不持久化到巡检记录**，查询/导出时按当前门限实时判定。好处：调整门限后历史数据立即重新判定，无需重新采集。
 
-#### F3.6 导出（P0）
-- 按当前筛选结果导出 Excel（xlsx）
-- 文件名含导出时间与筛选条件摘要
+**模块类型组合键**（`moduleTypeKey`）格式与老网管一致：
 
-## 非功能需求
+| laserType | distance | moduleTypeKey | 含义 |
+|---|---|---|---|
+| 155M | I | I1.1 | STM-1 短距 |
+| 622M | S | S4.1 | STM-4 中距 |
+| 2.5G | L | L16.1 | STM-16 长距 |
+| 10G | S(850nm) | S64.2b | STM-64 850nm 中距 |
+| GE | SX | 1000BASE-SX | GE 短距 |
+| GE | LX | 1000BASE-LX | GE 长距 |
 
-| 编号 | 需求 | 说明 |
+### 3. 巡检自动连接/断开配置
+
+两个可配置项（持久化到SQLite `sys_config`表）：
+
+| 配置项 | 默认值 | 说明 |
 |---|---|---|
-| N1 | 防雪崩 | 批量连接/巡检并发受限流+退避保护 |
-| N2 | 会话保活 | SDK 自带 60s 心跳；进程退出必须 manager.stop() 干净登出 |
-| N3 | 编码 | 老库 GBK，读库与设备报文解析注意编码转换 |
-| N4 | 端口占用 | 与原服务器同机部署，不启用 UDP 9910 |
-| N5 | 权限 | 工具自身登录为 P2，首版不做 |
-| N6 | 规模预估 | 设备千级、端口万级 |
+| `inspect.autoConnect` | true | 设备未连接时是否主动建立连接 |
+| `inspect.autoDisconnect` | true | 巡检完成后是否主动断开所有连接 |
 
-## 界面结构
+**特殊逻辑**:
+- `autoConnect=false` 时，未在线设备**跳过**（记录"设备未连接"），不阻塞后续设备
+- `autoDisconnect=true` 时，断开循环**在保存轮次状态之前**执行，防止进度查询提前返回COMPLETED
+
+### 4. 树形分组表格（数据查询页）
+
+数据按网元分组显示，父行显示网元汇总，子行显示端口详情：
 
 ```
-左侧菜单                          主区
-├─ 设备管理                       设备列表（连接状态、一键连/断）
-│   ├─ 设备列表                   连接配置（全局用户/密码/端口）
-│   └─ 连接配置                   门限配置（全局4值 + 按光模块类型/型号覆盖）
-├─ 统计                           设备类型统计（表格+图）
-│   └─ 类型统计                   巡检进度（进行中任务 + 本轮劣化/过载摘要）
-└─ 光功率巡检                     光功率数据（筛选+判定标色+更新时间+导出）
-    ├─ 门限配置
-    ├─ 任务配置
-    ├─ 任务进度
-    └─ 数据查询
+▼ NE名称（12 个端口）    正常 10 / 异常 2        2026-08-27 10:00:00
+    2    1    GE口       1550nm    -3.2    -18.5    正常    -6~0    -27~-8    ...
+    2    2    GE口       1550nm    -2.8    -30.1    劣化    -6~0    -27~-8    ...
+▶ NE名称2（8 个端口）    正常 8                    2026-08-27 10:00:01
 ```
 
-## 巡检涉及的设备命令
+- 分页按**网元组**分页（非单条记录）
+- 展开/收缩状态用 `Set<neId>` 追踪
+- 支持全部展开/全部收缩
 
-| 命令 | 命令码 | 用途 |
+### 5. 断线重连管理器
+
+```
+QxReconnectManager:
+├── 指数退避: base(5s) → 10s → 20s → ... → max(300s)
+├── 抖动: ±30% 随机偏移，防止同时重连
+├── 熔断: 连续失败 ≥ 5次 → 冷却300s
+└── 并发控制: Semaphore(10) 全局限制同时重连数
+```
+
+### 6. OID层级解析
+
+OID格式: `neId:subrack:slot:port:timeslot`（冒号分隔）
+
+```
+例: "101:1:11:2:1"
+  segment[0] = 101  → 网元ID
+  segment[1] = 1    → 子架号 (bSubCaseNo)
+  segment[2] = 11   → 槽位号 (bSlotID)
+  segment[3] = 2    → 端口号 (wPortID)
+  segment[4] = 1    → 时隙
+```
+
+`OidUtil` 提供: `getSubrackId()`, `getSlotId()`, `getPortId()`, `getTsPortSubType()` 等方法，用于从dmeo表的OID中提取0x2410命令所需参数。
+
+### 7. 动态表同步（MySQL→SQLite）
+
+`DynamicSyncService` 实现按需同步：
+- 自动读取MySQL表结构，映射类型到SQLite（varchar→TEXT, int→INTEGER, float→REAL等）
+- 自动在SQLite建表（`CREATE TABLE IF NOT EXISTS`）
+- 批量写入（默认5000条/批），事务保护
+- 排除巡检内部表（`device_access_config`, `optical_power_inspection`等）
+
+### 8. SQLite WAL模式
+
+```
+PRAGMA journal_mode = WAL;     -- 读写并发不阻塞
+PRAGMA busy_timeout = 5000;    -- 写锁等待5秒
+PRAGMA synchronous = NORMAL;   -- WAL模式下安全且快
+```
+
+连接池设为1（SQLite单写限制），HikariCP `maximumPoolSize=1`。
+
+## 配置项
+
+```yaml
+app:
+  qx:
+    connect-timeout-ms: 5000       # Qx连接超时
+    login-timeout-sec: 20          # 登录超时
+    heartbeat-interval-sec: 60     # 心跳间隔
+    reconnect:
+      base-sec: 5                  # 重连基础退避
+      max-sec: 300                 # 最大退避
+      max-concurrent: 10           # 全局重连并发数
+      circuit-threshold: 5         # 熔断阈值
+  inspection:
+    concurrency: 10                # 巡检并发设备数
+    max-rounds: 10                 # 保留轮次上限
+    port-defname-patterns: "STM%,GE%,10GE%,40GE%,100GE%"  # 光口过滤
+    scheduled:
+      enabled: false
+      cron: "0 0 2 * * ?"         # 默认每天凌晨2点
+      scope: ALL                   # ALL / NETWORK
+```
+
+## API端点
+
+| 方法 | 路径 | 说明 |
 |---|---|---|
-| NE 安装查询 | 0x2401 | 网元标识/设备类型 |
-| 槽位查询 | 0x2403 | 槽位清单（slotId=0xFF 查全部） |
-| 物理端口安装查询 | 0x2406 | 端口清单 → 筛光口 |
-| 激光器属性查询 | **0x2410** | **单口收/发光功率** + 模块属性 |
+| POST | `/api/connection/connect-all` | 全部连接 |
+| POST | `/api/connection/disconnect-all` | 全部断开 |
+| POST | `/api/connection/connect/{neId}` | 单设备连接 |
+| POST | `/api/connection/disconnect/{neId}` | 单设备断开 |
+| GET | `/api/connection/status` | 连接状态列表 |
+| POST | `/api/inspection/start` | 触发巡检 |
+| GET | `/api/inspection/progress` | 巡检进度 |
+| GET | `/api/inspection/results` | 查询结果 |
+| GET | `/api/inspection/rounds` | 轮次列表 |
+| GET | `/api/inspection/export` | 导出Excel |
+| GET/POST | `/api/inspection/schedule/*` | 定时巡检配置 |
+| GET/POST | `/api/inspection/collect-params` | 采集参数 |
+| GET | `/api/inspection/trend/port` | 单端口趋势 |
+| GET | `/api/inspection/trend/ne` | 网元趋势 |
+| GET | `/api/inspection/anomaly/*` | 异常汇总 |
+| GET/POST | `/api/inspection/thresholds` | 门限规则 |
+| GET | `/api/inspection/clock/topology` | 时钟拓扑 |
+| GET | `/api/inventory/stats` | 类型统计 |
+| GET | `/api/sync/status` | 同步状态 |
+| POST | `/api/sync/essential` | 同步必要表 |
 
-> 命令码注意：激光器属性查询是 **0x2410**（`CFG_Qx_LaserAttribute_Get`，C19:399）；0x240F 是环回控制查询，勿混淆。
-
-## 巡检采集完整流程
+## 巡检采集流程
 
 ```
-触发（定时到点 / 手动点击）
- 1. 建轮次：task_meta 写入（trigger/scope/startTime，RUNNING）
- 2. 按范围解析目标网元清单（全网 / 指定网络 / 指定网元）
- 3. 线程池并发逐网元（≤ ne_concurrency，默认 10）：
-    a. 通道在线确认；离线先连一次，登录失败 → ne_task_stat 记 fail_reason 跳过
-    b. 0x2406 查端口清单 → 按端口类型筛出光口列表
-    c. 单设备串行逐口 0x2410：
-       - bSupportFlag bit0=1 → 收 fRecv/fTranLaserPower + 模块属性
-       - 不支持或 0xFF → supported=0，界面显示 '--'
-       - 单口超时/异常 → fail_ports+1，继续下一口不中断
-    d. 本网元结果一个事务批量写 power_record + ne_task_stat
- 4. 全部完成 → task_meta 补 endTime/done/failed → 删除超龄轮次
- 5. 摘要刷新（劣化/过载统计按当前门限对最新轮实时判定）
+触发（定时/手动）
+ 1. 创建轮次记录（InspectionRound, status=RUNNING）
+ 2. 按范围解析目标网元清单（全网/指定网络/指定网元）
+ 3. 线程池并发逐网元（concurrency=10）：
+    a. 设备在线确认；离线先连一次（autoConnect控制）
+    b. 从dmeo表查询光口端口（cid=5, defName匹配STM%/GE%等模式）
+    c. 单设备串行逐口发送0x2410激光器属性查询：
+       - bSupportFlag bit0=1 → 读取收/发光功率 + 模块属性
+       - 不支持 → supported=false，界面显示"--"
+       - 单口异常 → 记录失败，继续下一口不中断
+    d. 本网元结果批量写入optical_power_inspection
+ 4. 全部完成 → 自动断开连接（autoDisconnect控制）
+ 5. 更新轮次状态（COMPLETED）→ 清理超龄轮次
 ```
 
-## SDK 接入方式
+## 构建与运行
 
-依赖 `opt-qx-cci-core`，进程内单例 `QxChannelManager`：
+```bash
+# 编译
+mvn clean package -DskipTests
 
-```java
-QxChannelManager manager = new QxChannelManager(QxConfig.defaults());
-manager.start();                                    // 绕开 TCPChannel.initialize()，不启 UDP 9910
-manager.addStateListener((id, prev, cur) -> ...);   // 在线/离线 → 界面状态 + 触发重连
+# 运行
+java -jar target/qx-inspection-tool-1.0.0-SNAPSHOT.jar
+
+# 访问
+http://localhost:8080/qx-inspection
 ```
 
-关键注意事项：
-- **通道身份（坑）**：`ChannelID` 的 equals/hashCode **只含 ip+port**（name 不参与）。同 IP:port 已在线时，换用户的 connect/send 拿到的是既有通道——**单设备覆盖用户/端口后必须先 `manager.shut(id)` 再重连**
-- 进程退出必须 `manager.stop()` 干净登出全部设备（N2）
+前置条件:
+- MySQL 5.6容器运行中（`mysql-uniview`，端口3306，GBK编码）
+- SQLite数据库自动创建（`./data/qx_inspection.db`）
 
-## 激光器属性报文（0x2410）字段布局
+## 注意事项
 
-**请求** `STRU_CFG_Qx_LaserAttribute_Get`（8 字节）：子架 Byte(=1)、槽位 Byte、端口类型 Byte、端口子类型 Byte、端口号 Word、备用 Byte×2
-
-**响应** `STRU_CFG_Qx_LaserAttribute_Ack`（2050 风格）：
-
-| 字段 | 类型 | 说明 |
-|---|---|---|
-| bSubCaseNo / bSlotID / bPortType / bPortSubType / wPortID | Byte×4 + Word | 端口定位（回显请求） |
-| bLaserWave | Byte | 波长：1=1310nm，2=1550nm，3=850nm |
-| bAutoProState ×2 | Byte×2 | ALS 自动开关协议状态 |
-| bManualControl | Byte | 手动打开 |
-| bLaserState | Byte | 激光器实际状态：1=开，2=关 |
-| wDelayTime | Word | ALS 延迟时间 |
-| **bLaserType** | Byte | 速率：1=2.5G，2=622M，3=155M，4=10G，0x10=GE |
-| **bDistance** | Byte | 距离档：1=I(短)，2=S(中)，3=L(长)，4=V(超长)；GE 0x10=SX，0x11=LX |
-| bBackup1 / bBackup2 | Byte×2 | 备用 |
-| bmVendorName[16] | Byte[16] | 厂商 ASCII（不入库） |
-| **bmPartNumber[16]** | Byte[16] | 模块型号编码 ASCII（门限 PART 级匹配） |
-| bmSerialNumber[16] | Byte[16] | 序列号（不入库） |
-| bmLaserVersion[4] | Byte[4] | 版本号 |
-| bmProductDate[8] | Byte[8] | 生产日期：年2+月2+日2+空闲2 |
-| bLaserOpenTime | Byte | LOS 后激光器打开时间（2s/9s） |
-| bmBackup[6] | Byte[6] | 备用 |
-| **bSupportFlag** | Byte | bit0：1=支持光功率查询，0=不支持 |
-| **fRecvLaserPower** | float | 接收光功率 dBm（精确到 0.1） |
-| **fTranLaserPower** | float | 发送光功率 dBm（精确到 0.1） |
-
-模块类型组合规则（门限 MODULE 匹配键）：`{bLaserType 速率名}-{bDistance 档位名}`，如 `2.5G-L`、`155M-I`、`GE-LX`。
-
-## 实施顺序
-
-1. **M1 连通性**：设备发现 + 统一配置 + 批量连接/断开 + 状态页（F1）
-2. **M2 统计**：类型统计（F2）
-3. **M3 巡检**：手动触发巡检 + 缓存 + 门限判定 + 查询/导出（F3 核心，含 F3.5 门限）
-4. **M4 定时**：周期调度 + 进度展示 + 巡检摘要（劣化/过载统计）
-5. **M5 打磨**：历史趋势、图表、按类型异常汇总（P2）
-
-## 关键验证结论
-
-1. **光功率来源**：激光器属性查询命令 **0x2410**（C19:399），非业务端口配置
-2. **单端口报文**：激光器查询按槽位+端口返回，逐口采集
-3. **报文格式**：仅实现 2050 风格（float dBm + 能力位），不做 622C
-4. **设备清单来源**：DmNe/DmNet/DmRelation + 字典 DefDmNe/DefDmNetwork
-5. **设备 IP 来源**：EmNeComm 表（oid, ipAddr, state），state=1 有效
-6. **UDP 9910 可绕开**：直接构造 QxChannelManager 不触发 UDP 监听
-7. **门限判定**：设备不支持，完全由工具侧配置承担
-8. **通道身份（坑）**：ChannelID equals/hashCode 只含 ip+port，换用户必须先 shut()
-
-## 参考资源
-
-- **需求文档**: `D:\ai-workspace\mtp\REQ-QX设备直连巡检工具.md`
-- **Qx协议文档**: `D:\ai-workspace\mtp\qx-md\`
-- **tmaster2000（Qx协议核心库）**: `D:\ai-workspace\1240615\tmaster2000`
-- **mtp（本项目工作空间）**: `D:\ai-workspace\mtp`
+1. **ChannelID陷阱**: `ChannelID`的equals/hashCode只含ip+port（name不参与）。同IP:port已在线时换用户连接，必须先`manager.shut(id)`再重连
+2. **SQLite单写**: 连接池必须设为1，`@Transactional`必须指定`sqliteTransactionManager`
+3. **老库编码**: MySQL表级GBK，JDBC必须指定`characterEncoding=GBK`
+4. **UDP 9910绕开**: 直接构造`QxChannelManager`不触发UDP监听，同机部署无端口冲突
+5. **门限实时计算**: 不落判定结果到记录，查询时按当前门限重新判定
+6. **autoDisconnect时序**: 断开循环在保存轮次状态之前，防止进度API提前返回COMPLETED
 
 ## 作者
 
