@@ -481,6 +481,8 @@
                     <input type="text" id="querySearch" placeholder="搜索网元/端口名/ID..." oninput="searchQuery(this.value)" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;width:180px;margin-left:8px;">
                     <button class="btn btn-primary btn-sm" onclick="loadQueryResults()">查询</button>
                     <div class="toolbar-right">
+                        <button class="btn btn-outline btn-sm" onclick="expandAll()">全部展开</button>
+                        <button class="btn btn-outline btn-sm" onclick="collapseAll()">全部收缩</button>
                         <button class="btn btn-outline btn-sm" onclick="exportExcel()">导出 Excel</button>
                     </div>
                 </div>

@@ -1,6 +1,6 @@
 /**
  * 数据查询模块
- * 查询巡检结果，支持按轮次/网络/网元/状态筛选，分页浏览，列排序，文本搜索，导出Excel
+ * 查询巡检结果，支持按轮次/网络/网元/状态筛选，按网元分组折叠，分页浏览，列排序，文本搜索，导出Excel
  */
 
 import { get, API } from './api.js';
@@ -11,10 +11,12 @@ let allResults = [];
 let filteredResults = [];
 /** 分页状态 */
 let currentPage = 1;
-let pageSize = 100;
+let pageSize = 20;
 let sortField = '';
 let sortOrder = 'asc';
 let searchText = '';
+/** 展开的网元组（neId Set） */
+let expandedGroups = new Set();
 
 /** 创建文本单元格 */
 function createTextCell(text) {
@@ -78,6 +80,7 @@ export async function loadQueryResults() {
     try {
         allResults = await get('/inspection/results' + (params.toString() ? '?' + params : ''));
         currentPage = 1;
+        expandedGroups = new Set();
         applyFilterAndSort();
     } catch (e) { console.error('loadQueryResults', e); }
 }
@@ -87,19 +90,15 @@ function applyFilterAndSort() {
     const statusFilter = document.getElementById('queryStatus').value;
 
     filteredResults = allResults.filter(r => {
-        // 状态筛选
         if (statusFilter !== '') {
             if (statusFilter === '-1') {
-                // 只看无效
                 if (r.supported) return false;
             } else {
-                // 先排除无效记录
                 if (!r.supported) return false;
                 const st = parseInt(statusFilter);
                 if (r.txPowerStatus !== st && r.rxPowerStatus !== st) return false;
             }
         }
-        // 文本搜索
         if (searchText) {
             const text = searchText.toLowerCase();
             const match = (r.neName || '').toLowerCase().includes(text) ||
@@ -113,25 +112,64 @@ function applyFilterAndSort() {
         return true;
     });
 
-    // 排序
+    // 排序：先按网元名分组排序，组内按槽位+端口号排序
     if (sortField) {
-        filteredResults.sort((a, b) => {
-            let va = a[sortField];
-            let vb = b[sortField];
-            if (va == null) va = '';
-            if (vb == null) vb = '';
-            if (typeof va === 'number' && typeof vb === 'number') {
-                return sortOrder === 'asc' ? va - vb : vb - va;
+        if (sortField === 'neName') {
+            filteredResults.sort((a, b) => {
+                let va = a.neName || ''; let vb = b.neName || '';
+                va = va.toLowerCase(); vb = vb.toLowerCase();
+                if (va < vb) return sortOrder === 'asc' ? -1 : 1;
+                if (va > vb) return sortOrder === 'asc' ? 1 : -1;
+                return 0;
+            });
+        } else {
+            const grouped = groupByNe(filteredResults);
+            filteredResults = [];
+            const groups = [...grouped.values()].sort((a, b) => {
+                let va = a[0].neName || ''; let vb = b[0].neName || '';
+                va = va.toLowerCase(); vb = vb.toLowerCase();
+                if (va < vb) return -1; if (va > vb) return 1; return 0;
+            });
+            for (const group of groups) {
+                group.sort((a, b) => {
+                    let va = a[sortField]; let vb = b[sortField];
+                    if (va == null) va = ''; if (vb == null) vb = '';
+                    if (typeof va === 'number' && typeof vb === 'number') {
+                        return sortOrder === 'asc' ? va - vb : vb - va;
+                    }
+                    if (typeof va === 'string') va = va.toLowerCase();
+                    if (typeof vb === 'string') vb = vb.toLowerCase();
+                    if (va < vb) return sortOrder === 'asc' ? -1 : 1;
+                    if (va > vb) return sortOrder === 'asc' ? 1 : -1;
+                    return 0;
+                });
+                filteredResults.push(...group);
             }
-            if (typeof va === 'string') va = va.toLowerCase();
-            if (typeof vb === 'string') vb = vb.toLowerCase();
-            if (va < vb) return sortOrder === 'asc' ? -1 : 1;
-            if (va > vb) return sortOrder === 'asc' ? 1 : -1;
-            return 0;
+        }
+    }
+
+    // 默认按网元名排序（无排序字段时）
+    if (!sortField) {
+        filteredResults.sort((a, b) => {
+            let va = a.neName || ''; let vb = b.neName || '';
+            va = va.toLowerCase(); vb = vb.toLowerCase();
+            if (va < vb) return -1; if (va > vb) return 1;
+            return (a.slotNo || 0) - (b.slotNo || 0) || (a.portNo || 0) - (b.portNo || 0);
         });
     }
 
     renderQueryTable();
+}
+
+/** 按网元分组 */
+function groupByNe(results) {
+    const map = new Map();
+    for (const r of results) {
+        const key = r.neId || 'unknown';
+        if (!map.has(key)) map.set(key, []);
+        map.get(key).push(r);
+    }
+    return map;
 }
 
 /** 搜索文本 */
@@ -162,7 +200,7 @@ function getPortStatus(r) {
     return { text: '正常', cls: 'badge-online' };
 }
 
-/** 渲染查询结果表格（带分页） */
+/** 渲染查询结果表格（按网元分组，可展开收缩） */
 function renderQueryTable() {
     const tbody = document.getElementById('queryTable');
     tbody.textContent = '';
@@ -178,67 +216,174 @@ function renderQueryTable() {
         return;
     }
 
-    // 分页切片
-    const totalPages = Math.ceil(filteredResults.length / pageSize);
-    if (currentPage > totalPages) currentPage = totalPages;
+    // 按网元分组
+    const groups = groupByNe(filteredResults);
+    const groupEntries = [...groups.entries()];
+
+    // 分页：按网元组分页
+    const totalGroups = groupEntries.length;
+    const totalGroupPages = Math.ceil(totalGroups / pageSize);
+    if (currentPage > totalGroupPages) currentPage = totalGroupPages;
     const start = (currentPage - 1) * pageSize;
-    const end = Math.min(start + pageSize, filteredResults.length);
-    const pageData = filteredResults.slice(start, end);
+    const end = Math.min(start + pageSize, totalGroups);
+    const pageGroups = groupEntries.slice(start, end);
 
-    pageData.forEach(r => {
-        const tr = document.createElement('tr');
-        tr.appendChild(createTextCell(r.neName || '-'));
-        tr.appendChild(createTextCell(r.slotNo != null ? String(r.slotNo) : '-'));
-        tr.appendChild(createTextCell(r.portNo != null ? String(r.portNo) : '-'));
-        tr.appendChild(createTextCell(r.portName || '-'));
-        tr.appendChild(createTextCell(r.laserWave || '-'));
+    pageGroups.forEach(([neId, ports]) => {
+        const first = ports[0];
+        const expanded = expandedGroups.has(neId);
 
-        const txTd = document.createElement('td');
-        if (r.supported && r.txPower != null) {
-            txTd.textContent = r.txPower.toFixed(1);
-            if (r.txPowerStatus > 0) txTd.style.color = '#dc2626';
-        } else {
-            txTd.textContent = '--';
-            txTd.style.color = '#9ca3af';
+        // 统计该网元下的端口状态
+        let normal = 0, abnormal = 0, invalid = 0;
+        for (const p of ports) {
+            if (!p.supported) { invalid++; continue; }
+            if (p.txPowerStatus > 0 || p.rxPowerStatus > 0) { abnormal++; continue; }
+            normal++;
         }
-        tr.appendChild(txTd);
 
-        const rxTd = document.createElement('td');
-        if (r.supported && r.rxPower != null) {
-            rxTd.textContent = r.rxPower.toFixed(1);
-            if (r.rxPowerStatus > 0) rxTd.style.color = '#dc2626';
-        } else {
-            rxTd.textContent = '--';
-            rxTd.style.color = '#9ca3af';
-        }
-        tr.appendChild(rxTd);
+        // === 网元汇总行 ===
+        const groupTr = document.createElement('tr');
+        groupTr.style.cssText = 'background:#f8fafc;cursor:pointer;font-weight:600;';
 
+        // 展开图标
+        const arrowTd = document.createElement('td');
+        arrowTd.style.cssText = 'width:30px;text-align:center;color:#6b7280;';
+        arrowTd.textContent = expanded ? '▼' : '▶';
+        groupTr.appendChild(arrowTd);
+
+        // 网元名 + 端口数
+        const nameTd = document.createElement('td');
+        nameTd.colSpan = 3;
+        nameTd.textContent = (first.neName || '-') + '（' + ports.length + ' 个端口）';
+        groupTr.appendChild(nameTd);
+
+        // 状态摘要（安全拼接，不用 innerHTML）
         const statusTd = document.createElement('td');
-        const status = getPortStatus(r);
-        const badge = document.createElement('span');
-        badge.className = 'badge ' + status.cls;
-        badge.textContent = status.text;
-        statusTd.appendChild(badge);
-        tr.appendChild(statusTd);
+        statusTd.colSpan = 2;
+        statusTd.style.cssText = 'font-size:12px;font-weight:400;color:#6b7280;';
+        if (normal > 0) {
+            const s = document.createElement('span');
+            s.textContent = '正常 ' + normal;
+            statusTd.appendChild(s);
+        }
+        if (abnormal > 0) {
+            if (statusTd.childNodes.length > 0) statusTd.appendChild(document.createTextNode(' / '));
+            const s = document.createElement('span');
+            s.style.color = '#dc2626';
+            s.textContent = '异常 ' + abnormal;
+            statusTd.appendChild(s);
+        }
+        if (invalid > 0) {
+            if (statusTd.childNodes.length > 0) statusTd.appendChild(document.createTextNode(' / '));
+            const s = document.createElement('span');
+            s.textContent = '无效 ' + invalid;
+            statusTd.appendChild(s);
+        }
+        if (statusTd.childNodes.length === 0) statusTd.textContent = '-';
+        groupTr.appendChild(statusTd);
 
-        tr.appendChild(createTextCell(r.txLowThreshold != null ? r.txLowThreshold + '~' + r.txHighThreshold : '-'));
-        tr.appendChild(createTextCell(r.lowThreshold != null ? r.lowThreshold + '~' + r.highThreshold : '-'));
-        tr.appendChild(createTextCell(r.inspectionTime || '-'));
-        tbody.appendChild(tr);
+        // 空列占位
+        groupTr.appendChild(createTextCell(''));
+        groupTr.appendChild(createTextCell(''));
+        groupTr.appendChild(createTextCell(''));
+        groupTr.appendChild(createTextCell(''));
+
+        // 巡检时间
+        groupTr.appendChild(createTextCell(first.inspectionTime || '-'));
+
+        groupTr.onclick = () => toggleGroup(neId);
+        tbody.appendChild(groupTr);
+
+        // === 端口子行 ===
+        if (expanded) {
+            ports.forEach(r => {
+                const tr = document.createElement('tr');
+                tr.style.cssText = 'background:#ffffff;';
+
+                // 缩进占位
+                const indentTd = document.createElement('td');
+                indentTd.style.cssText = 'width:30px;';
+                tr.appendChild(indentTd);
+
+                tr.appendChild(createTextCell(''));
+                tr.appendChild(createTextCell(r.slotNo != null ? String(r.slotNo) : '-'));
+                tr.appendChild(createTextCell(r.portNo != null ? String(r.portNo) : '-'));
+                tr.appendChild(createTextCell(r.portName || '-'));
+                tr.appendChild(createTextCell(r.laserWave || '-'));
+
+                // 发送功率
+                const txTd = document.createElement('td');
+                if (r.supported && r.txPower != null) {
+                    txTd.textContent = r.txPower.toFixed(1);
+                    if (r.txPowerStatus > 0) txTd.style.color = '#dc2626';
+                } else {
+                    txTd.textContent = '--';
+                    txTd.style.color = '#9ca3af';
+                }
+                tr.appendChild(txTd);
+
+                // 接收功率
+                const rxTd = document.createElement('td');
+                if (r.supported && r.rxPower != null) {
+                    rxTd.textContent = r.rxPower.toFixed(1);
+                    if (r.rxPowerStatus > 0) rxTd.style.color = '#dc2626';
+                } else {
+                    rxTd.textContent = '--';
+                    rxTd.style.color = '#9ca3af';
+                }
+                tr.appendChild(rxTd);
+
+                // 状态
+                const stTd = document.createElement('td');
+                const status = getPortStatus(r);
+                const badge = document.createElement('span');
+                badge.className = 'badge ' + status.cls;
+                badge.textContent = status.text;
+                stTd.appendChild(badge);
+                tr.appendChild(stTd);
+
+                tr.appendChild(createTextCell(r.txLowThreshold != null ? r.txLowThreshold + '~' + r.txHighThreshold : '-'));
+                tr.appendChild(createTextCell(r.lowThreshold != null ? r.lowThreshold + '~' + r.highThreshold : '-'));
+                tr.appendChild(createTextCell(r.inspectionTime || '-'));
+                tbody.appendChild(tr);
+            });
+        }
     });
 
-    renderQueryPagination(filteredResults.length);
+    renderQueryPagination(totalGroups);
+}
+
+/** 切换网元组展开/收缩 */
+function toggleGroup(neId) {
+    if (expandedGroups.has(neId)) {
+        expandedGroups.delete(neId);
+    } else {
+        expandedGroups.add(neId);
+    }
+    renderQueryTable();
+}
+
+/** 全部展开 */
+export function expandAll() {
+    const groups = groupByNe(filteredResults);
+    for (const neId of groups.keys()) expandedGroups.add(neId);
+    renderQueryTable();
+}
+
+/** 全部收缩 */
+export function collapseAll() {
+    expandedGroups.clear();
+    renderQueryTable();
 }
 
 /** 渲染分页控件 */
-function renderQueryPagination(total) {
+function renderQueryPagination(totalGroups) {
     const containers = [
         document.getElementById('queryPaginationTop'),
         document.getElementById('queryPagination')
     ].filter(Boolean);
 
-    const totalPages = Math.ceil(total / pageSize);
-    const showPagination = totalPages > 1;
+    const totalGroupPages = Math.ceil(totalGroups / pageSize);
+    const showPagination = totalGroupPages > 1;
 
     containers.forEach(container => {
         container.textContent = '';
@@ -249,10 +394,10 @@ function renderQueryPagination(total) {
         // 每页条数选择
         const sizeSelect = document.createElement('select');
         sizeSelect.style.cssText = 'padding:4px 8px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;margin-right:12px;';
-        [20, 50, 100, 200, 500, 1000].forEach(size => {
+        [10, 20, 50, 100].forEach(size => {
             const opt = document.createElement('option');
             opt.value = size;
-            opt.textContent = size + '条/页';
+            opt.textContent = size + '组/页';
             if (size === pageSize) opt.selected = true;
             sizeSelect.appendChild(opt);
         });
@@ -266,7 +411,7 @@ function renderQueryPagination(total) {
         // 页码信息
         const info = document.createElement('span');
         info.style.cssText = 'font-size:12px;color:#6b7280;line-height:28px;margin-right:12px;';
-        info.textContent = '第 ' + currentPage + '/' + totalPages + ' 页，共 ' + total + ' 条';
+        info.textContent = '第 ' + currentPage + '/' + totalGroupPages + ' 页，共 ' + totalGroups + ' 个网元';
         container.appendChild(info);
 
         // 上一页
@@ -281,7 +426,7 @@ function renderQueryPagination(total) {
         const nextBtn = document.createElement('button');
         nextBtn.className = 'btn btn-outline btn-sm';
         nextBtn.textContent = '下一页';
-        nextBtn.disabled = currentPage >= totalPages;
+        nextBtn.disabled = currentPage >= totalGroupPages;
         nextBtn.onclick = () => { currentPage++; renderQueryTable(); };
         container.appendChild(nextBtn);
     });

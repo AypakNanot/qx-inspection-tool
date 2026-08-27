@@ -8,7 +8,7 @@ import { loadStatsOverview, loadStatsNetworks, loadStats, switchStatsChart, resi
 import { loadGlobalThreshold, saveGlobalThreshold, loadThresholds, openThresholdModal, closeThresholdModal, saveThreshold } from './threshold.js';
 import { loadScheduleStatus, toggleSchedule, toggleSchedScope, toggleManualScope, loadTaskNetworks, loadTaskDevices, startManualInspection, onSchedPresetChange, saveScheduleConfig, loadCollectParams, saveCollectParams } from './task.js';
 import { loadProgress, stopProgressPoll } from './progress.js';
-import { loadQueryRounds, loadQueryFilters, loadQueryResults, exportExcel, searchQuery, sortQueryBy } from './query.js';
+import { loadQueryRounds, loadQueryFilters, loadQueryResults, exportExcel, searchQuery, sortQueryBy, expandAll, collapseAll } from './query.js';
 import { loadClockTopology, refreshClockTopology, resizeClockChart } from './clock.js';
 import { showToast } from './toast.js';
 import { loadSyncStatus, syncEssential, syncAll, syncSelectedTables, clearSyncData, loadMysqlConfig, saveMysqlConfig, testMysqlConnection } from './sync.js';
@@ -114,6 +114,8 @@ window.loadQueryResults = loadQueryResults;
 window.exportExcel = exportExcel;
 window.searchQuery = searchQuery;
 window.sortQueryBy = sortQueryBy;
+window.expandAll = expandAll;
+window.collapseAll = collapseAll;
 window.refreshClockTopology = refreshClockTopology;
 window.showToast = showToast;
 window.loadSyncStatus = loadSyncStatus;
