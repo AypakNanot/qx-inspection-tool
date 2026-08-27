@@ -11,7 +11,7 @@ import { loadProgress, stopProgressPoll } from './progress.js';
 import { loadQueryRounds, loadQueryFilters, loadQueryResults, exportExcel, searchQuery, sortQueryBy, expandAll, collapseAll } from './query.js';
 import { loadClockTopology, refreshClockTopology, resizeClockChart } from './clock.js';
 import { showToast } from './toast.js';
-import { loadSyncStatus, syncEssential, syncAll, syncSelectedTables, clearSyncData, loadMysqlConfig, saveMysqlConfig, testMysqlConnection } from './sync.js';
+import { loadSyncStatus, syncEssential, syncAll, clearSyncData, loadMysqlConfig, saveMysqlConfig, testMysqlConnection } from './sync.js';
 
 /** 页面标题映射 */
 const TITLES = {
@@ -123,7 +123,6 @@ window.showToast = showToast;
 window.loadSyncStatus = loadSyncStatus;
 window.syncEssential = syncEssential;
 window.syncAll = syncAll;
-window.syncSelectedTables = syncSelectedTables;
 window.clearSyncData = clearSyncData;
 window.loadMysqlConfig = loadMysqlConfig;
 window.saveMysqlConfig = saveMysqlConfig;

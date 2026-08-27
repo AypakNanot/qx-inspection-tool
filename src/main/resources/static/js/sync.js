@@ -75,8 +75,6 @@ export async function loadSyncStatus() {
             addStatusLine(el, '未同步：' + notSynced + '  ', notSynced > 0 ? '#dc2626' : '#16a34a');
         }
         addStatusLine(el, '必要表：' + essential.length + ' 张 (' + essential.join(', ') + ')');
-
-        renderTableList(status);
     } catch (e) {
         document.getElementById('syncStatus').textContent = '加载失败: ' + e.message;
     }
@@ -87,36 +85,6 @@ function addStatusLine(el, text, color) {
     div.textContent = text;
     if (color) div.style.color = color;
     el.appendChild(div);
-}
-
-function renderTableList(status) {
-    const container = document.getElementById('syncTableList');
-    const selectArea = document.getElementById('syncTablesSelect');
-    container.textContent = '';
-
-    const allTables = [...(status.synced || []).map(function(s) { return s.split(' (')[0]; }),
-                       ...(status.notSynced || [])];
-    if (allTables.length === 0) {
-        selectArea.style.display = 'none';
-        return;
-    }
-
-    selectArea.style.display = 'block';
-    allTables.forEach(function(table) {
-        const label = document.createElement('label');
-        label.style.cssText = 'display:flex;align-items:center;gap:6px;padding:3px 0;cursor:pointer;';
-        const cb = document.createElement('input');
-        cb.type = 'checkbox';
-        cb.value = table;
-        cb.className = 'sync-table-cb';
-        const txt = document.createElement('span');
-        const isSynced = (status.synced || []).some(function(s) { return s.startsWith(table + ' ('); });
-        txt.textContent = table;
-        if (isSynced) txt.style.color = '#16a34a';
-        label.appendChild(cb);
-        label.appendChild(txt);
-        container.appendChild(label);
-    });
 }
 
 /** 同步必要表 */
