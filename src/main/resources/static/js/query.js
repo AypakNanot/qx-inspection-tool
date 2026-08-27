@@ -281,7 +281,7 @@ function renderQueryTable() {
         if (statusTd.childNodes.length === 0) statusTd.textContent = '-';
         groupTr.appendChild(statusTd);
 
-        // 空列占位
+        // 空列占位（txPower, rxPower, status, thresholdTx）
         groupTr.appendChild(createTextCell(''));
         groupTr.appendChild(createTextCell(''));
         groupTr.appendChild(createTextCell(''));
@@ -304,7 +304,6 @@ function renderQueryTable() {
                 indentTd.style.cssText = 'width:30px;';
                 tr.appendChild(indentTd);
 
-                tr.appendChild(createTextCell(''));
                 tr.appendChild(createTextCell(r.slotNo != null ? String(r.slotNo) : '-'));
                 tr.appendChild(createTextCell(r.portNo != null ? String(r.portNo) : '-'));
                 tr.appendChild(createTextCell(r.portName || '-'));

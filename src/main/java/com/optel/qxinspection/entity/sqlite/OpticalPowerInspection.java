@@ -75,7 +75,7 @@ public class OpticalPowerInspection implements Serializable {
     @Column(name = "laser_distance", length = 20)
     private String laserDistance;
 
-    /** 模块类型组合键（如 2.5G-L, GE-LX） */
+    /** 模块类型组合键（与老网管一致：L16.1, S4.1, 1000BASE-SX） */
     @Column(name = "module_type_key", length = 40)
     private String moduleTypeKey;
 

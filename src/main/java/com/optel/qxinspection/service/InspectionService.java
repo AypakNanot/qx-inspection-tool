@@ -454,7 +454,7 @@ public class InspectionService {
                 log.debug("设备未连接且自动连接已关闭，跳过: {}", device.getNeName());
                 records.add(buildDeviceFailRecord(round, device, "设备未连接"));
                 powerRecordRepository.saveAll(records);
-                throw new RuntimeException("设备未连接");
+                return;
             }
             log.debug("设备未连接，尝试建立连接: {}", device.getNeName());
             Map<String, Object> connResult = qxConnectionService.connectSingle(device.getNeId());
@@ -579,7 +579,7 @@ public class InspectionService {
 
         r.setLaserType(toLaserTypeName(laser.getLaserType()));
         r.setLaserDistance(toDistanceName(laser.getLaserType(), laser.getDistance()));
-        r.setModuleTypeKey(toLaserTypeName(laser.getLaserType()) + "-" + toDistanceName(laser.getLaserType(), laser.getDistance()));
+        r.setModuleTypeKey(toModuleTypeName(laser.getLaserType(), laser.getDistance()));
         r.setPartNumber(laser.getPartNumber());
         r.setLaserWave(toLaserWaveName(laser.getLaserWave()));
         r.setTxPower(toOpticalPower(laser.getTranLaserPower(), laser.getLaserState()));
@@ -620,6 +620,37 @@ public class InspectionService {
         r.setFailReason(reason);
         r.setInspectionTime(LocalDateTime.now());
         return r;
+    }
+
+    /**
+     * 将速率+距离档组合为标准光模块型号名（与老网管一致）
+     * 例: 2.5G+L档 → "L16.1", 155M+I档 → "I1.1", GE+SX → "1000BASE-SX"
+     */
+    private static String toModuleTypeName(int laserType, int distance) {
+        if (laserType == 0x10) {
+            return switch (distance) {
+                case 0x10 -> "1000BASE-SX";
+                case 0x11 -> "1000BASE-LX";
+                default -> "GE-Unknown(" + distance + ")";
+            };
+        }
+        // STM 速率代号: 2.5G→16, 622M→4, 155M→1, 10G→64
+        String speedCode = switch (laserType) {
+            case 1 -> "16";   // 2.5G = STM-16
+            case 2 -> "4";    // 622M = STM-4
+            case 3 -> "1";    // 155M = STM-1
+            case 4 -> "64";   // 10G = STM-64 (850nm)
+            default -> "?";
+        };
+        // 距离档模板: 850nm 用 .2/.2b 后缀，其他用 .1
+        String template = switch (distance) {
+            case 1 -> "I{0}.1";
+            case 2 -> (laserType == 4) ? "S{0}.2b" : "S{0}.1";
+            case 3 -> (laserType == 4) ? "L{0}.2" : "L{0}.1";
+            case 4 -> (laserType == 4) ? "V{0}.2" : "L{0}.2";
+            default -> "Unknown(" + distance + ")";
+        };
+        return java.text.MessageFormat.format(template, speedCode);
     }
 
     private static String toLaserTypeName(int laserType) {
