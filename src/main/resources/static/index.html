@@ -229,7 +229,10 @@
                 <!-- 模块类型规则 -->
                 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
                     <h3 style="font-size:14px;font-weight:600;color:#374151;">模块类型规则</h3>
-                    <button class="btn btn-primary btn-sm" onclick="openThresholdModal('MODULE')">新增规则</button>
+                    <div style="display:flex;gap:8px;">
+                        <button class="btn btn-outline btn-sm" onclick="loadThresholds()">刷新</button>
+                        <button class="btn btn-primary btn-sm" onclick="openThresholdModal('MODULE')">新增规则</button>
+                    </div>
                 </div>
                 <div class="table-wrap" style="margin-bottom:20px;">
                     <table>
@@ -370,6 +373,9 @@
 
             <!-- ========== 任务进度页 ========== -->
             <div class="page" id="page-progress">
+                <div style="margin-bottom:12px;">
+                    <button class="btn btn-outline btn-sm" onclick="loadProgress()">刷新状态</button>
+                </div>
                 <!-- 当前任务状态 -->
                 <div class="cards">
                     <div class="card"><div class="label">任务状态</div><div class="value" id="progStatus" style="color:#6b7280">空闲</div></div>
