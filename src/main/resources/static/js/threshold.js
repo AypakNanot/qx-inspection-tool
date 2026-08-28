@@ -6,6 +6,32 @@
 import { get, post, del } from './api.js';
 import { showToast } from './toast.js';
 
+/** 模块类型列表（与老网管 LaserInfoTableRowDecoder.getDistance() 一致） */
+const MODULE_TYPES = [
+    // 2.5G (STM-16)
+    { key: 'I16.1',  speed: '2.5G',  wave: '1310nm', distance: 'I (中距)' },
+    { key: 'S16.1',  speed: '2.5G',  wave: '1310nm', distance: 'S (短距)' },
+    { key: 'L16.1',  speed: '2.5G',  wave: '1310nm', distance: 'L (长距)' },
+    { key: 'V16.1',  speed: '2.5G',  wave: '1550nm', distance: 'V (超长距)' },
+    // 622M (STM-4)
+    { key: 'I4.1',   speed: '622M',  wave: '1310nm', distance: 'I (中距)' },
+    { key: 'S4.1',   speed: '622M',  wave: '1310nm', distance: 'S (短距)' },
+    { key: 'L4.1',   speed: '622M',  wave: '1310nm', distance: 'L (长距)' },
+    { key: 'V4.1',   speed: '622M',  wave: '1550nm', distance: 'V (超长距)' },
+    // 155M (STM-1)
+    { key: 'I1.1',   speed: '155M',  wave: '1310nm', distance: 'I (中距)' },
+    { key: 'S1.1',   speed: '155M',  wave: '1310nm', distance: 'S (短距)' },
+    { key: 'L1.1',   speed: '155M',  wave: '1310nm', distance: 'L (长距)' },
+    { key: 'V1.1',   speed: '155M',  wave: '1550nm', distance: 'V (超长距)' },
+    // 10G (STM-64, 850nm)
+    { key: 'S64.2b', speed: '10G',   wave: '850nm',  distance: 'S (短距)' },
+    { key: 'L64.2',  speed: '10G',   wave: '850nm',  distance: 'L (长距)' },
+    { key: 'V64.2',  speed: '10G',   wave: '850nm',  distance: 'V (超长距)' },
+    // GE
+    { key: '1000BASE-SX', speed: 'GE', wave: '850nm',  distance: 'SX (短距)' },
+    { key: '1000BASE-LX', speed: 'GE', wave: '1310nm', distance: 'LX (长距)' },
+];
+
 /** 创建文本单元格 */
 function createTextCell(text) {
     const td = document.createElement('td');
@@ -111,20 +137,63 @@ function buildThresholdRow(r) {
 export function openThresholdModal(levelType, rule) {
     document.getElementById('thLevelType').value = levelType;
     document.getElementById('thId').value = rule ? rule.id : '';
-    document.getElementById('thMatchKey').value = rule ? rule.matchKey : '';
     document.getElementById('thRxLow').value = rule && rule.rxLow != null ? rule.rxLow : '';
     document.getElementById('thRxHigh').value = rule && rule.rxHigh != null ? rule.rxHigh : '';
     document.getElementById('thTxLow').value = rule && rule.txLow != null ? rule.txLow : '';
     document.getElementById('thTxHigh').value = rule && rule.txHigh != null ? rule.txHigh : '';
     document.getElementById('thDesc').value = rule ? (rule.description || '') : '';
-    document.getElementById('thMatchKeyLabel').textContent = levelType === 'PART' ? '型号编码 (partNumber)' : '模块类型 (moduleTypeKey)';
-    document.getElementById('thMatchKey').placeholder = levelType === 'PART' ? '如 ABCD-1234' : '如 2.5G-L、GE-LX';
     document.getElementById('thresholdModalTitle').textContent = rule ? '编辑门限规则' : '新增门限规则';
+
+    const moduleGroup = document.getElementById('thModuleSelectGroup');
+    const partGroup = document.getElementById('thPartInputGroup');
+
+    if (levelType === 'MODULE') {
+        moduleGroup.style.display = '';
+        partGroup.style.display = 'none';
+        // 填充下拉列表
+        const sel = document.getElementById('thModuleSelect');
+        sel.textContent = '';
+        const defaultOpt = document.createElement('option');
+        defaultOpt.value = '';
+        defaultOpt.textContent = '-- 请选择模块类型 --';
+        sel.appendChild(defaultOpt);
+        MODULE_TYPES.forEach(m => {
+            const opt = document.createElement('option');
+            opt.value = m.key;
+            opt.textContent = m.key + '  (' + m.speed + ', ' + m.wave + ', ' + m.distance + ')';
+            sel.appendChild(opt);
+        });
+        // 编辑时回显选中值
+        if (rule && rule.matchKey) {
+            sel.value = rule.matchKey;
+            onModuleSelectChange();
+        } else {
+            document.getElementById('thModuleInfo').textContent = '';
+        }
+    } else {
+        moduleGroup.style.display = 'none';
+        partGroup.style.display = '';
+        document.getElementById('thMatchKey').value = rule ? rule.matchKey : '';
+    }
+
     document.getElementById('thresholdModal').classList.remove('hidden');
 }
 
 /** 编辑门限规则 */
 function editThreshold(rule) { openThresholdModal(rule.levelType, rule); }
+
+/** 模块类型下拉选择变化 */
+export function onModuleSelectChange() {
+    const key = document.getElementById('thModuleSelect').value;
+    const info = document.getElementById('thModuleInfo');
+    if (!key) { info.textContent = ''; return; }
+    const m = MODULE_TYPES.find(t => t.key === key);
+    if (m) {
+        info.textContent = '速率: ' + m.speed + ' | 波长: ' + m.wave + ' | 距离档: ' + m.distance;
+    } else {
+        info.textContent = '';
+    }
+}
 
 /** 关闭门限规则弹窗 */
 export function closeThresholdModal() { document.getElementById('thresholdModal').classList.add('hidden'); }
@@ -132,9 +201,13 @@ export function closeThresholdModal() { document.getElementById('thresholdModal'
 /** 保存门限规则（新增/编辑） */
 export async function saveThreshold() {
     const id = document.getElementById('thId').value;
+    const levelType = document.getElementById('thLevelType').value;
+    const matchKey = levelType === 'MODULE'
+        ? document.getElementById('thModuleSelect').value
+        : document.getElementById('thMatchKey').value.trim();
     const body = {
-        levelType: document.getElementById('thLevelType').value,
-        matchKey: document.getElementById('thMatchKey').value.trim(),
+        levelType: levelType,
+        matchKey: matchKey,
         rxLow: parseFloat(document.getElementById('thRxLow').value),
         rxHigh: parseFloat(document.getElementById('thRxHigh').value),
         txLow: parseFloat(document.getElementById('thTxLow').value),

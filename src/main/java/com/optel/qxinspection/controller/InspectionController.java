@@ -172,12 +172,13 @@ public class InspectionController {
                 row.createCell(7).setCellValue(Boolean.TRUE.equals(r.getSupported()) ? "是" : "否");
                 row.createCell(8).setCellValue(r.getLaserType() != null ? r.getLaserType() : "--");
                 row.createCell(9).setCellValue(r.getLaserDistance() != null ? r.getLaserDistance() : "--");
-                row.createCell(10).setCellValue(r.getPartNumber() != null ? r.getPartNumber() : "--");
-                row.createCell(11).setCellValue(r.getLaserWave() != null ? r.getLaserWave() : "--");
+                row.createCell(10).setCellValue(r.getModuleTypeKey() != null ? r.getModuleTypeKey() : "--");
+                row.createCell(11).setCellValue(r.getPartNumber() != null ? r.getPartNumber() : "--");
+                row.createCell(12).setCellValue(r.getLaserWave() != null ? r.getLaserWave() : "--");
 
                 // 功率值
-                Cell txCell = row.createCell(12);
-                Cell rxCell = row.createCell(13);
+                Cell txCell = row.createCell(13);
+                Cell rxCell = row.createCell(14);
                 if (Boolean.TRUE.equals(r.getSupported()) && r.getTxPower() != null) {
                     txCell.setCellValue(r.getTxPower());
                     rxCell.setCellValue(r.getRxPower() != null ? r.getRxPower() : 0);
@@ -187,22 +188,22 @@ public class InspectionController {
                 }
 
                 // 状态标色
-                Cell txStatusCell = row.createCell(14);
+                Cell txStatusCell = row.createCell(15);
                 String txStatus = formatStatus(r.getTxPowerStatus());
                 txStatusCell.setCellValue(txStatus);
                 txStatusCell.setCellStyle(r.getTxPowerStatus() != null && r.getTxPowerStatus() > 0 ? warnStyle : normalStyle);
 
-                Cell rxStatusCell = row.createCell(15);
+                Cell rxStatusCell = row.createCell(16);
                 String rxStatus = formatStatus(r.getRxPowerStatus());
                 rxStatusCell.setCellValue(rxStatus);
                 rxStatusCell.setCellStyle(r.getRxPowerStatus() != null && r.getRxPowerStatus() > 0 ? warnStyle : normalStyle);
 
-                row.createCell(16).setCellValue(r.getTxLowThreshold() != null ? r.getTxLowThreshold() : 0);
-                row.createCell(17).setCellValue(r.getTxHighThreshold() != null ? r.getTxHighThreshold() : 0);
-                row.createCell(18).setCellValue(r.getLowThreshold() != null ? r.getLowThreshold() : 0);
-                row.createCell(19).setCellValue(r.getHighThreshold() != null ? r.getHighThreshold() : 0);
-                row.createCell(20).setCellValue(r.getInspectionTime() != null ? r.getInspectionTime().format(DT_FMT) : "");
-                row.createCell(21).setCellValue(r.getFailReason() != null ? r.getFailReason() : "");
+                row.createCell(17).setCellValue(r.getTxLowThreshold() != null ? r.getTxLowThreshold() : 0);
+                row.createCell(18).setCellValue(r.getTxHighThreshold() != null ? r.getTxHighThreshold() : 0);
+                row.createCell(19).setCellValue(r.getLowThreshold() != null ? r.getLowThreshold() : 0);
+                row.createCell(20).setCellValue(r.getHighThreshold() != null ? r.getHighThreshold() : 0);
+                row.createCell(21).setCellValue(r.getInspectionTime() != null ? r.getInspectionTime().format(DT_FMT) : "");
+                row.createCell(22).setCellValue(r.getFailReason() != null ? r.getFailReason() : "");
             }
 
             // 自动列宽

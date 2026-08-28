@@ -5,7 +5,7 @@
 
 import { loadDevices, loadGlobalConfig, saveGlobalConfig, syncDevices, clearDataType, clearConnProfiles, toggleAllClearCb, clearSelectedData, connectAll, disconnectAll, connectSingle, disconnectSingle, closeDeviceModal, saveDeviceConfig, deleteDeviceConfig, searchDevices, filterByNetwork, filterByStatus, sortBy } from './device.js';
 import { loadStatsOverview, loadStatsNetworks, loadStats, switchStatsChart, resizeChart } from './stats.js';
-import { loadGlobalThreshold, saveGlobalThreshold, loadThresholds, openThresholdModal, closeThresholdModal, saveThreshold } from './threshold.js';
+import { loadGlobalThreshold, saveGlobalThreshold, loadThresholds, openThresholdModal, closeThresholdModal, saveThreshold, onModuleSelectChange } from './threshold.js';
 import { loadScheduleStatus, toggleSchedule, toggleSchedScope, toggleManualScope, loadTaskNetworks, loadTaskDevices, startManualInspection, onSchedPresetChange, saveScheduleConfig, loadCollectParams, saveCollectParams } from './task.js';
 import { loadProgress, stopProgressPoll } from './progress.js';
 import { loadQueryRounds, loadQueryFilters, loadQueryResults, exportExcel, searchQuery, sortQueryBy, expandAll, collapseAll } from './query.js';
@@ -104,6 +104,7 @@ window.saveGlobalThreshold = saveGlobalThreshold;
 window.openThresholdModal = (levelType) => openThresholdModal(levelType);
 window.closeThresholdModal = closeThresholdModal;
 window.saveThreshold = saveThreshold;
+window.onModuleSelectChange = onModuleSelectChange;
 window.toggleSchedule = (checked) => toggleSchedule(checked);
 window.onSchedPresetChange = onSchedPresetChange;
 window.saveScheduleConfig = saveScheduleConfig;

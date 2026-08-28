@@ -105,6 +105,7 @@ function applyFilterAndSort() {
                          (r.neId || '').toLowerCase().includes(text) ||
                          (r.portName || '').toLowerCase().includes(text) ||
                          (r.laserWave || '').toLowerCase().includes(text) ||
+                         (r.moduleTypeKey || '').toLowerCase().includes(text) ||
                          (r.slotNo != null && String(r.slotNo).includes(text)) ||
                          (r.portNo != null && String(r.portNo).includes(text));
             if (!match) return false;
@@ -281,8 +282,7 @@ function renderQueryTable() {
         if (statusTd.childNodes.length === 0) statusTd.textContent = '-';
         groupTr.appendChild(statusTd);
 
-        // 空列占位（laserType, txPower, rxPower, status, thresholdTx）
-        groupTr.appendChild(createTextCell(''));
+        // 空列占位（moduleTypeKey, txPower, rxPower, status）
         groupTr.appendChild(createTextCell(''));
         groupTr.appendChild(createTextCell(''));
         groupTr.appendChild(createTextCell(''));
@@ -309,7 +309,7 @@ function renderQueryTable() {
                 tr.appendChild(createTextCell(r.portNo != null ? String(r.portNo) : '-'));
                 tr.appendChild(createTextCell(r.portName || '-'));
                 tr.appendChild(createTextCell(r.laserWave || '-'));
-                tr.appendChild(createTextCell(r.laserType || '-'));
+                tr.appendChild(createTextCell(r.moduleTypeKey || '-'));
 
                 // 发送功率
                 const txTd = document.createElement('td');
