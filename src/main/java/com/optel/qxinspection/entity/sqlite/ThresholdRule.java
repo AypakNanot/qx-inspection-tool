@@ -5,7 +5,7 @@ import lombok.Data;
 
 /**
  * 光功率门限规则
- * 匹配优先级: PART > MODULE > GLOBAL
+ * 匹配优先级: MODULE > GLOBAL
  */
 @Data
 @Entity
@@ -18,11 +18,11 @@ public class ThresholdRule {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    /** 级别: GLOBAL / MODULE / PART */
+    /** 级别: GLOBAL / MODULE */
     @Column(name = "level_type", nullable = false, length = 20)
     private String levelType;
 
-    /** 匹配键: GLOBAL时为"GLOBAL"，MODULE时为moduleTypeKey(如2.5G-L)，PART时为partNumber */
+    /** 匹配键: GLOBAL时为"GLOBAL"，MODULE时为moduleTypeKey(如S16.1) */
     @Column(name = "match_key", nullable = false, length = 64)
     private String matchKey;
 

@@ -203,7 +203,7 @@
             <!-- ========== 门限配置页 ========== -->
             <div class="page" id="page-threshold">
                 <div style="background:#f0f7ff;border:1px solid #bfdbfe;border-radius:8px;padding:12px 16px;margin-bottom:16px;font-size:13px;color:#1e40af;">
-                    匹配优先级：<b>PART（型号精确匹配）</b> > <b>MODULE（模块类型匹配）</b> > <b>GLOBAL（全局默认）</b>。修改后即时生效，无需重新采集。
+                    匹配优先级：<b>MODULE（模块类型匹配）</b> > <b>GLOBAL（全局默认）</b>。修改后即时生效，无需重新采集。
                 </div>
 
                 <!-- 全局默认门限 -->
@@ -237,22 +237,6 @@
                             <tr><th>模块类型 (moduleTypeKey)</th><th>接收低 (dBm)</th><th>接收高 (dBm)</th><th>发送低 (dBm)</th><th>发送高 (dBm)</th><th>说明</th><th style="width:100px">操作</th></tr>
                         </thead>
                         <tbody id="moduleThresholdTable">
-                            <tr><td colspan="7" class="loading">加载中...</td></tr>
-                        </tbody>
-                    </table>
-                </div>
-
-                <!-- 型号规则 -->
-                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
-                    <h3 style="font-size:14px;font-weight:600;color:#374151;">型号规则 (partNumber)</h3>
-                    <button class="btn btn-primary btn-sm" onclick="openThresholdModal('PART')">新增规则</button>
-                </div>
-                <div class="table-wrap">
-                    <table>
-                        <thead>
-                            <tr><th>型号编码 (partNumber)</th><th>接收低 (dBm)</th><th>接收高 (dBm)</th><th>发送低 (dBm)</th><th>发送高 (dBm)</th><th>说明</th><th style="width:100px">操作</th></tr>
-                        </thead>
-                        <tbody id="partThresholdTable">
                             <tr><td colspan="7" class="loading">加载中...</td></tr>
                         </tbody>
                     </table>
@@ -694,11 +678,6 @@
                         <option value="">-- 请选择模块类型 --</option>
                     </select>
                     <div id="thModuleInfo" style="font-size:12px;color:#6b7280;margin-top:4px;"></div>
-                </div>
-                <!-- PART 类型：文本输入 -->
-                <div class="form-group" style="margin-bottom:12px;display:none" id="thPartInputGroup">
-                    <label>型号编码 (partNumber)</label>
-                    <input type="text" id="thMatchKey" placeholder="如 ABCD-1234">
                 </div>
                 <div class="form-row" style="margin-bottom:12px;">
                     <div class="form-group"><label>接收低门限 (dBm)</label><input type="number" id="thRxLow" step="0.1" style="width:100px"></div>

@@ -88,15 +88,12 @@ export async function loadThresholds() {
     } catch (e) { console.error('loadThresholds', e); }
 }
 
-/** 渲染模块类型和型号规则表格 */
+/** 渲染模块类型规则表格 */
 function renderThresholdTables(rules) {
     const moduleTbody = document.getElementById('moduleThresholdTable');
-    const partTbody = document.getElementById('partThresholdTable');
     moduleTbody.textContent = '';
-    partTbody.textContent = '';
 
     const moduleRules = rules.filter(r => r.levelType === 'MODULE');
-    const partRules = rules.filter(r => r.levelType === 'PART');
 
     if (moduleRules.length === 0) {
         const tr = document.createElement('tr');
@@ -105,14 +102,6 @@ function renderThresholdTables(rules) {
         tr.appendChild(td); moduleTbody.appendChild(tr);
     } else {
         moduleRules.forEach(r => moduleTbody.appendChild(buildThresholdRow(r)));
-    }
-    if (partRules.length === 0) {
-        const tr2 = document.createElement('tr');
-        const td2 = document.createElement('td');
-        td2.colSpan = 7; td2.className = 'empty'; td2.textContent = '暂无型号规则';
-        tr2.appendChild(td2); partTbody.appendChild(tr2);
-    } else {
-        partRules.forEach(r => partTbody.appendChild(buildThresholdRow(r)));
     }
 }
 
@@ -149,36 +138,25 @@ export function openThresholdModal(levelType, rule) {
     document.getElementById('thDesc').value = rule ? (rule.description || '') : '';
     document.getElementById('thresholdModalTitle').textContent = rule ? '编辑门限规则' : '新增门限规则';
 
-    const moduleGroup = document.getElementById('thModuleSelectGroup');
-    const partGroup = document.getElementById('thPartInputGroup');
-
-    if (levelType === 'MODULE') {
-        moduleGroup.style.display = '';
-        partGroup.style.display = 'none';
-        // 填充下拉列表
-        const sel = document.getElementById('thModuleSelect');
-        sel.textContent = '';
-        const defaultOpt = document.createElement('option');
-        defaultOpt.value = '';
-        defaultOpt.textContent = '-- 请选择模块类型 --';
-        sel.appendChild(defaultOpt);
-        MODULE_TYPES.forEach(m => {
-            const opt = document.createElement('option');
-            opt.value = m.key;
-            opt.textContent = m.key + '  (' + m.speed + ', ' + m.wave + ', ' + m.distance + ')';
-            sel.appendChild(opt);
-        });
-        // 编辑时回显选中值
-        if (rule && rule.matchKey) {
-            sel.value = rule.matchKey;
-            onModuleSelectChange();
-        } else {
-            document.getElementById('thModuleInfo').textContent = '';
-        }
+    // 填充下拉列表
+    const sel = document.getElementById('thModuleSelect');
+    sel.textContent = '';
+    const defaultOpt = document.createElement('option');
+    defaultOpt.value = '';
+    defaultOpt.textContent = '-- 请选择模块类型 --';
+    sel.appendChild(defaultOpt);
+    MODULE_TYPES.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m.key;
+        opt.textContent = m.key + '  (' + m.speed + ', ' + m.wave + ', ' + m.distance + ')';
+        sel.appendChild(opt);
+    });
+    // 编辑时回显选中值
+    if (rule && rule.matchKey) {
+        sel.value = rule.matchKey;
+        onModuleSelectChange();
     } else {
-        moduleGroup.style.display = 'none';
-        partGroup.style.display = '';
-        document.getElementById('thMatchKey').value = rule ? rule.matchKey : '';
+        document.getElementById('thModuleInfo').textContent = '';
     }
 
     document.getElementById('thresholdModal').classList.remove('hidden');
@@ -207,9 +185,7 @@ export function closeThresholdModal() { document.getElementById('thresholdModal'
 export async function saveThreshold() {
     const id = document.getElementById('thId').value;
     const levelType = document.getElementById('thLevelType').value;
-    const matchKey = levelType === 'MODULE'
-        ? document.getElementById('thModuleSelect').value
-        : document.getElementById('thMatchKey').value.trim();
+    const matchKey = document.getElementById('thModuleSelect').value;
     const body = {
         levelType: levelType,
         matchKey: matchKey,

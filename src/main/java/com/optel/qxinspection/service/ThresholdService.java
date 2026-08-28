@@ -11,7 +11,7 @@ import java.util.*;
 
 /**
  * 门限判定服务
- * 匹配优先级: PART > MODULE > GLOBAL
+ * 匹配优先级: MODULE > GLOBAL
  * 门限在查询时实时计算，不持久化到记录中
  */
 @Slf4j
@@ -54,16 +54,11 @@ public class ThresholdService {
     }
 
     /**
-     * 匹配门限规则: PART > MODULE > GLOBAL
+     * 匹配门限规则: MODULE > GLOBAL
      */
     private ThresholdRule matchRule(Map<String, ThresholdRule> ruleMap,
                                      ThresholdRule globalRule,
                                      OpticalPowerInspection record) {
-        // PART级: 按partNumber匹配
-        if (record.getPartNumber() != null && !record.getPartNumber().isEmpty()) {
-            ThresholdRule partRule = ruleMap.get("PART:" + record.getPartNumber());
-            if (partRule != null) return partRule;
-        }
         // MODULE级: 按moduleTypeKey匹配
         if (record.getModuleTypeKey() != null && !record.getModuleTypeKey().isEmpty()) {
             ThresholdRule moduleRule = ruleMap.get("MODULE:" + record.getModuleTypeKey());
@@ -117,12 +112,6 @@ public class ThresholdService {
                 .map(this::ruleToMap)
                 .toList();
         snapshot.put("module", moduleRules);
-
-        List<Map<String, Object>> partRules = allRules.stream()
-                .filter(r -> "PART".equals(r.getLevelType()))
-                .map(this::ruleToMap)
-                .toList();
-        snapshot.put("part", partRules);
 
         return snapshot;
     }
