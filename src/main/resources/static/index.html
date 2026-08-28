@@ -501,6 +501,8 @@
                                 <th onclick="sortQueryBy('portName')" style="cursor:pointer">端口名称 ↕</th>
                                 <th onclick="sortQueryBy('laserWave')" style="cursor:pointer">波长 ↕</th>
                                 <th onclick="sortQueryBy('moduleTypeKey')" style="cursor:pointer">激光器类型 ↕</th>
+                                <th>激光器状态</th>
+                                <th onclick="sortQueryBy('vendorName')" style="cursor:pointer">生产厂商 ↕</th>
                                 <th onclick="sortQueryBy('txPower')" style="cursor:pointer">发送功率(dBm) ↕</th>
                                 <th onclick="sortQueryBy('rxPower')" style="cursor:pointer">接收功率(dBm) ↕</th>
                                 <th>状态</th>
@@ -510,7 +512,7 @@
                             </tr>
                         </thead>
                         <tbody id="queryTable">
-                            <tr><td colspan="12" class="loading">加载中...</td></tr>
+                            <tr><td colspan="14" class="loading">加载中...</td></tr>
                         </tbody>
                     </table>
                 </div>

@@ -119,7 +119,12 @@ function renderThresholdTables(rules) {
 /** 构建单条门限规则行 */
 function buildThresholdRow(r) {
     const tr = document.createElement('tr');
-    tr.appendChild(createTextCell(r.matchKey));
+    let displayKey = r.matchKey;
+    if (r.levelType === 'MODULE') {
+        const m = MODULE_TYPES.find(t => t.key === r.matchKey);
+        if (m) displayKey = m.key + '  (' + m.speed + ', ' + m.wave + ', ' + m.distance + ')';
+    }
+    tr.appendChild(createTextCell(displayKey));
     tr.appendChild(createTextCell(r.rxLow != null ? r.rxLow : '-'));
     tr.appendChild(createTextCell(r.rxHigh != null ? r.rxHigh : '-'));
     tr.appendChild(createTextCell(r.txLow != null ? r.txLow : '-'));

@@ -67,6 +67,10 @@ public class OpticalPowerInspection implements Serializable {
     @Column(name = "supported")
     private Boolean supported;
 
+    /** 激光器状态：0-未知，1-开，2-关 */
+    @Column(name = "laser_state")
+    private Integer laserState;
+
     /** 光模块速率类型（如 2.5G, 10G, GE） */
     @Column(name = "laser_type", length = 20)
     private String laserType;
@@ -82,6 +86,10 @@ public class OpticalPowerInspection implements Serializable {
     /** 模块型号编码 */
     @Column(name = "part_number", length = 32)
     private String partNumber;
+
+    /** 生产厂商 */
+    @Column(name = "vendor_name", length = 32)
+    private String vendorName;
 
     /** 波长 */
     @Column(name = "laser_wave", length = 20)

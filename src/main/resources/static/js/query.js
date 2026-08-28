@@ -211,7 +211,7 @@ function renderQueryTable() {
     if (!filteredResults || filteredResults.length === 0) {
         const tr = document.createElement('tr');
         const td = document.createElement('td');
-        td.colSpan = 12; td.className = 'empty'; td.textContent = '暂无数据';
+        td.colSpan = 14; td.className = 'empty'; td.textContent = '暂无数据';
         tr.appendChild(td); tbody.appendChild(tr);
         renderQueryPagination(0);
         return;
@@ -282,7 +282,9 @@ function renderQueryTable() {
         if (statusTd.childNodes.length === 0) statusTd.textContent = '-';
         groupTr.appendChild(statusTd);
 
-        // 空列占位（moduleTypeKey, txPower, rxPower, status）
+        // 空列占位（moduleTypeKey, laserState, vendorName, txPower, rxPower, status）
+        groupTr.appendChild(createTextCell(''));
+        groupTr.appendChild(createTextCell(''));
         groupTr.appendChild(createTextCell(''));
         groupTr.appendChild(createTextCell(''));
         groupTr.appendChild(createTextCell(''));
@@ -310,6 +312,15 @@ function renderQueryTable() {
                 tr.appendChild(createTextCell(r.portName || '-'));
                 tr.appendChild(createTextCell(r.laserWave || '-'));
                 tr.appendChild(createTextCell(r.moduleTypeKey || '-'));
+
+                // 激光器状态
+                const lsTd = document.createElement('td');
+                const lsText = r.laserState === 1 ? '开' : r.laserState === 2 ? '关' : '--';
+                lsTd.textContent = lsText;
+                if (r.laserState === 2) lsTd.style.color = '#dc2626';
+                tr.appendChild(lsTd);
+
+                tr.appendChild(createTextCell(r.vendorName || '--'));
 
                 // 发送功率
                 const txTd = document.createElement('td');

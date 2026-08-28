@@ -77,7 +77,7 @@ public class SQLiteDataSourceConfig {
         Map<String, Object> properties = new HashMap<>();
         // 使用SQLite方言
         properties.put("hibernate.dialect", "org.hibernate.community.dialect.SQLiteDialect");
-        properties.put("hibernate.hbm2ddl.auto", "update"); // 自动创建/更新应用表，动态同步表由 DynamicSyncService 管理
+        properties.put("hibernate.hbm2ddl.auto", "none"); // 由 SQLiteSchemaInitializer 负责建表
         properties.put("hibernate.show_sql", showSql);
         properties.put("hibernate.format_sql", formatSql);
         

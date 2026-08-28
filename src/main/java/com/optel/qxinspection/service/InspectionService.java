@@ -581,7 +581,9 @@ public class InspectionService {
         r.setLaserDistance(toDistanceName(laser.getLaserType(), laser.getDistance()));
         r.setModuleTypeKey(toModuleTypeName(laser.getLaserType(), laser.getDistance()));
         r.setPartNumber(laser.getPartNumber());
+        r.setVendorName(laser.getVendorName());
         r.setLaserWave(toLaserWaveName(laser.getLaserWave()));
+        r.setLaserState(laser.getLaserState());
         r.setTxPower(toOpticalPower(laser.getTranLaserPower(), laser.getLaserState()));
         r.setRxPower(toOpticalPower(laser.getRecvLaserPower(), laser.getLaserState()));
 
