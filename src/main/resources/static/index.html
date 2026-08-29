@@ -275,8 +275,12 @@
                                 <input type="checkbox" id="paramAutoDisconnect" checked style="width:16px;height:16px;cursor:pointer;">
                                 巡检完成后自动断开所有连接
                             </label>
+                            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
+                                <input type="checkbox" id="paramSaveInvalid" checked style="width:16px;height:16px;cursor:pointer;">
+                                保存无效记录
+                            </label>
                         </div>
-                        <div style="font-size:12px;color:#9ca3af;margin-top:8px;">并发设备数：多设备同时采集的线程数；保留轮次：超龄轮次自动清理<br>自动连接：未在线设备跳过采集；自动断开：巡检结束后释放所有设备连接</div>
+                        <div style="font-size:12px;color:#9ca3af;margin-top:8px;">并发设备数：多设备同时采集的线程数；保留轮次：超龄轮次自动清理<br>自动连接：未在线设备跳过采集；自动断开：巡检结束后释放所有设备连接<br>保存无效记录：关闭后不保存无法采集光功率的端口记录（如不支持光功率、查询无响应）</div>
                         <div style="margin-top:10px;">
                             <button class="btn btn-outline btn-sm" onclick="loadCollectParams()">查询</button>
                             <button class="btn btn-primary btn-sm" onclick="saveCollectParams()">保存</button>
@@ -468,6 +472,10 @@
                         <option value="2">过载</option>
                         <option value="-1">无效</option>
                     </select>
+                    <label style="display:flex;align-items:center;gap:4px;font-size:13px;color:#6b7280;margin-left:8px;cursor:pointer;">
+                        <input type="checkbox" id="queryShowInvalid" checked onchange="loadQueryResults()" style="width:14px;height:14px;cursor:pointer;">
+                        显示无效
+                    </label>
                     <input type="text" id="querySearch" placeholder="搜索网元/端口名/ID..." oninput="searchQuery(this.value)" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;width:180px;margin-left:8px;">
                     <button class="btn btn-primary btn-sm" onclick="loadQueryResults()">查询</button>
                     <div class="toolbar-right">

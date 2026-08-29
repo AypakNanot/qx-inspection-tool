@@ -108,12 +108,16 @@ public class InspectionController {
     @GetMapping("/export")
     public void exportExcel(@RequestParam(required = false) Long roundId,
                             @RequestParam(required = false) String network,
+                            @RequestParam(defaultValue = "true") boolean showInvalid,
                             HttpServletResponse response) throws IOException {
         List<OpticalPowerInspection> data;
         if (roundId != null) {
             data = inspectionService.getResultsByRound(roundId, network);
         } else {
             data = inspectionService.getLatestResults(network);
+        }
+        if (!showInvalid) {
+            data = data.stream().filter(r -> Boolean.TRUE.equals(r.getSupported())).toList();
         }
 
         // 动态文件名
@@ -285,7 +289,8 @@ public class InspectionController {
         int maxRounds = ((Number) body.getOrDefault("maxRounds", 10)).intValue();
         boolean autoConnect = Boolean.TRUE.equals(body.get("autoConnect"));
         boolean autoDisconnect = Boolean.TRUE.equals(body.get("autoDisconnect"));
-        inspectionService.updateCollectParams(concurrency, maxRounds, autoConnect, autoDisconnect);
+        boolean saveInvalid = !Boolean.FALSE.equals(body.get("saveInvalid"));
+        inspectionService.updateCollectParams(concurrency, maxRounds, autoConnect, autoDisconnect, saveInvalid);
         return inspectionService.getCollectParams();
     }
 

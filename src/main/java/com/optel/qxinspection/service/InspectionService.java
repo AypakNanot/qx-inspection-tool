@@ -41,6 +41,7 @@ public class InspectionService {
     private static final String KEY_MAX_ROUNDS = "collect.maxRounds";
     private static final String KEY_AUTO_CONNECT = "inspect.autoConnect";
     private static final String KEY_AUTO_DISCONNECT = "inspect.autoDisconnect";
+    private static final String KEY_SAVE_INVALID = "inspect.saveInvalid";
 
     @Value("${app.inspection.concurrency:10}")
     private int concurrency;
@@ -59,14 +60,17 @@ public class InspectionService {
         maxRounds = Integer.parseInt(sysConfigService.get(KEY_MAX_ROUNDS, String.valueOf(maxRounds)));
         autoConnect = Boolean.parseBoolean(sysConfigService.get(KEY_AUTO_CONNECT, "true"));
         autoDisconnect = Boolean.parseBoolean(sysConfigService.get(KEY_AUTO_DISCONNECT, "true"));
-        log.info("采集参数加载: concurrency={}, maxRounds={}, autoConnect={}, autoDisconnect={}",
-                concurrency, maxRounds, autoConnect, autoDisconnect);
+        saveInvalid = Boolean.parseBoolean(sysConfigService.get(KEY_SAVE_INVALID, "true"));
+        log.info("采集参数加载: concurrency={}, maxRounds={}, autoConnect={}, autoDisconnect={}, saveInvalid={}",
+                concurrency, maxRounds, autoConnect, autoDisconnect, saveInvalid);
     }
 
     /** 是否巡检时自动连接未在线设备 */
     private volatile boolean autoConnect = true;
     /** 是否巡检完成后自动断开所有连接 */
     private volatile boolean autoDisconnect = true;
+    /** 是否保存无效记录到数据库 */
+    private volatile boolean saveInvalid = true;
 
     /** 当前运行中的轮次（用于进度查询） */
     private volatile InspectionRound currentRound;
@@ -503,9 +507,14 @@ public class InspectionService {
             }
         }
 
-        // 批量保存
+        // 批量保存（可选过滤无效记录）
         if (!records.isEmpty()) {
-            powerRecordRepository.saveAll(records);
+            List<OpticalPowerInspection> toSave = saveInvalid ? records : records.stream()
+                    .filter(r -> Boolean.TRUE.equals(r.getSupported()))
+                    .toList();
+            if (!toSave.isEmpty()) {
+                powerRecordRepository.saveAll(toSave);
+            }
         }
 
         log.debug("设备巡检完成: {}, 光口数={}, 失败={}", device.getNeName(), opticalPorts.size(), failPorts);
@@ -733,26 +742,29 @@ public class InspectionService {
         params.put("maxRounds", maxRounds);
         params.put("autoConnect", autoConnect);
         params.put("autoDisconnect", autoDisconnect);
+        params.put("saveInvalid", saveInvalid);
         return params;
     }
 
     /**
      * 更新采集参数
      */
-    public void updateCollectParams(int concurrency, int maxRounds, boolean autoConnect, boolean autoDisconnect) {
+    public void updateCollectParams(int concurrency, int maxRounds, boolean autoConnect, boolean autoDisconnect, boolean saveInvalid) {
         this.concurrency = Math.max(1, Math.min(50, concurrency));
         this.maxRounds = Math.max(5, Math.min(200, maxRounds));
         this.autoConnect = autoConnect;
         this.autoDisconnect = autoDisconnect;
+        this.saveInvalid = saveInvalid;
         try {
             sysConfigService.set(KEY_CONCURRENCY, String.valueOf(this.concurrency));
             sysConfigService.set(KEY_MAX_ROUNDS, String.valueOf(this.maxRounds));
             sysConfigService.set(KEY_AUTO_CONNECT, String.valueOf(autoConnect));
             sysConfigService.set(KEY_AUTO_DISCONNECT, String.valueOf(autoDisconnect));
+            sysConfigService.set(KEY_SAVE_INVALID, String.valueOf(saveInvalid));
         } catch (Exception e) {
             log.error("采集参数持久化失败: {}", e.getMessage(), e);
         }
-        log.info("采集参数已更新: concurrency={}, maxRounds={}, autoConnect={}, autoDisconnect={}",
-                concurrency, maxRounds, autoConnect, autoDisconnect);
+        log.info("采集参数已更新: concurrency={}, maxRounds={}, autoConnect={}, autoDisconnect={}, saveInvalid={}",
+                concurrency, maxRounds, autoConnect, autoDisconnect, saveInvalid);
     }
 }

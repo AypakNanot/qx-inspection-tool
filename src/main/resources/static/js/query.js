@@ -18,6 +18,12 @@ let searchText = '';
 /** 展开的网元组（neId Set） */
 let expandedGroups = new Set();
 
+/** 格式化时间：去掉T和毫秒 */
+function formatTime(t) {
+    if (!t) return '-';
+    return t.replace('T', ' ').replace(/\.\d+$/, '');
+}
+
 /** 创建文本单元格 */
 function createTextCell(text) {
     const td = document.createElement('td');
@@ -38,7 +44,7 @@ export async function loadQueryRounds() {
         rounds.forEach(r => {
             const opt = document.createElement('option');
             opt.value = r.id;
-            opt.textContent = '#' + r.id + ' ' + (r.startTime || '') + ' (' + r.status + ')';
+            opt.textContent = '#' + r.id + ' ' + formatTime(r.startTime) + ' (' + r.status + ')';
             sel.appendChild(opt);
         });
         sel.value = current;
@@ -88,8 +94,12 @@ export async function loadQueryResults() {
 /** 应用筛选和排序 */
 function applyFilterAndSort() {
     const statusFilter = document.getElementById('queryStatus').value;
+    const showInvalid = document.getElementById('queryShowInvalid').checked;
 
     filteredResults = allResults.filter(r => {
+        // 显示无效记录开关
+        if (!showInvalid && !r.supported) return false;
+
         if (statusFilter !== '') {
             if (statusFilter === '-1') {
                 if (r.supported) return false;
@@ -291,7 +301,7 @@ function renderQueryTable() {
         groupTr.appendChild(createTextCell(''));
 
         // 巡检时间
-        groupTr.appendChild(createTextCell(first.inspectionTime || '-'));
+        groupTr.appendChild(createTextCell(formatTime(first.inspectionTime)));
 
         groupTr.onclick = () => toggleGroup(neId);
         tbody.appendChild(groupTr);
@@ -355,7 +365,7 @@ function renderQueryTable() {
 
                 tr.appendChild(createTextCell(r.txLowThreshold != null ? r.txLowThreshold + '~' + r.txHighThreshold : '-'));
                 tr.appendChild(createTextCell(r.lowThreshold != null ? r.lowThreshold + '~' + r.highThreshold : '-'));
-                tr.appendChild(createTextCell(r.inspectionTime || '-'));
+                tr.appendChild(createTextCell(formatTime(r.inspectionTime)));
                 tbody.appendChild(tr);
             });
         }
@@ -448,8 +458,10 @@ function renderQueryPagination(totalGroups) {
 export function exportExcel() {
     const roundId = document.getElementById('queryRound').value;
     const network = document.getElementById('queryNetwork').value.trim();
+    const showInvalid = document.getElementById('queryShowInvalid').checked;
     const params = new URLSearchParams();
     if (roundId) params.set('roundId', roundId);
     if (network) params.set('network', network);
+    params.set('showInvalid', showInvalid);
     window.open(API + '/inspection/export' + (params.toString() ? '?' + params : ''), '_blank');
 }

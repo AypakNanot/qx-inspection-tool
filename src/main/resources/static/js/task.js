@@ -206,6 +206,7 @@ export async function loadCollectParams() {
         document.getElementById('paramMaxRounds').value = maxRounds;
         document.getElementById('paramAutoConnect').checked = d.autoConnect !== false;
         document.getElementById('paramAutoDisconnect').checked = d.autoDisconnect !== false;
+        document.getElementById('paramSaveInvalid').checked = d.saveInvalid !== false;
     } catch (e) { console.error('loadCollectParams', e); }
 }
 
@@ -221,7 +222,8 @@ export async function saveCollectParams() {
         concurrency,
         maxRounds,
         autoConnect: document.getElementById('paramAutoConnect').checked,
-        autoDisconnect: document.getElementById('paramAutoDisconnect').checked
+        autoDisconnect: document.getElementById('paramAutoDisconnect').checked,
+        saveInvalid: document.getElementById('paramSaveInvalid').checked
     };
     try {
         await post('/inspection/collect-params', body);

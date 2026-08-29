@@ -8,6 +8,12 @@ import { get } from './api.js';
 /** 轮询定时器 */
 let progressPollTimer = null;
 
+/** 格式化时间：去掉T和毫秒 */
+function formatTime(t) {
+    if (!t) return '-';
+    return t.replace('T', ' ').replace(/\.\d+$/, '');
+}
+
 /** 创建文本单元格 */
 function createTextCell(text) {
     const td = document.createElement('td');
@@ -188,7 +194,7 @@ function renderRoundsTable(rounds) {
         tr.appendChild(createTextCell(String(r.totalCount || 0)));
         tr.appendChild(createTextCell(String(r.doneCount || 0)));
         tr.appendChild(createTextCell(String(r.failCount || 0)));
-        tr.appendChild(createTextCell(r.startTime || '-'));
+        tr.appendChild(createTextCell(formatTime(r.startTime)));
         tr.appendChild(createTextCell(formatDuration(r.startTime, r.endTime)));
         tbody.appendChild(tr);
     });
