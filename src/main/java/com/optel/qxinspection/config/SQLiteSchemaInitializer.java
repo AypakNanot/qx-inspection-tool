@@ -61,6 +61,20 @@ public class SQLiteSchemaInitializer {
             )
         """);
 
+        createTableIfNotExists("conn_profile", """
+            CREATE TABLE IF NOT EXISTS conn_profile (
+                scope VARCHAR(10) NOT NULL,
+                ne_oid VARCHAR(64) NOT NULL,
+                username VARCHAR(100) NOT NULL,
+                password VARCHAR(200) NOT NULL,
+                port INTEGER NOT NULL DEFAULT 9900,
+                auto_connect INTEGER NOT NULL DEFAULT 1,
+                create_time TIMESTAMP,
+                update_time TIMESTAMP,
+                PRIMARY KEY (scope, ne_oid)
+            )
+        """);
+
         createTableIfNotExists("inspection_round", """
             CREATE TABLE IF NOT EXISTS inspection_round (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
