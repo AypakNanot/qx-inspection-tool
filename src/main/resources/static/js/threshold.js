@@ -7,29 +7,30 @@ import { get, post, del } from './api.js';
 import { showToast } from './toast.js';
 
 /** 模块类型列表（与老网管 LaserInfoTableRowDecoder.getDistance() 一致） */
+/** 参考值来源: ITU-T G.957 / IEEE 802.3 */
 const MODULE_TYPES = [
-    // 2.5G (STM-16)
-    { key: 'I16.1',  speed: '2.5G',  wave: '1310nm', distance: 'I (中距)' },
-    { key: 'S16.1',  speed: '2.5G',  wave: '1310nm', distance: 'S (短距)' },
-    { key: 'L16.1',  speed: '2.5G',  wave: '1310nm', distance: 'L (长距)' },
-    { key: 'V16.1',  speed: '2.5G',  wave: '1550nm', distance: 'V (超长距)' },
-    // 622M (STM-4)
-    { key: 'I4.1',   speed: '622M',  wave: '1310nm', distance: 'I (中距)' },
-    { key: 'S4.1',   speed: '622M',  wave: '1310nm', distance: 'S (短距)' },
-    { key: 'L4.1',   speed: '622M',  wave: '1310nm', distance: 'L (长距)' },
-    { key: 'V4.1',   speed: '622M',  wave: '1550nm', distance: 'V (超长距)' },
-    // 155M (STM-1)
-    { key: 'I1.1',   speed: '155M',  wave: '1310nm', distance: 'I (中距)' },
-    { key: 'S1.1',   speed: '155M',  wave: '1310nm', distance: 'S (短距)' },
-    { key: 'L1.1',   speed: '155M',  wave: '1310nm', distance: 'L (长距)' },
-    { key: 'V1.1',   speed: '155M',  wave: '1550nm', distance: 'V (超长距)' },
-    // 10G (STM-64, 850nm)
-    { key: 'S64.2b', speed: '10G',   wave: '850nm',  distance: 'S (短距)' },
-    { key: 'L64.2',  speed: '10G',   wave: '850nm',  distance: 'L (长距)' },
-    { key: 'V64.2',  speed: '10G',   wave: '850nm',  distance: 'V (超长距)' },
-    // GE
-    { key: '1000BASE-SX', speed: 'GE', wave: '850nm',  distance: 'SX (短距)' },
-    { key: '1000BASE-LX', speed: 'GE', wave: '1310nm', distance: 'LX (长距)' },
+    // 2.5G (STM-16) — ITU-T G.957 Table 5
+    { key: 'I16.1',  speed: '2.5G',  wave: '1310nm', distance: 'I (中距)', refTx: [-14, 0],   refRx: [-28, -8] },
+    { key: 'S16.1',  speed: '2.5G',  wave: '1310nm', distance: 'S (短距)', refTx: [-14, -1],  refRx: [-28, -18] },
+    { key: 'L16.1',  speed: '2.5G',  wave: '1310nm', distance: 'L (长距)', refTx: [-14, -1],  refRx: [-28, -18] },
+    { key: 'V16.1',  speed: '2.5G',  wave: '1550nm', distance: 'V (超长距)', refTx: [-14, -1], refRx: [-28, -18] },
+    // 622M (STM-4) — ITU-T G.957 Table 4
+    { key: 'I4.1',   speed: '622M',  wave: '1310nm', distance: 'I (中距)', refTx: [-14, 0],   refRx: [-28, -8] },
+    { key: 'S4.1',   speed: '622M',  wave: '1310nm', distance: 'S (短距)', refTx: [-14, -1],  refRx: [-28, -18] },
+    { key: 'L4.1',   speed: '622M',  wave: '1310nm', distance: 'L (长距)', refTx: [-14, -1],  refRx: [-28, -18] },
+    { key: 'V4.1',   speed: '622M',  wave: '1550nm', distance: 'V (超长距)', refTx: [-14, -1], refRx: [-28, -18] },
+    // 155M (STM-1) — ITU-T G.957 Table 3
+    { key: 'I1.1',   speed: '155M',  wave: '1310nm', distance: 'I (中距)', refTx: [-14, 0],   refRx: [-28, -8] },
+    { key: 'S1.1',   speed: '155M',  wave: '1310nm', distance: 'S (短距)', refTx: [-14, -1],  refRx: [-28, -18] },
+    { key: 'L1.1',   speed: '155M',  wave: '1310nm', distance: 'L (长距)', refTx: [-14, -1],  refRx: [-28, -18] },
+    { key: 'V1.1',   speed: '155M',  wave: '1550nm', distance: 'V (超长距)', refTx: [-14, -1], refRx: [-28, -18] },
+    // 10G (STM-64) — ITU-T G.691
+    { key: 'S64.2b', speed: '10G',   wave: '850nm',  distance: 'S (短距)', refTx: [-11, -1],  refRx: [-18, -1] },
+    { key: 'L64.2',  speed: '10G',   wave: '850nm',  distance: 'L (长距)', refTx: [-1, 1],    refRx: [-28, -18] },
+    { key: 'V64.2',  speed: '10G',   wave: '850nm',  distance: 'V (超长距)', refTx: [-1, 1],  refRx: [-28, -18] },
+    // GE — IEEE 802.3
+    { key: '1000BASE-SX', speed: 'GE', wave: '850nm',  distance: 'SX (短距)', refTx: [-9.5, -3], refRx: [-17, -3] },
+    { key: '1000BASE-LX', speed: 'GE', wave: '1310nm', distance: 'LX (长距)', refTx: [-9.5, -3], refRx: [-19.5, -3] },
 ];
 
 /** 创建文本单元格 */
@@ -169,12 +170,24 @@ function editThreshold(rule) { openThresholdModal(rule.levelType, rule); }
 export function onModuleSelectChange() {
     const key = document.getElementById('thModuleSelect').value;
     const info = document.getElementById('thModuleInfo');
-    if (!key) { info.textContent = ''; return; }
+    const ref = document.getElementById('thRefValues');
+    if (!key) {
+        info.textContent = '';
+        if (ref) ref.style.display = 'none';
+        return;
+    }
     const m = MODULE_TYPES.find(t => t.key === key);
     if (m) {
         info.textContent = '速率: ' + m.speed + ' | 波长: ' + m.wave + ' | 距离档: ' + m.distance;
+        // 显示 ITU-T G.957 参考值
+        if (ref && m.refTx && m.refRx) {
+            ref.style.display = '';
+            document.getElementById('thRefTx').textContent = m.refTx[0] + ' ~ ' + m.refTx[1] + ' dBm';
+            document.getElementById('thRefRx').textContent = m.refRx[0] + ' ~ ' + m.refRx[1] + ' dBm';
+        }
     } else {
         info.textContent = '';
+        if (ref) ref.style.display = 'none';
     }
 }
 
