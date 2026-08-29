@@ -578,7 +578,7 @@ window.onTrendNeChange = function() {
 /** 打开趋势分析弹窗 */
 export async function openTrendModal() {
     document.getElementById('trendModal').classList.remove('hidden');
-    document.getElementById('trendTable').textContent = '';
+    document.getElementById('trendTableWrap').textContent = '';
     document.getElementById('trendSummary').textContent = '';
     trendData = null;
     if (trendChart) { trendChart.dispose(); trendChart = null; }
