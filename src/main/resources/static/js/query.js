@@ -794,7 +794,7 @@ function renderTrendChart(data) {
     trendChart.setOption(option, true);
 }
 
-/** 渲染趋势详情表格：每行一个端口，每列一个轮次，显示具体值+升降箭头 */
+/** 渲染趋势详情表格：每个端口一组，每轮次一行，显示值+升降标记 */
 function renderTrendTable(data) {
     const wrap = document.getElementById('trendTableWrap');
     wrap.textContent = '';
@@ -807,120 +807,117 @@ function renderTrendTable(data) {
     wrap.style.cssText = '';
 
     const table = document.createElement('table');
-    table.style.cssText = 'width:100%;font-size:13px;border-collapse:collapse;white-space:nowrap;';
+    table.style.cssText = 'width:100%;font-size:13px;border-collapse:collapse;';
 
-    // 表头：端口 | 指标 | 轮次1 | 轮次2 | ...
-    const thead = document.createElement('thead');
-    thead.style.cssText = 'position:sticky;top:0;background:var(--bg,#fff);z-index:1;';
-    const headTr = document.createElement('tr');
+    const thBase = 'padding:8px 12px;text-align:center;border-bottom:2px solid var(--border,#e2e8f0);font-size:12px;';
+    const tdBase = 'padding:7px 12px;text-align:center;border-bottom:1px solid var(--border,#f1f5f9);font-size:13px;';
 
-    const thStyle = 'padding:8px 10px;text-align:center;border-bottom:2px solid var(--border,#e2e8f0);';
-    const thName = document.createElement('th');
-    thName.style.cssText = thStyle + 'text-align:left;min-width:120px;';
-    thName.textContent = '端口名';
-    headTr.appendChild(thName);
-
-    const thMetric = document.createElement('th');
-    thMetric.style.cssText = thStyle + 'min-width:50px;';
-    thMetric.textContent = '指标';
-    headTr.appendChild(thMetric);
-
-    data.timeline.forEach(t => {
-        const th = document.createElement('th');
-        th.style.cssText = thStyle + 'min-width:130px;';
-        th.textContent = formatTime(t.time);
-        headTr.appendChild(th);
-    });
-    thead.appendChild(headTr);
-    table.appendChild(thead);
-
-    // 表体
-    const tbody = document.createElement('tbody');
-
-    for (const port of data.ports) {
+    for (let pi = 0; pi < data.ports.length; pi++) {
+        const port = data.ports[pi];
         const portLabel = (port.portName && port.portName !== '-')
             ? port.portName
             : 'S' + port.slotNo + 'P' + port.portNo;
 
-        // Rx 行
-        const rxTr = document.createElement('tr');
-        rxTr.style.cssText = 'border-bottom:1px solid var(--border,#f1f5f9);';
+        // 端口分组表头
+        const thead = document.createElement('thead');
+        thead.style.cssText = pi > 0 ? 'border-top:2px solid var(--border,#e2e8f0);' : '';
+        const headTr = document.createElement('tr');
+        ['轮次', 'Rx (dBm)', '对比', 'Tx (dBm)', '对比'].forEach((text, i) => {
+            const th = document.createElement('th');
+            th.style.cssText = thBase + (i === 0 ? 'text-align:left;width:180px;' : 'width:100px;');
+            th.textContent = text;
+            headTr.appendChild(th);
+        });
+        thead.appendChild(headTr);
+        table.appendChild(thead);
 
-        const rxDtName = createTextCell(portLabel);
-        rxDtName.style.cssText = 'padding:8px 10px;text-align:left;font-weight:500;';
-        rxTr.appendChild(rxDtName);
+        // 端口标题行
+        const titleTr = document.createElement('tr');
+        titleTr.style.cssText = 'background:var(--bg-card,#f8fafc);';
+        const titleTd = document.createElement('td');
+        titleTd.colSpan = 5;
+        titleTd.style.cssText = 'padding:8px 12px;font-weight:600;font-size:13px;color:var(--text,#1f2937);';
+        titleTd.textContent = portLabel + (port.neName ? ' (' + port.neName + ')' : '');
+        titleTr.appendChild(titleTd);
+        table.appendChild(titleTr);
 
-        const rxDtMetric = createTextCell('Rx');
-        rxDtMetric.style.cssText = 'padding:8px 10px;text-align:center;color:#3b82f6;font-weight:600;';
-        rxTr.appendChild(rxDtMetric);
+        // 轮次数据行
+        const tbody = document.createElement('tbody');
+        let prevRx = null, prevTx = null;
 
-        let prevRx = null;
-        port.roundData.forEach(d => {
-            const td = document.createElement('td');
-            td.style.cssText = 'padding:8px 10px;text-align:right;';
+        for (let i = 0; i < data.timeline.length; i++) {
+            const d = port.roundData[i];
+            const tr = document.createElement('tr');
+            tr.style.cssText = i % 2 === 0 ? '' : 'background:var(--bg-card,#fafbfc);';
+
+            // 轮次时间
+            const roundTd = createTextCell('#' + data.timeline[i].roundId + ' ' + formatTime(data.timeline[i].time));
+            roundTd.style.cssText = tdBase + 'text-align:left;font-size:12px;color:#6b7280;';
+            tr.appendChild(roundTd);
+
+            // Rx 值
+            const rxTd = document.createElement('td');
+            rxTd.style.cssText = tdBase + 'text-align:right;font-weight:500;';
             if (d && d.rxPower != null) {
-                const val = d.rxPower;
-                td.textContent = val.toFixed(1);
-                if (prevRx !== null) {
-                    const delta = val - prevRx;
-                    const arrow = document.createElement('span');
-                    arrow.style.cssText = 'margin-left:4px;font-size:11px;font-weight:700;';
-                    if (delta > 0.05) { arrow.textContent = '▲'; arrow.style.color = '#16a34a'; }
-                    else if (delta < -0.05) { arrow.textContent = '▼'; arrow.style.color = '#dc2626'; }
-                    else { arrow.textContent = '—'; arrow.style.color = '#9ca3af'; }
-                    td.appendChild(arrow);
-                }
-                prevRx = val;
-                // 越限标红
-                if (d.rxStatus > 0) td.style.color = '#dc2626';
+                rxTd.textContent = d.rxPower.toFixed(1);
+                if (d.rxStatus > 0) rxTd.style.color = '#dc2626';
             } else {
-                td.textContent = '--';
-                td.style.color = '#9ca3af';
+                rxTd.textContent = '--'; rxTd.style.color = '#9ca3af';
             }
-            rxTr.appendChild(td);
-        });
-        tbody.appendChild(rxTr);
+            tr.appendChild(rxTd);
 
-        // Tx 行
-        const txTr = document.createElement('tr');
-        txTr.style.cssText = 'border-bottom:2px solid var(--border,#e5e7eb);';
+            // Rx 对比
+            const rxCmp = document.createElement('td');
+            rxCmp.style.cssText = tdBase;
+            if (d && d.rxPower != null && prevRx !== null) {
+                const delta = d.rxPower - prevRx;
+                const span = document.createElement('span');
+                span.style.cssText = 'font-size:12px;font-weight:700;';
+                if (delta > 0.05) { span.textContent = '▲+' + delta.toFixed(1); span.style.color = '#16a34a'; }
+                else if (delta < -0.05) { span.textContent = '▼' + delta.toFixed(1); span.style.color = '#dc2626'; }
+                else { span.textContent = '— 0'; span.style.color = '#9ca3af'; }
+                rxCmp.appendChild(span);
+            } else {
+                rxCmp.textContent = '--'; rxCmp.style.color = '#9ca3af';
+            }
+            tr.appendChild(rxCmp);
 
-        const txDtName = createTextCell('');
-        txDtName.style.cssText = 'padding:8px 10px;';
-        txTr.appendChild(txDtName);
-
-        const txDtMetric = createTextCell('Tx');
-        txDtMetric.style.cssText = 'padding:8px 10px;text-align:center;color:#f97316;font-weight:600;';
-        txTr.appendChild(txDtMetric);
-
-        let prevTx = null;
-        port.roundData.forEach(d => {
-            const td = document.createElement('td');
-            td.style.cssText = 'padding:8px 10px;text-align:right;';
+            // Tx 值
+            const txTd = document.createElement('td');
+            txTd.style.cssText = tdBase + 'text-align:right;font-weight:500;';
             if (d && d.txPower != null) {
-                const val = d.txPower;
-                td.textContent = val.toFixed(1);
-                if (prevTx !== null) {
-                    const delta = val - prevTx;
-                    const arrow = document.createElement('span');
-                    arrow.style.cssText = 'margin-left:4px;font-size:11px;font-weight:700;';
-                    if (delta > 0.05) { arrow.textContent = '▲'; arrow.style.color = '#16a34a'; }
-                    else if (delta < -0.05) { arrow.textContent = '▼'; arrow.style.color = '#dc2626'; }
-                    else { arrow.textContent = '—'; arrow.style.color = '#9ca3af'; }
-                    td.appendChild(arrow);
-                }
-                prevTx = val;
-                if (d.txStatus > 0) td.style.color = '#dc2626';
+                txTd.textContent = d.txPower.toFixed(1);
+                if (d.txStatus > 0) txTd.style.color = '#dc2626';
             } else {
-                td.textContent = '--';
-                td.style.color = '#9ca3af';
+                txTd.textContent = '--'; txTd.style.color = '#9ca3af';
             }
-            txTr.appendChild(td);
-        });
-        tbody.appendChild(txTr);
+            tr.appendChild(txTd);
+
+            // Tx 对比
+            const txCmp = document.createElement('td');
+            txCmp.style.cssText = tdBase;
+            if (d && d.txPower != null && prevTx !== null) {
+                const delta = d.txPower - prevTx;
+                const span = document.createElement('span');
+                span.style.cssText = 'font-size:12px;font-weight:700;';
+                if (delta > 0.05) { span.textContent = '▲+' + delta.toFixed(1); span.style.color = '#16a34a'; }
+                else if (delta < -0.05) { span.textContent = '▼' + delta.toFixed(1); span.style.color = '#dc2626'; }
+                else { span.textContent = '— 0'; span.style.color = '#9ca3af'; }
+                txCmp.appendChild(span);
+            } else {
+                txCmp.textContent = '--'; txCmp.style.color = '#9ca3af';
+            }
+            tr.appendChild(txCmp);
+
+            if (d) {
+                if (d.rxPower != null) prevRx = d.rxPower;
+                if (d.txPower != null) prevTx = d.txPower;
+            }
+            tbody.appendChild(tr);
+        }
+        table.appendChild(tbody);
     }
 
-    table.appendChild(tbody);
     wrap.appendChild(table);
 }
 
