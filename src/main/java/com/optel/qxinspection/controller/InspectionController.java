@@ -338,6 +338,17 @@ public class InspectionController {
     }
 
     /**
+     * 多轮次趋势分析
+     */
+    @GetMapping("/trend/multi")
+    public Map<String, Object> getMultiTrend(
+            @RequestParam List<Long> roundIds,
+            @RequestParam(required = false) String network,
+            @RequestParam(required = false) String neId) {
+        return inspectionService.getTrendData(roundIds, network, neId);
+    }
+
+    /**
      * 越限异常汇总（按网元分组）
      */
     @GetMapping("/anomaly/summary")

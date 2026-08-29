@@ -536,7 +536,7 @@
                         <button class="btn btn-outline btn-sm" onclick="expandAll()">全部展开</button>
                         <button class="btn btn-outline btn-sm" onclick="collapseAll()">全部收缩</button>
                         <button class="btn btn-outline btn-sm" onclick="exportExcel()" title="将当前筛选结果导出为 Excel 文件">导出 Excel</button>
-                        <button class="btn btn-outline btn-sm" onclick="openCompareModal()" title="对比两次巡检结果，查看功率变化">对比轮次</button>
+                        <button class="btn btn-outline btn-sm" onclick="openTrendModal()" title="选择多个轮次进行趋势分析">趋势分析</button>
                     </div>
                 </div>
 
@@ -759,54 +759,87 @@
         </div>
     </div>
 
-    <!-- 轮次对比弹窗 -->
-    <div class="modal-overlay hidden" id="compareModal" style="background:rgba(0,0,0,0.6);">
-        <div style="width:96vw;height:94vh;background:#fff;border-radius:12px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+    <!-- 趋势分析弹窗 -->
+    <div class="modal-overlay hidden" id="trendModal" style="background:rgba(0,0,0,0.6);">
+        <div style="width:96vw;height:94vh;background:var(--bg,#fff);border-radius:12px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
             <!-- 顶栏 -->
-            <div style="padding:14px 24px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
-                <h3 style="font-size:16px;font-weight:600;">轮次对比分析</h3>
-                <div style="display:flex;align-items:center;gap:16px;">
-                    <div class="form-row" style="gap:12px;align-items:flex-end;margin:0;">
-                        <div class="form-group"><label style="font-size:12px;">基准轮次 (A)</label><select id="compareRoundA" style="width:220px;padding:5px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;"></select></div>
-                        <div class="form-group"><label style="font-size:12px;">对比轮次 (B)</label><select id="compareRoundB" style="width:220px;padding:5px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;"></select></div>
-                        <button class="btn btn-primary btn-sm" onclick="runCompare()">开始对比</button>
-                    </div>
-                    <button class="btn btn-outline btn-sm" onclick="closeCompareModal()">关闭</button>
+            <div style="padding:14px 24px;border-bottom:1px solid var(--border,#e2e8f0);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
+                <h3 style="font-size:16px;font-weight:600;color:var(--text,#1f2937);">趋势分析</h3>
+                <div style="display:flex;align-items:center;gap:12px;">
+                    <button class="btn btn-primary btn-sm" onclick="runTrend()">查询趋势</button>
+                    <button class="btn btn-outline btn-sm" onclick="closeTrendModal()">关闭</button>
                 </div>
             </div>
-            <!-- 摘要 -->
-            <div id="compareSummary" style="padding:8px 24px;font-size:13px;color:#6b7280;border-bottom:1px solid #f1f5f9;flex-shrink:0;"></div>
-            <!-- 内容区：上图表 + 下表格 -->
-            <div style="flex:1;display:flex;flex-direction:column;overflow:hidden;padding:12px 24px 16px;">
-                <!-- 图表区 -->
-                <div id="compareChartBox" style="display:none;flex-shrink:0;">
-                    <div style="display:flex;gap:8px;margin-bottom:8px;">
-                        <button class="btn btn-sm stats-chart-btn active" onclick="switchCompareChart('tx',this)">发送功率变化</button>
-                        <button class="btn btn-sm stats-chart-btn" onclick="switchCompareChart('rx',this)">接收功率变化</button>
-                        <button class="btn btn-sm stats-chart-btn" onclick="switchCompareChart('both',this)">综合对比</button>
+            <!-- 内容区：左筛选 + 右图表+表格 -->
+            <div style="flex:1;display:flex;overflow:hidden;">
+                <!-- 左侧筛选面板 -->
+                <div style="width:280px;flex-shrink:0;border-right:1px solid var(--border,#e2e8f0);display:flex;flex-direction:column;overflow:hidden;">
+                    <!-- 轮次多选 -->
+                    <div style="padding:12px 16px;border-bottom:1px solid var(--border,#e2e8f0);">
+                        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+                            <span style="font-size:13px;font-weight:600;color:var(--text,#374151);">选择轮次</span>
+                            <div style="display:flex;gap:6px;">
+                                <button class="btn btn-outline btn-sm" style="padding:2px 8px;font-size:11px;" onclick="trendSelectAllRounds()">全选</button>
+                                <button class="btn btn-outline btn-sm" style="padding:2px 8px;font-size:11px;" onclick="trendDeselectAllRounds()">清空</button>
+                            </div>
+                        </div>
+                        <div id="trendRoundList" style="max-height:240px;overflow-y:auto;font-size:12px;"></div>
                     </div>
-                    <div id="compareChart" style="height:45vh;min-height:280px;background:#fff;border-radius:8px;"></div>
+                    <!-- 筛选条件 -->
+                    <div style="padding:12px 16px;border-bottom:1px solid var(--border,#e2e8f0);">
+                        <div style="font-size:13px;font-weight:600;color:var(--text,#374151);margin-bottom:8px;">筛选条件</div>
+                        <div class="form-group" style="margin-bottom:8px;">
+                            <label style="font-size:12px;color:#6b7280;">网络</label>
+                            <input list="trendNetworkList" id="trendNetwork" placeholder="全部网络" style="width:100%;padding:5px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;">
+                            <datalist id="trendNetworkList"></datalist>
+                        </div>
+                        <div class="form-group" style="margin-bottom:0;">
+                            <label style="font-size:12px;color:#6b7280;">网元</label>
+                            <input list="trendNeList" id="trendNe" placeholder="全部网元" style="width:100%;padding:5px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;">
+                            <datalist id="trendNeList"></datalist>
+                        </div>
+                    </div>
+                    <!-- 图表模式切换 -->
+                    <div style="padding:12px 16px;">
+                        <div style="font-size:13px;font-weight:600;color:var(--text,#374151);margin-bottom:8px;">图表模式</div>
+                        <div style="display:flex;flex-direction:column;gap:4px;">
+                            <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;color:var(--text,#374151);">
+                                <input type="radio" name="trendChartMode" value="rx" checked onchange="switchTrendChart('rx')"> 接收功率趋势
+                            </label>
+                            <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;color:var(--text,#374151);">
+                                <input type="radio" name="trendChartMode" value="tx" onchange="switchTrendChart('tx')"> 发送功率趋势
+                            </label>
+                            <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;color:var(--text,#374151);">
+                                <input type="radio" name="trendChartMode" value="both" onchange="switchTrendChart('both')"> 综合（发送+接收）
+                            </label>
+                        </div>
+                    </div>
                 </div>
-                <!-- 表格区 -->
-                <div style="flex:1;overflow-y:auto;margin-top:12px;">
-                    <table style="width:100%;font-size:13px;border-collapse:collapse;">
-                        <thead style="position:sticky;top:0;background:#fff;z-index:1;">
-                            <tr>
-                                <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #e2e8f0;">网元</th>
-                                <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #e2e8f0;">端口</th>
-                                <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #e2e8f0;">类型</th>
-                                <th style="padding:8px 10px;text-align:right;border-bottom:2px solid #e2e8f0;">发送A</th>
-                                <th style="padding:8px 10px;text-align:right;border-bottom:2px solid #e2e8f0;">发送B</th>
-                                <th style="padding:8px 10px;text-align:right;border-bottom:2px solid #e2e8f0;">发送变化</th>
-                                <th style="padding:8px 10px;text-align:right;border-bottom:2px solid #e2e8f0;">接收A</th>
-                                <th style="padding:8px 10px;text-align:right;border-bottom:2px solid #e2e8f0;">接收B</th>
-                                <th style="padding:8px 10px;text-align:right;border-bottom:2px solid #e2e8f0;">接收变化</th>
-                                <th style="padding:8px 10px;text-align:center;border-bottom:2px solid #e2e8f0;">状态A</th>
-                                <th style="padding:8px 10px;text-align:center;border-bottom:2px solid #e2e8f0;">状态B</th>
-                            </tr>
-                        </thead>
-                        <tbody id="compareTable"></tbody>
-                    </table>
+                <!-- 右侧内容 -->
+                <div style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
+                    <!-- 摘要 -->
+                    <div id="trendSummary" style="padding:8px 24px;font-size:13px;color:#6b7280;border-bottom:1px solid var(--border,#f1f5f9);flex-shrink:0;"></div>
+                    <!-- 图表 -->
+                    <div id="trendChartBox" style="flex-shrink:0;padding:12px 24px;">
+                        <div id="trendChart" style="height:38vh;min-height:240px;background:var(--bg-card,#fff);border-radius:8px;"></div>
+                    </div>
+                    <!-- 表格 -->
+                    <div style="flex:1;overflow-y:auto;padding:0 24px 16px;">
+                        <table style="width:100%;font-size:13px;border-collapse:collapse;">
+                            <thead style="position:sticky;top:0;background:var(--bg,#fff);z-index:1;">
+                                <tr>
+                                    <th style="padding:8px 10px;text-align:left;border-bottom:2px solid var(--border,#e2e8f0);">网元</th>
+                                    <th style="padding:8px 10px;text-align:left;border-bottom:2px solid var(--border,#e2e8f0);">槽位</th>
+                                    <th style="padding:8px 10px;text-align:left;border-bottom:2px solid var(--border,#e2e8f0);">端口</th>
+                                    <th style="padding:8px 10px;text-align:left;border-bottom:2px solid var(--border,#e2e8f0);">端口名</th>
+                                    <th style="padding:8px 10px;text-align:left;border-bottom:2px solid var(--border,#e2e8f0);">模块类型</th>
+                                    <th style="padding:8px 10px;text-align:right;border-bottom:2px solid var(--border,#e2e8f0);">发送趋势</th>
+                                    <th style="padding:8px 10px;text-align:right;border-bottom:2px solid var(--border,#e2e8f0);">接收趋势</th>
+                                </tr>
+                            </thead>
+                            <tbody id="trendTable"></tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </div>

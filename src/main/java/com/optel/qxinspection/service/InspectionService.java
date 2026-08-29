@@ -280,6 +280,101 @@ public class InspectionService {
     }
 
     /**
+     * 多轮次趋势数据：按端口分组，每个端口包含各轮次的功率值
+     */
+    public Map<String, Object> getTrendData(List<Long> roundIds, String network, String neId) {
+        Map<String, Object> result = new LinkedHashMap<>();
+
+        // 查询每个轮次的数据并按时间排序
+        List<InspectionRound> rounds = inspectionRoundRepository.findAllById(roundIds);
+        rounds.sort(Comparator.comparing(r -> r.getStartTime() != null ? r.getStartTime() : LocalDateTime.MIN));
+
+        // 轮次时间轴
+        List<Map<String, Object>> timeline = new ArrayList<>();
+        for (InspectionRound r : rounds) {
+            Map<String, Object> t = new LinkedHashMap<>();
+            t.put("roundId", r.getId());
+            t.put("time", r.getStartTime());
+            timeline.add(t);
+        }
+        result.put("timeline", timeline);
+
+        // 收集所有端口数据：key = neId:slotNo:portNo
+        Map<String, Map<String, Object>> portMap = new LinkedHashMap<>();
+
+        for (InspectionRound round : rounds) {
+            List<OpticalPowerInspection> records = thresholdService.applyThresholds(
+                    powerRecordRepository.findByRoundId(round.getId()));
+
+            for (OpticalPowerInspection r : records) {
+                // 筛选
+                if (network != null && !network.isEmpty() && !network.equals(r.getNetworkName())) continue;
+                if (neId != null && !neId.isEmpty() && !neId.equals(r.getNeId())) continue;
+
+                String key = r.getNeId() + ":" + r.getSlotNo() + ":" + r.getPortNo();
+                portMap.computeIfAbsent(key, k -> {
+                    Map<String, Object> port = new LinkedHashMap<>();
+                    port.put("neId", r.getNeId());
+                    port.put("neName", r.getNeName());
+                    port.put("slotNo", r.getSlotNo());
+                    port.put("portNo", r.getPortNo());
+                    port.put("portName", r.getPortName());
+                    port.put("moduleTypeKey", r.getModuleTypeKey());
+                    port.put("rounds", new LinkedHashMap<Long, Object>());
+                    return port;
+                });
+
+                Map<String, Object> port = portMap.get(key);
+                @SuppressWarnings("unchecked")
+                Map<Long, Object> roundsData = (Map<Long, Object>) port.get("rounds");
+
+                Map<String, Object> rd = new LinkedHashMap<>();
+                rd.put("txPower", r.getTxPower());
+                rd.put("rxPower", r.getRxPower());
+                rd.put("txStatus", r.getTxPowerStatus());
+                rd.put("rxStatus", r.getRxPowerStatus());
+                roundsData.put(round.getId(), rd);
+            }
+        }
+
+        // 将 rounds map 转为有序列表
+        List<Map<String, Object>> ports = new ArrayList<>();
+        for (Map<String, Object> port : portMap.values()) {
+            @SuppressWarnings("unchecked")
+            Map<Long, Object> roundsData = (Map<Long, Object>) port.get("rounds");
+            List<Map<String, Object>> roundList = new ArrayList<>();
+            for (InspectionRound round : rounds) {
+                Object rd = roundsData.get(round.getId());
+                if (rd != null) {
+                    roundList.add((Map<String, Object>) rd);
+                } else {
+                    roundList.add(null); // 该轮次无数据
+                }
+            }
+            port.put("roundData", roundList);
+            port.remove("rounds");
+            ports.add(port);
+        }
+
+        // 按网元名+端口号排序
+        ports.sort((a, b) -> {
+            String na = (String) a.get("neName");
+            String nb = (String) b.get("neName");
+            int cmp = (na != null ? na : "").compareTo(nb != null ? nb : "");
+            if (cmp != 0) return cmp;
+            int sa = a.get("slotNo") != null ? (int) a.get("slotNo") : 0;
+            int sb = b.get("slotNo") != null ? (int) b.get("slotNo") : 0;
+            if (sa != sb) return sa - sb;
+            int pa = a.get("portNo") != null ? (int) a.get("portNo") : 0;
+            int pb = b.get("portNo") != null ? (int) b.get("portNo") : 0;
+            return pa - pb;
+        });
+
+        result.put("ports", ports);
+        return result;
+    }
+
+    /**
      * 获取越限异常汇总（按网元分组）- 门限实时计算
      */
     public List<Map<String, Object>> getAnomalySummary(Long roundId) {

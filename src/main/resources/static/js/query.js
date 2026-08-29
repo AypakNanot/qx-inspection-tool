@@ -523,242 +523,254 @@ export function exportExcel() {
     window.open(API + '/inspection/export' + (params.toString() ? '?' + params : ''), '_blank');
 }
 
-// ========== 轮次对比 ==========
+// ========== 趋势分析 ==========
 
-/** 打开对比弹窗 */
-/** 对比图表实例 */
-let compareChart = null;
-let compareData = null;
-let compareChartMode = 'tx';
+let trendChart = null;
+let trendData = null;
+let trendChartMode = 'rx';
 
-export async function openCompareModal() {
-    document.getElementById('compareModal').classList.remove('hidden');
+/** 打开趋势分析弹窗 */
+export async function openTrendModal() {
+    document.getElementById('trendModal').classList.remove('hidden');
+    document.getElementById('trendTable').textContent = '';
+    document.getElementById('trendSummary').textContent = '';
+    trendData = null;
+    if (trendChart) { trendChart.dispose(); trendChart = null; }
+
+    // 加载轮次列表
     const rounds = await get('/inspection/rounds');
-    ['compareRoundA', 'compareRoundB'].forEach((id, idx) => {
-        const sel = document.getElementById(id);
-        sel.textContent = '';
-        rounds.forEach(r => {
-            const opt = document.createElement('option');
-            opt.value = r.id;
-            opt.textContent = '#' + r.id + ' ' + formatTime(r.startTime) + ' (' + r.status + ')';
-            sel.appendChild(opt);
-        });
-        if (rounds.length > idx && sel.options.length > idx) {
-            sel.selectedIndex = idx;
-        }
+    const list = document.getElementById('trendRoundList');
+    list.textContent = '';
+    rounds.forEach(r => {
+        const label = document.createElement('label');
+        label.style.cssText = 'display:flex;align-items:center;gap:6px;padding:3px 0;cursor:pointer;color:var(--text,#374151);';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.className = 'trend-round-cb';
+        cb.value = r.id;
+        // 默认选中最近5个
+        const span = document.createElement('span');
+        span.textContent = '#' + r.id + ' ' + formatTime(r.startTime);
+        label.appendChild(cb);
+        label.appendChild(span);
+        list.appendChild(label);
     });
-    document.getElementById('compareTable').textContent = '';
-    document.getElementById('compareSummary').textContent = '';
-    document.getElementById('compareChartBox').style.display = 'none';
-    compareData = null;
-    if (compareChart) { compareChart.dispose(); compareChart = null; }
-    // 延迟 resize 让容器尺寸确定后再初始化图表
-    setTimeout(() => { if (compareChart) compareChart.resize(); }, 200);
+    // 默认选中最近5个
+    const cbs = list.querySelectorAll('.trend-round-cb');
+    const selectCount = Math.min(5, cbs.length);
+    for (let i = 0; i < selectCount; i++) cbs[i].checked = true;
+
+    // 加载筛选下拉
+    try {
+        const networks = await get('/inventory/networks');
+        const dl = document.getElementById('trendNetworkList');
+        dl.textContent = '';
+        networks.forEach(n => { const o = document.createElement('option'); o.value = n; dl.appendChild(o); });
+    } catch (e) { /* ignore */ }
+    try {
+        const devices = await get('/connection/status');
+        const dl = document.getElementById('trendNeList');
+        dl.textContent = '';
+        devices.forEach(d => { const o = document.createElement('option'); o.value = d.neId; o.textContent = d.neName; dl.appendChild(o); });
+    } catch (e) { /* ignore */ }
+
+    setTimeout(() => { if (trendChart) trendChart.resize(); }, 200);
 }
 
-/** 关闭对比弹窗 */
-export function closeCompareModal() {
-    document.getElementById('compareModal').classList.add('hidden');
-    if (compareChart) { compareChart.dispose(); compareChart = null; }
+/** 关闭趋势弹窗 */
+export function closeTrendModal() {
+    document.getElementById('trendModal').classList.add('hidden');
+    if (trendChart) { trendChart.dispose(); trendChart = null; }
+}
+
+/** 全选轮次 */
+window.trendSelectAllRounds = function() {
+    document.querySelectorAll('.trend-round-cb').forEach(cb => cb.checked = true);
+};
+/** 清空轮次 */
+window.trendDeselectAllRounds = function() {
+    document.querySelectorAll('.trend-round-cb').forEach(cb => cb.checked = false);
+};
+
+/** 执行趋势查询 */
+export async function runTrend() {
+    const checked = [...document.querySelectorAll('.trend-round-cb:checked')].map(cb => parseInt(cb.value));
+    if (checked.length < 2) { showToast('请至少选择2个轮次', 'error'); return; }
+
+    const network = document.getElementById('trendNetwork').value.trim();
+    const neId = document.getElementById('trendNe').value.trim();
+    const params = new URLSearchParams();
+    params.set('roundIds', checked.join(','));
+    if (network) params.set('network', network);
+    if (neId) params.set('neId', neId);
+
+    const data = await get('/inspection/trend/multi?' + params.toString());
+    trendData = data;
+
+    document.getElementById('trendSummary').textContent =
+        '时间轴 ' + data.timeline.length + ' 个轮次，共 ' + data.ports.length + ' 个端口';
+
+    renderTrendTable(data);
+    renderTrendChart(data);
 }
 
 /** 切换图表模式 */
-export function switchCompareChart(mode, btn) {
-    compareChartMode = mode;
-    document.querySelectorAll('#compareChartBox .stats-chart-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    if (compareData) renderCompareChart(compareData);
+export function switchTrendChart(mode) {
+    trendChartMode = mode;
+    if (trendData) renderTrendChart(trendData);
 }
 
-/** 执行对比 */
-export async function runCompare() {
-    const roundA = document.getElementById('compareRoundA').value;
-    const roundB = document.getElementById('compareRoundB').value;
-    if (!roundA || !roundB) { showToast('请选择两个轮次', 'error'); return; }
-    if (roundA === roundB) { showToast('请选择不同的轮次', 'error'); return; }
-
-    const data = await get('/inspection/compare?roundA=' + roundA + '&roundB=' + roundB);
-    compareData = data;
-    const tbody = document.getElementById('compareTable');
-    tbody.textContent = '';
-
-    document.getElementById('compareSummary').textContent =
-        '基准 #' + data.roundA + ' (' + data.totalA + ' 条) vs 对比 #' + data.roundB + ' (' + data.totalB + ' 条)，变化 ' + data.changes.length + ' 条';
-
-    if (data.changes.length === 0) {
-        document.getElementById('compareChartBox').style.display = 'none';
-        const tr = document.createElement('tr');
-        const td = document.createElement('td');
-        td.colSpan = 11; td.className = 'empty'; td.textContent = '两次巡检结果无显著变化';
-        tr.appendChild(td); tbody.appendChild(tr);
-        return;
-    }
-
-    // 渲染图表
-    document.getElementById('compareChartBox').style.display = '';
-    renderCompareChart(data);
-
-    // 渲染表格
-    data.changes.forEach(c => {
-        const tr = document.createElement('tr');
-        tr.appendChild(createTextCell(c.neName || '-'));
-        tr.appendChild(createTextCell(c.portName || '-'));
-
-        const typeTd = document.createElement('td');
-        if (c.type === 'status_change') {
-            typeTd.textContent = '状态变化';
-            typeTd.style.color = '#dc2626';
-            typeTd.style.fontWeight = '600';
-        } else if (c.type === 'new') {
-            typeTd.textContent = '新增';
-            typeTd.style.color = '#16a34a';
-        } else {
-            typeTd.textContent = '功率变化';
-            typeTd.style.color = '#d97706';
-        }
-        tr.appendChild(typeTd);
-
-        tr.appendChild(createTextCell(formatPower(c.txPowerA)));
-        tr.appendChild(createTextCell(formatPower(c.txPowerB)));
-        const txDeltaTd = createTextCell(formatDelta(c.txDelta));
-        if (c.txDelta != null && Math.abs(c.txDelta) > 2) txDeltaTd.style.color = '#dc2626';
-        tr.appendChild(txDeltaTd);
-
-        tr.appendChild(createTextCell(formatPower(c.rxPowerA)));
-        tr.appendChild(createTextCell(formatPower(c.rxPowerB)));
-        const rxDeltaTd = createTextCell(formatDelta(c.rxDelta));
-        if (c.rxDelta != null && Math.abs(c.rxDelta) > 2) rxDeltaTd.style.color = '#dc2626';
-        tr.appendChild(rxDeltaTd);
-
-        const stATd = createTextCell(c.statusA || '-');
-        if (c.statusA === '劣化' || c.statusA === '过载') stATd.style.color = '#dc2626';
-        tr.appendChild(stATd);
-        const stBTd = createTextCell(c.statusB || '-');
-        if (c.statusB === '劣化' || c.statusB === '过载') stBTd.style.color = '#dc2626';
-        tr.appendChild(stBTd);
-
-        tbody.appendChild(tr);
-    });
-}
-
-/** 渲染对比 ECharts 图表 */
-function renderCompareChart(data) {
-    const container = document.getElementById('compareChart');
-    if (!compareChart) {
-        compareChart = echarts.init(container);
-        setTimeout(() => compareChart && compareChart.resize(), 100);
+/** 渲染趋势 ECharts 折线图 */
+function renderTrendChart(data) {
+    const container = document.getElementById('trendChart');
+    if (!trendChart) {
+        trendChart = echarts.init(container);
+        setTimeout(() => trendChart && trendChart.resize(), 100);
     } else {
-        compareChart.resize();
+        trendChart.resize();
     }
 
-    const changes = data.changes;
-    // 只显示前30条变化最大的
-    const sorted = [...changes].sort((a, b) => {
-        const da = Math.max(Math.abs(a.txDelta || 0), Math.abs(a.rxDelta || 0));
-        const db = Math.max(Math.abs(b.txDelta || 0), Math.abs(b.rxDelta || 0));
-        return db - da;
-    }).slice(0, 30);
-
-    const labels = sorted.map(c => (c.neName || '').substring(0, 8) + '\n' + (c.portName || c.portNo || ''));
-    const txDeltas = sorted.map(c => c.txDelta != null ? parseFloat(c.txDelta.toFixed(2)) : 0);
-    const rxDeltas = sorted.map(c => c.rxDelta != null ? parseFloat(c.rxDelta.toFixed(2)) : 0);
-
+    const xLabels = data.timeline.map(t => formatTime(t.time));
     const isDark = document.body.getAttribute('data-theme') === 'dark';
     const textColor = isDark ? '#94a3b8' : '#6b7280';
     const splitColor = isDark ? '#334155' : '#e5e7eb';
 
-    let option;
-    if (compareChartMode === 'tx' || compareChartMode === 'rx') {
-        const deltas = compareChartMode === 'tx' ? txDeltas : rxDeltas;
-        const label = compareChartMode === 'tx' ? '发送功率变化 (dB)' : '接收功率变化 (dB)';
-        option = {
-            tooltip: {
-                trigger: 'axis',
-                formatter: function(params) {
-                    const p = params[0];
-                    const idx = p.dataIndex;
-                    const c = sorted[idx];
-                    return '<b>' + (c.neName || '') + '</b><br/>' +
-                        '端口: ' + (c.portName || c.portNo || '-') + '<br/>' +
-                        label + ': <b style="color:' + (Math.abs(p.value) > 2 ? '#dc2626' : '#1a73e8') + '">' +
-                        (p.value > 0 ? '+' : '') + p.value.toFixed(2) + ' dB</b>';
-                }
-            },
-            grid: { left: 60, right: 20, top: 30, bottom: 80 },
-            xAxis: {
-                type: 'category', data: labels,
-                axisLabel: { color: textColor, fontSize: 10, interval: 0, rotate: 45 },
-                axisLine: { lineStyle: { color: splitColor } }
-            },
-            yAxis: {
-                type: 'value', name: label,
-                nameTextStyle: { color: textColor, fontSize: 11 },
-                axisLabel: { color: textColor },
-                splitLine: { lineStyle: { color: splitColor } }
-            },
-            series: [{
-                type: 'bar', data: deltas,
-                itemStyle: {
-                    color: function(params) {
-                        return params.value >= 0 ? '#f59e0b' : '#3b82f6';
-                    },
-                    borderRadius: [3, 3, 0, 0]
-                },
-                markLine: {
-                    silent: true,
-                    data: [
-                        { yAxis: 2, lineStyle: { color: '#dc2626', type: 'dashed', width: 1 }, label: { formatter: '+2dB', color: '#dc2626', fontSize: 10 } },
-                        { yAxis: -2, lineStyle: { color: '#3b82f6', type: 'dashed', width: 1 }, label: { formatter: '-2dB', color: '#3b82f6', fontSize: 10 } }
-                    ]
-                }
-            }]
-        };
-    } else {
-        // 综合对比：发送和接收并列
-        option = {
-            tooltip: {
-                trigger: 'axis',
-                formatter: function(params) {
-                    const idx = params[0].dataIndex;
-                    const c = sorted[idx];
-                    let s = '<b>' + (c.neName || '') + '</b><br/>端口: ' + (c.portName || c.portNo || '-') + '<br/>';
-                    params.forEach(p => {
-                        s += p.marker + p.seriesName + ': <b>' + (p.value > 0 ? '+' : '') + p.value.toFixed(2) + ' dB</b><br/>';
-                    });
-                    return s;
-                }
-            },
-            legend: {
-                data: ['发送变化', '接收变化'],
-                textStyle: { color: textColor, fontSize: 11 },
-                top: 0
-            },
-            grid: { left: 60, right: 20, top: 30, bottom: 80 },
-            xAxis: {
-                type: 'category', data: labels,
-                axisLabel: { color: textColor, fontSize: 10, interval: 0, rotate: 45 },
-                axisLine: { lineStyle: { color: splitColor } }
-            },
-            yAxis: {
-                type: 'value', name: '功率变化 (dB)',
-                nameTextStyle: { color: textColor, fontSize: 11 },
-                axisLabel: { color: textColor },
-                splitLine: { lineStyle: { color: splitColor } }
-            },
-            series: [
-                {
-                    name: '发送变化', type: 'bar', data: txDeltas,
-                    itemStyle: { color: '#f59e0b', borderRadius: [3, 3, 0, 0] }
-                },
-                {
-                    name: '接收变化', type: 'bar', data: rxDeltas,
-                    itemStyle: { color: '#3b82f6', borderRadius: [3, 3, 0, 0] }
-                }
-            ]
-        };
+    const colors = [
+        '#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6',
+        '#ec4899', '#06b6d4', '#f97316', '#6366f1', '#14b8a6',
+        '#e11d48', '#84cc16', '#0ea5e9', '#a855f7', '#64748b'
+    ];
+
+    // 构建series：每个端口两条线（tx/rx）取决于模式
+    const series = [];
+    const legendNames = [];
+    let portIdx = 0;
+
+    for (const port of data.ports) {
+        if (portIdx >= 20) break; // 最多显示20个端口，避免图表过密
+        const label = (port.neName || '').substring(0, 10) + ' S' + port.slotNo + 'P' + port.portNo;
+        const color = colors[portIdx % colors.length];
+
+        if (trendChartMode === 'rx' || trendChartMode === 'both') {
+            const rxData = port.roundData.map(d => d ? d.rxPower : null);
+            const name = label + ' (Rx)';
+            legendNames.push(name);
+            series.push({
+                name, type: 'line', data: rxData,
+                smooth: true, symbol: 'circle', symbolSize: 6,
+                lineStyle: { width: 2, color },
+                itemStyle: { color },
+                connectNulls: true
+            });
+        }
+        if (trendChartMode === 'tx' || trendChartMode === 'both') {
+            const txData = port.roundData.map(d => d ? d.txPower : null);
+            const name = label + ' (Tx)';
+            legendNames.push(name);
+            series.push({
+                name, type: 'line', data: txData,
+                smooth: true, symbol: 'diamond', symbolSize: 6,
+                lineStyle: { width: 2, color, type: trendChartMode === 'both' ? 'dashed' : 'solid' },
+                itemStyle: { color },
+                connectNulls: true
+            });
+        }
+        portIdx++;
     }
 
-    compareChart.setOption(option, true);
+    const option = {
+        tooltip: {
+            trigger: 'axis',
+            formatter: function(params) {
+                const idx = params[0].dataIndex;
+                const time = xLabels[idx];
+                let s = '<b>' + time + '</b><br/>';
+                params.forEach(p => {
+                    if (p.value != null) {
+                        s += p.marker + p.seriesName + ': <b>' + p.value.toFixed(2) + ' dBm</b><br/>';
+                    }
+                });
+                return s;
+            }
+        },
+        legend: {
+            data: legendNames,
+            textStyle: { color: textColor, fontSize: 10 },
+            type: 'scroll', pageTextStyle: { color: textColor },
+            top: 0, bottom: 20
+        },
+        grid: { left: 60, right: 20, top: 40, bottom: 30 },
+        xAxis: {
+            type: 'category', data: xLabels,
+            axisLabel: { color: textColor, fontSize: 10, rotate: xLabels.length > 8 ? 30 : 0 },
+            axisLine: { lineStyle: { color: splitColor } }
+        },
+        yAxis: {
+            type: 'value', name: '功率 (dBm)',
+            nameTextStyle: { color: textColor, fontSize: 11 },
+            axisLabel: { color: textColor },
+            splitLine: { lineStyle: { color: splitColor } }
+        },
+        series
+    };
+
+    trendChart.setOption(option, true);
+}
+
+/** 渲染趋势详情表格 */
+function renderTrendTable(data) {
+    const tbody = document.getElementById('trendTable');
+    tbody.textContent = '';
+
+    if (data.ports.length === 0) {
+        const tr = document.createElement('tr');
+        const td = document.createElement('td');
+        td.colSpan = 7; td.className = 'empty'; td.textContent = '所选条件下无数据';
+        tr.appendChild(td); tbody.appendChild(tr);
+        return;
+    }
+
+    for (const port of data.ports) {
+        const tr = document.createElement('tr');
+
+        tr.appendChild(createTextCell(port.neName || '-'));
+        tr.appendChild(createTextCell(String(port.slotNo)));
+        tr.appendChild(createTextCell(String(port.portNo)));
+        tr.appendChild(createTextCell(port.portName || '-'));
+        tr.appendChild(createTextCell(port.moduleTypeKey || '-'));
+
+        // 发送趋势摘要：min ~ max
+        const txValues = port.roundData.filter(d => d && d.txPower != null).map(d => d.txPower);
+        const txTd = document.createElement('td');
+        txTd.style.textAlign = 'right';
+        if (txValues.length > 0) {
+            const min = Math.min(...txValues).toFixed(1);
+            const max = Math.max(...txValues).toFixed(1);
+            txTd.textContent = txValues.length > 1 ? min + ' ~ ' + max : min;
+            const delta = Math.max(...txValues) - Math.min(...txValues);
+            if (delta > 3) txTd.style.color = '#dc2626';
+        } else {
+            txTd.textContent = '--';
+        }
+        tr.appendChild(txTd);
+
+        // 接收趋势摘要
+        const rxValues = port.roundData.filter(d => d && d.rxPower != null).map(d => d.rxPower);
+        const rxTd = document.createElement('td');
+        rxTd.style.textAlign = 'right';
+        if (rxValues.length > 0) {
+            const min = Math.min(...rxValues).toFixed(1);
+            const max = Math.max(...rxValues).toFixed(1);
+            rxTd.textContent = rxValues.length > 1 ? min + ' ~ ' + max : min;
+            const delta = Math.max(...rxValues) - Math.min(...rxValues);
+            if (delta > 3) rxTd.style.color = '#dc2626';
+        } else {
+            rxTd.textContent = '--';
+        }
+        tr.appendChild(rxTd);
+
+        tbody.appendChild(tr);
+    }
 }
 
 function formatPower(v) {
