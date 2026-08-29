@@ -58,7 +58,8 @@ function renderProgress(d) {
     document.getElementById('progNum').textContent = d.done + ' / ' + d.total;
     document.getElementById('progDone').textContent = d.done;
     document.getElementById('progFail').textContent = d.failures;
-    document.getElementById('progCurrentNe').textContent = d.currentNe ? '当前: ' + d.currentNe : '';
+    document.getElementById('progCurrentNe').textContent = d.currentNe ? '设备: ' + d.currentNe : '';
+    document.getElementById('progCurrentPort').textContent = d.currentPort ? '端口: ' + d.currentPort : '';
     renderFailList(d.failures_list || []);
 }
 

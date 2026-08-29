@@ -77,6 +77,7 @@ public class InspectionService {
     private final AtomicInteger progressCurrent = new AtomicInteger(0);
     private final List<Map<String, String>> progressFailures = new CopyOnWriteArrayList<>();
     private volatile String progressCurrentNe = "";
+    private volatile String progressCurrentPort = "";
 
     /**
      * 手动触发巡检（全网）
@@ -123,6 +124,7 @@ public class InspectionService {
         progress.put("failures", progressFailures.size());
         progress.put("failures_list", new ArrayList<>(progressFailures));
         progress.put("currentNe", progressCurrentNe);
+        progress.put("currentPort", progressCurrentPort);
         return progress;
     }
 
@@ -351,6 +353,7 @@ public class InspectionService {
         progressCurrent.set(0);
         progressFailures.clear();
         progressCurrentNe = "";
+        progressCurrentPort = "";
 
         // 异步执行巡检（使用专用线程池，捕获异常防止轮次卡在RUNNING）
         final InspectionRound finalRound = saved;
@@ -486,6 +489,8 @@ public class InspectionService {
             int slotId = OidUtil.getSlotId(oid);
             int portId = OidUtil.getPortId(oid);
             int portType = dmeoPort.get("type") != null ? ((Number) dmeoPort.get("type")).intValue() : 0xFF;
+            String portName = (String) dmeoPort.get("name");
+            progressCurrentPort = "槽位" + slotId + " 端口" + portId + (portName != null ? " (" + portName + ")" : "");
 
             try {
                 LaserAttributeGetData req = LaserAttributeGetData.builder()
@@ -506,6 +511,7 @@ public class InspectionService {
                         device.getNeName(), oid, e.getMessage());
             }
         }
+        progressCurrentPort = "";
 
         // 批量保存（可选过滤无效记录）
         if (!records.isEmpty()) {
