@@ -466,3 +466,111 @@ export function exportExcel() {
     params.set('showInvalid', showInvalid);
     window.open(API + '/inspection/export' + (params.toString() ? '?' + params : ''), '_blank');
 }
+
+// ========== 轮次对比 ==========
+
+/** 打开对比弹窗 */
+export async function openCompareModal() {
+    document.getElementById('compareModal').classList.remove('hidden');
+    // 加载轮次列表到两个下拉框
+    const rounds = await get('/inspection/rounds');
+    ['compareRoundA', 'compareRoundB'].forEach((id, idx) => {
+        const sel = document.getElementById(id);
+        sel.textContent = '';
+        rounds.forEach(r => {
+            const opt = document.createElement('option');
+            opt.value = r.id;
+            opt.textContent = '#' + r.id + ' ' + formatTime(r.startTime) + ' (' + r.status + ')';
+            sel.appendChild(opt);
+        });
+        // 默认 A 选最新，B 选次新
+        if (rounds.length > idx && sel.options.length > idx) {
+            sel.selectedIndex = idx;
+        }
+    });
+    document.getElementById('compareTable').textContent = '';
+    document.getElementById('compareSummary').textContent = '';
+}
+
+/** 关闭对比弹窗 */
+export function closeCompareModal() {
+    document.getElementById('compareModal').classList.add('hidden');
+}
+
+/** 执行对比 */
+export async function runCompare() {
+    const roundA = document.getElementById('compareRoundA').value;
+    const roundB = document.getElementById('compareRoundB').value;
+    if (!roundA || !roundB) { showToast('请选择两个轮次', 'error'); return; }
+    if (roundA === roundB) { showToast('请选择不同的轮次', 'error'); return; }
+
+    const data = await get('/inspection/compare?roundA=' + roundA + '&roundB=' + roundB);
+    const tbody = document.getElementById('compareTable');
+    tbody.textContent = '';
+
+    document.getElementById('compareSummary').textContent =
+        '基准轮次 #' + data.roundA + ' (' + data.totalA + ' 条) vs 对比轮次 #' + data.roundB + ' (' + data.totalB + ' 条)，变化 ' + data.changes.length + ' 条';
+
+    if (data.changes.length === 0) {
+        const tr = document.createElement('tr');
+        const td = document.createElement('td');
+        td.colSpan = 11; td.className = 'empty'; td.textContent = '两次巡检结果无显著变化';
+        tr.appendChild(td); tbody.appendChild(tr);
+        return;
+    }
+
+    data.changes.forEach(c => {
+        const tr = document.createElement('tr');
+        tr.appendChild(createTextCell(c.neName || '-'));
+        tr.appendChild(createTextCell(c.portName || '-'));
+
+        // 变化类型
+        const typeTd = document.createElement('td');
+        if (c.type === 'status_change') {
+            typeTd.textContent = '状态变化';
+            typeTd.style.color = '#dc2626';
+            typeTd.style.fontWeight = '600';
+        } else if (c.type === 'new') {
+            typeTd.textContent = '新增端口';
+            typeTd.style.color = '#16a34a';
+        } else {
+            typeTd.textContent = '功率变化';
+            typeTd.style.color = '#d97706';
+        }
+        tr.appendChild(typeTd);
+
+        // 发送功率 A / B / 变化
+        tr.appendChild(createTextCell(formatPower(c.txPowerA)));
+        tr.appendChild(createTextCell(formatPower(c.txPowerB)));
+        const txDeltaTd = createTextCell(formatDelta(c.txDelta));
+        if (c.txDelta != null && Math.abs(c.txDelta) > 2) txDeltaTd.style.color = '#dc2626';
+        tr.appendChild(txDeltaTd);
+
+        // 接收功率 A / B / 变化
+        tr.appendChild(createTextCell(formatPower(c.rxPowerA)));
+        tr.appendChild(createTextCell(formatPower(c.rxPowerB)));
+        const rxDeltaTd = createTextCell(formatDelta(c.rxDelta));
+        if (c.rxDelta != null && Math.abs(c.rxDelta) > 2) rxDeltaTd.style.color = '#dc2626';
+        tr.appendChild(rxDeltaTd);
+
+        // 状态 A / B
+        const stATd = createTextCell(c.statusA || '-');
+        if (c.statusA === '劣化' || c.statusA === '过载') stATd.style.color = '#dc2626';
+        tr.appendChild(stATd);
+        const stBTd = createTextCell(c.statusB || '-');
+        if (c.statusB === '劣化' || c.statusB === '过载') stBTd.style.color = '#dc2626';
+        tr.appendChild(stBTd);
+
+        tbody.appendChild(tr);
+    });
+}
+
+function formatPower(v) {
+    return v != null ? v.toFixed(1) : '--';
+}
+
+function formatDelta(v) {
+    if (v == null) return '--';
+    const s = v > 0 ? '+' + v.toFixed(1) : v.toFixed(1);
+    return s + ' dB';
+}

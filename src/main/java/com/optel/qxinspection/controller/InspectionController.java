@@ -103,6 +103,15 @@ public class InspectionController {
     }
 
     /**
+     * 对比两次巡检结果
+     */
+    @GetMapping("/compare")
+    public Map<String, Object> compareRounds(@RequestParam Long roundA,
+                                             @RequestParam Long roundB) {
+        return inspectionService.compareRounds(roundA, roundB);
+    }
+
+    /**
      * 导出巡检结果为 Excel
      */
     @GetMapping("/export")

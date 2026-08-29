@@ -167,6 +167,98 @@ public class InspectionService {
     }
 
     /**
+     * 对比两次巡检结果，返回变化的端口列表
+     */
+    public Map<String, Object> compareRounds(Long roundA, Long roundB) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        List<OpticalPowerInspection> dataA = thresholdService.applyThresholds(
+                powerRecordRepository.findByRoundId(roundA));
+        List<OpticalPowerInspection> dataB = thresholdService.applyThresholds(
+                powerRecordRepository.findByRoundId(roundB));
+
+        Map<String, OpticalPowerInspection> mapA = new LinkedHashMap<>();
+        for (OpticalPowerInspection r : dataA) {
+            mapA.put(r.getNeId() + ":" + r.getSlotNo() + ":" + r.getPortNo(), r);
+        }
+        Map<String, OpticalPowerInspection> mapB = new LinkedHashMap<>();
+        for (OpticalPowerInspection r : dataB) {
+            mapB.put(r.getNeId() + ":" + r.getSlotNo() + ":" + r.getPortNo(), r);
+        }
+
+        List<Map<String, Object>> changes = new ArrayList<>();
+
+        for (Map.Entry<String, OpticalPowerInspection> entry : mapB.entrySet()) {
+            String key = entry.getKey();
+            OpticalPowerInspection rb = entry.getValue();
+            OpticalPowerInspection ra = mapA.get(key);
+
+            if (ra == null) {
+                Map<String, Object> change = new LinkedHashMap<>();
+                change.put("type", "new");
+                change.put("neName", rb.getNeName());
+                change.put("portName", rb.getPortName());
+                change.put("txPower", rb.getTxPower());
+                change.put("rxPower", rb.getRxPower());
+                change.put("status", getPortStatusText(rb));
+                changes.add(change);
+                continue;
+            }
+
+            double txDelta = safeDelta(rb.getTxPower(), ra.getTxPower());
+            double rxDelta = safeDelta(rb.getRxPower(), ra.getRxPower());
+            boolean statusChanged = !Objects.equals(getPortStatusText(ra), getPortStatusText(rb));
+
+            if (Math.abs(txDelta) > 0.5 || Math.abs(rxDelta) > 0.5 || statusChanged) {
+                Map<String, Object> change = new LinkedHashMap<>();
+                change.put("type", statusChanged ? "status_change" : "power_change");
+                change.put("neName", rb.getNeName());
+                change.put("portName", rb.getPortName());
+                change.put("txPowerA", ra.getTxPower());
+                change.put("txPowerB", rb.getTxPower());
+                change.put("txDelta", Math.round(txDelta * 10.0) / 10.0);
+                change.put("rxPowerA", ra.getRxPower());
+                change.put("rxPowerB", rb.getRxPower());
+                change.put("rxDelta", Math.round(rxDelta * 10.0) / 10.0);
+                change.put("statusA", getPortStatusText(ra));
+                change.put("statusB", getPortStatusText(rb));
+                changes.add(change);
+            }
+        }
+
+        changes.sort((a, b) -> {
+            boolean aDegrade = "status_change".equals(a.get("type"));
+            boolean bDegrade = "status_change".equals(b.get("type"));
+            if (aDegrade != bDegrade) return aDegrade ? -1 : 1;
+            double aDelta = Math.abs((double) a.getOrDefault("rxDelta", 0.0));
+            double bDelta = Math.abs((double) b.getOrDefault("rxDelta", 0.0));
+            return Double.compare(bDelta, aDelta);
+        });
+
+        result.put("roundA", roundA);
+        result.put("roundB", roundB);
+        result.put("totalA", dataA.size());
+        result.put("totalB", dataB.size());
+        result.put("changes", changes);
+        return result;
+    }
+
+    private double safeDelta(Double b, Double a) {
+        if (b == null || a == null) return 0;
+        return b - a;
+    }
+
+    private String getPortStatusText(OpticalPowerInspection r) {
+        if (!Boolean.TRUE.equals(r.getSupported())) return "无效";
+        if ((r.getTxPowerStatus() != null && r.getTxPowerStatus() > 0)
+                || (r.getRxPowerStatus() != null && r.getRxPowerStatus() > 0)) {
+            boolean over = (r.getTxPowerStatus() != null && r.getTxPowerStatus() == 2)
+                    || (r.getRxPowerStatus() != null && r.getRxPowerStatus() == 2);
+            return over ? "过载" : "劣化";
+        }
+        return "正常";
+    }
+
+    /**
      * 获取巡检轮次列表
      */
     public List<InspectionRound> listRounds() {

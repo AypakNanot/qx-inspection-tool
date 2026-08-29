@@ -498,6 +498,7 @@
                         <button class="btn btn-outline btn-sm" onclick="expandAll()">全部展开</button>
                         <button class="btn btn-outline btn-sm" onclick="collapseAll()">全部收缩</button>
                         <button class="btn btn-outline btn-sm" onclick="exportExcel()" title="将当前筛选结果导出为 Excel 文件">导出 Excel</button>
+                        <button class="btn btn-outline btn-sm" onclick="openCompareModal()" title="对比两次巡检结果，查看功率变化">对比轮次</button>
                     </div>
                 </div>
 
@@ -687,6 +688,38 @@
                 <button class="btn btn-outline" onclick="closeDeviceModal()">取消</button>
                 <button class="btn btn-danger btn-sm" id="modalDeleteBtn" onclick="deleteDeviceConfig()" style="margin-right:auto">清除覆盖</button>
                 <button class="btn btn-primary" onclick="saveDeviceConfig()">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 轮次对比弹窗 -->
+    <div class="modal-overlay hidden" id="compareModal">
+        <div class="modal" style="max-width:900px;">
+            <div class="modal-header">
+                <h3>轮次对比</h3>
+                <button class="modal-close" onclick="closeCompareModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-row" style="margin-bottom:12px;gap:16px;align-items:flex-end;">
+                    <div class="form-group"><label>基准轮次 (A)</label><select id="compareRoundA" style="width:200px;padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;"></select></div>
+                    <div class="form-group"><label>对比轮次 (B)</label><select id="compareRoundB" style="width:200px;padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;"></select></div>
+                    <button class="btn btn-primary btn-sm" onclick="runCompare()">开始对比</button>
+                </div>
+                <div id="compareSummary" style="font-size:13px;color:#6b7280;margin-bottom:8px;"></div>
+                <div style="max-height:400px;overflow-y:auto;">
+                    <table style="width:100%;font-size:13px;">
+                        <thead><tr>
+                            <th>网元</th><th>端口</th><th>变化类型</th>
+                            <th>发送功率 A</th><th>发送功率 B</th><th>发送变化</th>
+                            <th>接收功率 A</th><th>接收功率 B</th><th>接收变化</th>
+                            <th>状态 A</th><th>状态 B</th>
+                        </tr></thead>
+                        <tbody id="compareTable"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="closeCompareModal()">关闭</button>
             </div>
         </div>
     </div>
