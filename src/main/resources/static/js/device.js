@@ -10,6 +10,23 @@ import { showToast, withLoading } from './toast.js';
 /** 当前弹窗操作的设备ID */
 let currentModalNeOid = null;
 
+/** 设备状态自动刷新 */
+let deviceRefreshTimer = null;
+
+export function startDeviceRefresh() {
+    if (deviceRefreshTimer) return;
+    deviceRefreshTimer = setInterval(() => {
+        loadDevices();
+    }, 10000);
+}
+
+export function stopDeviceRefresh() {
+    if (deviceRefreshTimer) {
+        clearInterval(deviceRefreshTimer);
+        deviceRefreshTimer = null;
+    }
+}
+
 /** 分页状态 */
 let allDevices = [];
 let filteredDevices = [];

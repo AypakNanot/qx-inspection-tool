@@ -3,7 +3,7 @@
  * 初始化页面、注册全局事件、挂载onclick处理器
  */
 
-import { loadDevices, loadGlobalConfig, saveGlobalConfig, syncDevices, clearDataType, clearConnProfiles, toggleAllClearCb, clearSelectedData, connectAll, disconnectAll, connectSingle, disconnectSingle, closeDeviceModal, saveDeviceConfig, deleteDeviceConfig, searchDevices, filterByNetwork, filterByStatus, sortBy } from './device.js';
+import { loadDevices, loadGlobalConfig, saveGlobalConfig, syncDevices, clearDataType, clearConnProfiles, toggleAllClearCb, clearSelectedData, connectAll, disconnectAll, connectSingle, disconnectSingle, closeDeviceModal, saveDeviceConfig, deleteDeviceConfig, searchDevices, filterByNetwork, filterByStatus, sortBy, startDeviceRefresh, stopDeviceRefresh } from './device.js';
 import { loadStatsOverview, loadStatsNetworks, loadStats, switchStatsChart, resizeChart } from './stats.js';
 import { loadGlobalThreshold, saveGlobalThreshold, loadThresholds, openThresholdModal, closeThresholdModal, saveThreshold, onModuleSelectChange } from './threshold.js';
 import { loadScheduleStatus, toggleSchedule, toggleSchedScope, toggleManualScope, loadTaskNetworks, loadTaskDevices, startManualInspection, onSchedPresetChange, saveScheduleConfig, loadCollectParams, saveCollectParams } from './task.js';
@@ -39,6 +39,14 @@ function switchPage(el) {
     document.getElementById('breadcrumb').textContent = t[1];
 
     const page = el.dataset.page;
+
+    // 设备页自动刷新
+    if (page === 'page-device') {
+        startDeviceRefresh();
+    } else {
+        stopDeviceRefresh();
+    }
+
     if (page === 'page-stats') {
         loadStatsOverview();
         loadStats();
