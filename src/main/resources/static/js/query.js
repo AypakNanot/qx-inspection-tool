@@ -794,60 +794,134 @@ function renderTrendChart(data) {
     trendChart.setOption(option, true);
 }
 
-/** 渲染趋势详情表格 */
+/** 渲染趋势详情表格：每行一个端口，每列一个轮次，显示具体值+升降箭头 */
 function renderTrendTable(data) {
-    const tbody = document.getElementById('trendTable');
-    tbody.textContent = '';
+    const wrap = document.getElementById('trendTableWrap');
+    wrap.textContent = '';
 
     if (data.ports.length === 0) {
-        const tr = document.createElement('tr');
-        const td = document.createElement('td');
-        td.colSpan = 7; td.className = 'empty'; td.textContent = '所选条件下无数据';
-        tr.appendChild(td); tbody.appendChild(tr);
+        wrap.textContent = '所选条件下无数据';
+        wrap.style.cssText = 'text-align:center;padding:40px;color:#9ca3af;font-size:13px;';
         return;
     }
+    wrap.style.cssText = '';
+
+    const table = document.createElement('table');
+    table.style.cssText = 'width:100%;font-size:13px;border-collapse:collapse;white-space:nowrap;';
+
+    // 表头：端口 | 指标 | 轮次1 | 轮次2 | ...
+    const thead = document.createElement('thead');
+    thead.style.cssText = 'position:sticky;top:0;background:var(--bg,#fff);z-index:1;';
+    const headTr = document.createElement('tr');
+
+    const thStyle = 'padding:8px 10px;text-align:center;border-bottom:2px solid var(--border,#e2e8f0);';
+    const thName = document.createElement('th');
+    thName.style.cssText = thStyle + 'text-align:left;min-width:120px;';
+    thName.textContent = '端口名';
+    headTr.appendChild(thName);
+
+    const thMetric = document.createElement('th');
+    thMetric.style.cssText = thStyle + 'min-width:50px;';
+    thMetric.textContent = '指标';
+    headTr.appendChild(thMetric);
+
+    data.timeline.forEach(t => {
+        const th = document.createElement('th');
+        th.style.cssText = thStyle + 'min-width:130px;';
+        th.textContent = formatTime(t.time);
+        headTr.appendChild(th);
+    });
+    thead.appendChild(headTr);
+    table.appendChild(thead);
+
+    // 表体
+    const tbody = document.createElement('tbody');
 
     for (const port of data.ports) {
-        const tr = document.createElement('tr');
+        const portLabel = (port.portName && port.portName !== '-')
+            ? port.portName
+            : 'S' + port.slotNo + 'P' + port.portNo;
 
-        tr.appendChild(createTextCell(port.neName || '-'));
-        tr.appendChild(createTextCell(String(port.slotNo)));
-        tr.appendChild(createTextCell(String(port.portNo)));
-        tr.appendChild(createTextCell(port.portName || '-'));
-        tr.appendChild(createTextCell(port.moduleTypeKey || '-'));
+        // Rx 行
+        const rxTr = document.createElement('tr');
+        rxTr.style.cssText = 'border-bottom:1px solid var(--border,#f1f5f9);';
 
-        // 发送趋势摘要：min ~ max
-        const txValues = port.roundData.filter(d => d && d.txPower != null).map(d => d.txPower);
-        const txTd = document.createElement('td');
-        txTd.style.textAlign = 'right';
-        if (txValues.length > 0) {
-            const min = Math.min(...txValues).toFixed(1);
-            const max = Math.max(...txValues).toFixed(1);
-            txTd.textContent = txValues.length > 1 ? min + ' ~ ' + max : min;
-            const delta = Math.max(...txValues) - Math.min(...txValues);
-            if (delta > 3) txTd.style.color = '#dc2626';
-        } else {
-            txTd.textContent = '--';
-        }
-        tr.appendChild(txTd);
+        const rxDtName = createTextCell(portLabel);
+        rxDtName.style.cssText = 'padding:8px 10px;text-align:left;font-weight:500;';
+        rxTr.appendChild(rxDtName);
 
-        // 接收趋势摘要
-        const rxValues = port.roundData.filter(d => d && d.rxPower != null).map(d => d.rxPower);
-        const rxTd = document.createElement('td');
-        rxTd.style.textAlign = 'right';
-        if (rxValues.length > 0) {
-            const min = Math.min(...rxValues).toFixed(1);
-            const max = Math.max(...rxValues).toFixed(1);
-            rxTd.textContent = rxValues.length > 1 ? min + ' ~ ' + max : min;
-            const delta = Math.max(...rxValues) - Math.min(...rxValues);
-            if (delta > 3) rxTd.style.color = '#dc2626';
-        } else {
-            rxTd.textContent = '--';
-        }
-        tr.appendChild(rxTd);
+        const rxDtMetric = createTextCell('Rx');
+        rxDtMetric.style.cssText = 'padding:8px 10px;text-align:center;color:#3b82f6;font-weight:600;';
+        rxTr.appendChild(rxDtMetric);
 
-        tbody.appendChild(tr);
+        let prevRx = null;
+        port.roundData.forEach(d => {
+            const td = document.createElement('td');
+            td.style.cssText = 'padding:8px 10px;text-align:right;';
+            if (d && d.rxPower != null) {
+                const val = d.rxPower;
+                td.textContent = val.toFixed(1);
+                if (prevRx !== null) {
+                    const delta = val - prevRx;
+                    const arrow = document.createElement('span');
+                    arrow.style.cssText = 'margin-left:4px;font-size:11px;font-weight:700;';
+                    if (delta > 0.05) { arrow.textContent = '▲'; arrow.style.color = '#16a34a'; }
+                    else if (delta < -0.05) { arrow.textContent = '▼'; arrow.style.color = '#dc2626'; }
+                    else { arrow.textContent = '—'; arrow.style.color = '#9ca3af'; }
+                    td.appendChild(arrow);
+                }
+                prevRx = val;
+                // 越限标红
+                if (d.rxStatus > 0) td.style.color = '#dc2626';
+            } else {
+                td.textContent = '--';
+                td.style.color = '#9ca3af';
+            }
+            rxTr.appendChild(td);
+        });
+        tbody.appendChild(rxTr);
+
+        // Tx 行
+        const txTr = document.createElement('tr');
+        txTr.style.cssText = 'border-bottom:2px solid var(--border,#e5e7eb);';
+
+        const txDtName = createTextCell('');
+        txDtName.style.cssText = 'padding:8px 10px;';
+        txTr.appendChild(txDtName);
+
+        const txDtMetric = createTextCell('Tx');
+        txDtMetric.style.cssText = 'padding:8px 10px;text-align:center;color:#f97316;font-weight:600;';
+        txTr.appendChild(txDtMetric);
+
+        let prevTx = null;
+        port.roundData.forEach(d => {
+            const td = document.createElement('td');
+            td.style.cssText = 'padding:8px 10px;text-align:right;';
+            if (d && d.txPower != null) {
+                const val = d.txPower;
+                td.textContent = val.toFixed(1);
+                if (prevTx !== null) {
+                    const delta = val - prevTx;
+                    const arrow = document.createElement('span');
+                    arrow.style.cssText = 'margin-left:4px;font-size:11px;font-weight:700;';
+                    if (delta > 0.05) { arrow.textContent = '▲'; arrow.style.color = '#16a34a'; }
+                    else if (delta < -0.05) { arrow.textContent = '▼'; arrow.style.color = '#dc2626'; }
+                    else { arrow.textContent = '—'; arrow.style.color = '#9ca3af'; }
+                    td.appendChild(arrow);
+                }
+                prevTx = val;
+                if (d.txStatus > 0) td.style.color = '#dc2626';
+            } else {
+                td.textContent = '--';
+                td.style.color = '#9ca3af';
+            }
+            txTr.appendChild(td);
+        });
+        tbody.appendChild(txTr);
     }
+
+    table.appendChild(tbody);
+    wrap.appendChild(table);
 }
 
 function formatPower(v) {
