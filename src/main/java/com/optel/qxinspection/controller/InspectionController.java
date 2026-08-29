@@ -466,4 +466,57 @@ public class InspectionController {
     public List<com.optel.qxinspection.entity.sqlite.AuditLog> getAuditLogs() {
         return auditService.getRecentLogs();
     }
+
+    // ========== 数据备份/恢复 ==========
+
+    /**
+     * 备份 SQLite 数据库
+     */
+    @GetMapping("/backup")
+    public void backupDatabase(HttpServletResponse response) throws IOException {
+        java.nio.file.Path dbPath = java.nio.file.Path.of("./data/qx_inspection.db");
+        if (!java.nio.file.Files.exists(dbPath)) {
+            response.sendError(HttpServletResponse.SC_NOT_FOUND, "数据库文件不存在");
+            return;
+        }
+        String timestamp = java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMddHHmm"));
+        String filename = "qx_inspection_backup_" + timestamp + ".db";
+        String encodedName = java.net.URLEncoder.encode(filename, "UTF-8").replace("+", "%20");
+
+        response.setContentType("application/octet-stream");
+        response.setHeader("Content-Disposition", "attachment; filename=\"backup.db\"; filename*=UTF-8''" + encodedName);
+        java.nio.file.Files.copy(dbPath, response.getOutputStream());
+        response.getOutputStream().flush();
+        auditService.record("BACKUP", "SQLite数据库", "SUCCESS", filename);
+    }
+
+    /**
+     * 恢复 SQLite 数据库
+     */
+    @PostMapping("/restore")
+    public Map<String, Object> restoreDatabase(@RequestParam("file") org.springframework.web.multipart.MultipartFile file) {
+        try {
+            java.nio.file.Path dbDir = java.nio.file.Path.of("./data");
+            if (!java.nio.file.Files.exists(dbDir)) {
+                java.nio.file.Files.createDirectories(dbDir);
+            }
+            java.nio.file.Path dbPath = dbDir.resolve("qx_inspection.db");
+            java.nio.file.Path backupPath = dbDir.resolve("qx_inspection_backup_before_restore.db");
+
+            // 先备份当前数据库
+            if (java.nio.file.Files.exists(dbPath)) {
+                java.nio.file.Files.copy(dbPath, backupPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
+
+            // 写入新数据库
+            java.nio.file.Files.copy(file.getInputStream(), dbPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+
+            auditService.record("RESTORE", "SQLite数据库", "SUCCESS", file.getOriginalFilename());
+            return Map.of("success", true, "message", "数据库恢复成功，重启应用后生效");
+        } catch (IOException e) {
+            log.error("restore database failed", e);
+            auditService.record("RESTORE", "SQLite数据库", "FAIL", e.getMessage());
+            return Map.of("success", false, "message", "恢复失败: " + e.getMessage());
+        }
+    }
 }

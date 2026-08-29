@@ -2,7 +2,7 @@
  * MySQL → SQLite 动态同步模块
  */
 
-import { get, post, put } from './api.js';
+import { get, post, put, API } from './api.js';
 import { showToast, withLoading } from './toast.js';
 
 /** 加载 MySQL 配置到表单 */
@@ -183,4 +183,38 @@ export async function loadAuditLogs() {
             tbody.appendChild(tr);
         });
     } catch (e) { console.error('loadAuditLogs', e); }
+}
+
+/** 备份数据库 */
+export function backupDatabase() {
+    window.location.href = API + '/inspection/backup';
+    showToast('数据库备份已开始下载', 'success');
+}
+
+/** 恢复数据库 */
+export async function restoreDatabase() {
+    const fileInput = document.getElementById('restoreFile');
+    const file = fileInput.files[0];
+    if (!file) return;
+    if (!confirm('确认从备份文件恢复数据库？\n\n恢复后当前数据库将被覆盖，建议先执行备份。')) {
+        fileInput.value = '';
+        return;
+    }
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+        const res = await fetch(API + '/inspection/restore', {
+            method: 'POST',
+            body: formData
+        }).then(r => r.json());
+        const el = document.getElementById('restoreResult');
+        el.style.display = '';
+        el.textContent = res.message || '操作完成';
+        el.style.color = res.success ? '#16a34a' : '#dc2626';
+        if (res.success) showToast('数据库恢复成功', 'success');
+        else showToast('恢复失败: ' + res.message, 'error');
+    } catch (e) {
+        showToast('恢复请求失败: ' + e.message, 'error');
+    }
+    fileInput.value = '';
 }

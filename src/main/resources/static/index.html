@@ -629,6 +629,22 @@
                     </div>
                 </div>
 
+                <!-- 数据备份/恢复 -->
+                <div class="card" style="margin-top:16px;">
+                    <div class="card-title">数据备份与恢复</div>
+                    <div style="font-size:13px;color:#6b7280;margin-bottom:16px;">
+                        备份当前 SQLite 数据库文件，或从备份文件恢复。恢复后需重启应用。
+                    </div>
+                    <div class="toolbar" style="margin-bottom:0;">
+                        <button class="btn btn-success btn-sm" onclick="backupDatabase()" title="下载当前数据库备份文件">备份数据库</button>
+                        <label class="btn btn-outline btn-sm" style="cursor:pointer;" title="选择备份文件恢复数据库">
+                            恢复数据库
+                            <input type="file" id="restoreFile" accept=".db" onchange="restoreDatabase()" style="display:none;">
+                        </label>
+                    </div>
+                    <div id="restoreResult" style="margin-top:12px;font-size:12px;color:#6b7280;display:none;"></div>
+                </div>
+
                 <!-- MySQL → SQLite 同步 -->
                 <div class="card" style="margin-top:16px;">
                     <div class="card-title">MySQL → SQLite 数据同步</div>
