@@ -292,7 +292,9 @@ function renderQueryTable() {
         if (statusTd.childNodes.length === 0) statusTd.textContent = '-';
         groupTr.appendChild(statusTd);
 
-        // 空列占位（moduleTypeKey, laserState, vendorName, txPower, rxPower, status）
+        // 空列占位（moduleTypeKey, laserState, vendorName, txPower, rxPower, status, txThreshold, rxThreshold）
+        groupTr.appendChild(createTextCell(''));
+        groupTr.appendChild(createTextCell(''));
         groupTr.appendChild(createTextCell(''));
         groupTr.appendChild(createTextCell(''));
         groupTr.appendChild(createTextCell(''));

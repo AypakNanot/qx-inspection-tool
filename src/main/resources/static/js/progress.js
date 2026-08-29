@@ -14,6 +14,13 @@ function formatTime(t) {
     return t.replace('T', ' ').replace(/\.\d+$/, '');
 }
 
+/** 跳转到查询页面查看指定轮次结果 */
+function jumpToQuery(roundId) {
+    document.getElementById('queryRound').value = roundId;
+    window.switchPage(document.querySelector('[data-page="page-query"]'));
+    window.loadQueryResults();
+}
+
 /** 创建文本单元格 */
 function createTextCell(text) {
     const td = document.createElement('td');
@@ -174,7 +181,7 @@ function renderRoundsTable(rounds) {
     if (!rounds || rounds.length === 0) {
         const tr = document.createElement('tr');
         const td = document.createElement('td');
-        td.colSpan = 9; td.className = 'empty'; td.textContent = '暂无巡检记录';
+        td.colSpan = 10; td.className = 'empty'; td.textContent = '暂无巡检记录';
         tr.appendChild(td); tbody.appendChild(tr);
         return;
     }
@@ -196,6 +203,16 @@ function renderRoundsTable(rounds) {
         tr.appendChild(createTextCell(String(r.failCount || 0)));
         tr.appendChild(createTextCell(formatTime(r.startTime)));
         tr.appendChild(createTextCell(formatDuration(r.startTime, r.endTime)));
+        // 操作：查看结果
+        const actionTd = document.createElement('td');
+        if (r.status === 'COMPLETED') {
+            const btn = document.createElement('button');
+            btn.className = 'btn btn-outline btn-sm';
+            btn.textContent = '查看结果';
+            btn.onclick = () => jumpToQuery(r.id);
+            actionTd.appendChild(btn);
+        }
+        tr.appendChild(actionTd);
         tbody.appendChild(tr);
     });
 }
