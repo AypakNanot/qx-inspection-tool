@@ -523,6 +523,10 @@
                         <input type="checkbox" id="queryShowInvalid" checked onchange="loadQueryResults()" style="width:14px;height:14px;cursor:pointer;">
                         显示无效
                     </label>
+                    <label style="display:flex;align-items:center;gap:4px;font-size:13px;color:#6b7280;margin-left:8px;cursor:pointer;">
+                        <input type="checkbox" id="queryWatchedOnly" onchange="loadQueryResults()" style="width:14px;height:14px;cursor:pointer;">
+                        仅关注
+                    </label>
                     <input type="text" id="querySearch" placeholder="搜索网元/端口名/ID..." oninput="searchQuery(this.value)" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;width:180px;margin-left:8px;">
                     <button class="btn btn-primary btn-sm" onclick="loadQueryResults()">查询</button>
                     <div class="toolbar-right">

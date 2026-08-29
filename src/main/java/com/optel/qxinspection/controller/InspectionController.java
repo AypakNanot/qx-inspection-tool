@@ -2,7 +2,9 @@ package com.optel.qxinspection.controller;
 
 import com.optel.qxinspection.entity.sqlite.InspectionRound;
 import com.optel.qxinspection.entity.sqlite.OpticalPowerInspection;
+import com.optel.qxinspection.entity.sqlite.PortWatch;
 import com.optel.qxinspection.entity.sqlite.ThresholdRule;
+import com.optel.qxinspection.repository.sqlite.PortWatchRepository;
 import com.optel.qxinspection.repository.sqlite.ThresholdRuleRepository;
 import com.optel.qxinspection.service.ClockInspectionService;
 import com.optel.qxinspection.service.InspectionScheduler;
@@ -32,6 +34,7 @@ public class InspectionController {
     private final InspectionScheduler inspectionScheduler;
     private final ThresholdService thresholdService;
     private final ThresholdRuleRepository thresholdRuleRepository;
+    private final PortWatchRepository portWatchRepository;
     private final ClockInspectionService clockInspectionService;
 
     private static final DateTimeFormatter DT_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -404,5 +407,43 @@ public class InspectionController {
     @PostMapping("/clock/refresh")
     public List<ClockInspectionService.ClockNode> refreshClockTopology() {
         return clockInspectionService.refreshTopology();
+    }
+
+    // ========== 端口关注 ==========
+
+    /**
+     * 切换端口关注状态
+     */
+    @PostMapping("/port/watched/toggle")
+    public Map<String, Object> togglePortWatched(@RequestBody Map<String, Object> body) {
+        String neId = (String) body.get("neId");
+        int slotNo = ((Number) body.get("slotNo")).intValue();
+        int portNo = ((Number) body.get("portNo")).intValue();
+        String portName = (String) body.getOrDefault("portName", "");
+        String neName = (String) body.getOrDefault("neName", "");
+
+        return portWatchRepository.findByNeIdAndSlotNoAndPortNo(neId, slotNo, portNo)
+                .map(existing -> {
+                    portWatchRepository.delete(existing);
+                    return Map.of("watched", false);
+                })
+                .orElseGet(() -> {
+                    PortWatch pw = new PortWatch();
+                    pw.setNeId(neId);
+                    pw.setSlotNo(slotNo);
+                    pw.setPortNo(portNo);
+                    pw.setPortName(portName);
+                    pw.setNeName(neName);
+                    portWatchRepository.save(pw);
+                    return Map.of("watched", true);
+                });
+    }
+
+    /**
+     * 查询所有关注端口
+     */
+    @GetMapping("/port/watched")
+    public List<PortWatch> listWatchedPorts() {
+        return portWatchRepository.findAll();
     }
 }

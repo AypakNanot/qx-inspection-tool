@@ -17,11 +17,54 @@ let sortOrder = 'asc';
 let searchText = '';
 /** 展开的网元组（neId Set） */
 let expandedGroups = new Set();
+/** 关注端口集合 "neId:slotNo:portNo" */
+let watchedKeys = new Set();
 
 /** 格式化时间：去掉T和毫秒 */
 function formatTime(t) {
     if (!t) return '-';
     return t.replace('T', ' ').replace(/\.\d+$/, '');
+}
+
+/** 加载关注端口列表 */
+async function loadWatchedPorts() {
+    try {
+        const list = await get('/inspection/port/watched');
+        watchedKeys = new Set(list.map(p => p.neId + ':' + p.slotNo + ':' + p.portNo));
+    } catch (e) { console.error('loadWatchedPorts', e); }
+}
+
+/** 生成端口关注键 */
+function portKey(r) {
+    return r.neId + ':' + r.slotNo + ':' + r.portNo;
+}
+
+/** 切换端口关注状态 */
+export async function togglePortWatched(r) {
+    try {
+        const res = await fetch(API + '/inspection/port/watched/toggle', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                neId: r.neId,
+                slotNo: r.slotNo,
+                portNo: r.portNo,
+                portName: r.portName,
+                neName: r.neName
+            })
+        }).then(r => r.json());
+        if (res.watched) {
+            watchedKeys.add(portKey(r));
+        } else {
+            watchedKeys.delete(portKey(r));
+        }
+        renderQueryTable();
+    } catch (e) { console.error('togglePortWatched', e); }
+}
+
+/** 检查端口是否被关注 */
+function isWatched(r) {
+    return watchedKeys.has(portKey(r));
 }
 
 /** 创建文本单元格 */
@@ -87,6 +130,7 @@ export async function loadQueryResults() {
         allResults = await get('/inspection/results' + (params.toString() ? '?' + params : ''));
         currentPage = 1;
         expandedGroups = new Set();
+        await loadWatchedPorts();
         applyFilterAndSort();
     } catch (e) { console.error('loadQueryResults', e); }
 }
@@ -95,10 +139,14 @@ export async function loadQueryResults() {
 function applyFilterAndSort() {
     const statusFilter = document.getElementById('queryStatus').value;
     const showInvalid = document.getElementById('queryShowInvalid').checked;
+    const watchedOnly = document.getElementById('queryWatchedOnly').checked;
 
     filteredResults = allResults.filter(r => {
         // 显示无效记录开关
         if (!showInvalid && !r.supported) return false;
+
+        // 仅关注
+        if (watchedOnly && !isWatched(r)) return false;
 
         if (statusFilter !== '') {
             if (statusFilter === '-1') {
@@ -317,6 +365,15 @@ function renderQueryTable() {
                 const indentTd = document.createElement('td');
                 indentTd.style.cssText = 'width:30px;';
                 tr.appendChild(indentTd);
+
+                // 关注星标
+                const starTd = document.createElement('td');
+                starTd.style.cssText = 'width:24px;text-align:center;cursor:pointer;font-size:14px;';
+                starTd.textContent = isWatched(r) ? '★' : '☆';
+                starTd.style.color = isWatched(r) ? '#f59e0b' : '#d1d5db';
+                starTd.onclick = (e) => { e.stopPropagation(); togglePortWatched(r); };
+                starTd.title = isWatched(r) ? '取消关注' : '关注此端口';
+                tr.appendChild(starTd);
 
                 tr.appendChild(createTextCell(r.slotNo != null ? String(r.slotNo) : '-'));
                 tr.appendChild(createTextCell(r.portNo != null ? String(r.portNo) : '-'));
