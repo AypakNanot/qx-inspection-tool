@@ -12,6 +12,7 @@ import { loadQueryRounds, loadQueryFilters, loadQueryResults, exportExcel, searc
 import { loadClockTopology, refreshClockTopology, resizeClockChart } from './clock.js';
 import { showToast } from './toast.js';
 import { loadSyncStatus, syncEssential, syncAll, clearSyncData, loadMysqlConfig, saveMysqlConfig, testMysqlConnection } from './sync.js';
+import { get } from './api.js';
 
 /** 页面标题映射 */
 const TITLES = {
@@ -137,5 +138,84 @@ loadDevices();
 loadGlobalConfig();
 loadStatsOverview();
 loadStatsNetworks();
+checkWorkflow();
 
 window.addEventListener('resize', () => { resizeChart(); resizeClockChart(); });
+
+// ========== 快速开始流程引导 ==========
+
+const WORKFLOW_STEPS = [
+    { id: 'config',  label: '配置数据源', page: 'page-maintenance' },
+    { id: 'sync',    label: '同步设备',   page: 'page-maintenance' },
+    { id: 'connect', label: '连接设备',   page: 'page-device' },
+    { id: 'inspect', label: '执行巡检',   page: 'page-task' },
+    { id: 'query',   label: '查看结果',   page: 'page-query' }
+];
+
+async function checkWorkflow() {
+    const [devices, rounds, results] = await Promise.all([
+        (async () => { try { const d = await get('/connection/status'); return Array.isArray(d) ? d : []; } catch { return []; } })(),
+        (async () => { try { const d = await get('/inspection/rounds'); return Array.isArray(d) ? d : []; } catch { return []; } })(),
+        (async () => { try { const d = await get('/inspection/results'); return Array.isArray(d) ? d : []; } catch { return []; } })()
+    ]);
+
+    const hasDevices = devices.length > 0;
+    const hasConnected = devices.some(c => c.connectionStatus === 1);
+    const hasRounds = rounds.length > 0;
+    const hasResults = results.length > 0;
+
+    // 有设备说明已配置数据源并同步
+    const configDone = hasDevices;
+    const syncDone = hasDevices;
+    const connectDone = hasConnected;
+    const inspectDone = hasRounds;
+    const queryDone = hasResults;
+
+    renderWorkflow([configDone, syncDone, connectDone, inspectDone, queryDone]);
+}
+
+function renderWorkflow(statuses) {
+    const container = document.getElementById('workflowSteps');
+    const list = document.getElementById('workflowList');
+    if (!container || !list) return;
+
+    // 全部完成则隐藏
+    if (statuses.every(s => s)) {
+        container.style.display = 'none';
+        return;
+    }
+
+    container.style.display = '';
+    list.textContent = '';
+
+    let foundCurrent = false;
+    WORKFLOW_STEPS.forEach((step, i) => {
+        const done = statuses[i];
+        const current = !done && !foundCurrent;
+        if (current) foundCurrent = true;
+
+        const div = document.createElement('div');
+        div.className = 'wf-step' + (done ? ' wf-done' : '') + (current ? ' wf-current' : '');
+        div.onclick = () => {
+            const nav = document.querySelector(`[data-page="${step.page}"]`);
+            if (nav) switchPage(nav);
+        };
+
+        const num = document.createElement('span');
+        num.className = 'wf-num';
+        num.textContent = done ? '✓' : (i + 1);
+        div.appendChild(num);
+
+        const label = document.createElement('span');
+        label.className = 'wf-label';
+        label.textContent = step.label;
+        div.appendChild(label);
+
+        const check = document.createElement('span');
+        check.className = 'wf-check';
+        check.textContent = '✓';
+        div.appendChild(check);
+
+        list.appendChild(div);
+    });
+}

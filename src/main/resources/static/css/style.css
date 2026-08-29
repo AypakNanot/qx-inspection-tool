@@ -100,3 +100,14 @@ tr:hover td { background: #f8fafc; }
 /* ===== Page ===== */
 .page { display: none; }
 .page.active { display: block; }
+
+/* ===== Workflow Steps ===== */
+.wf-step { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 12px; cursor: pointer; transition: color 0.15s; }
+.wf-step:hover { color: #e2e8f0; }
+.wf-step .wf-num { width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 600; flex-shrink: 0; border: 1.5px solid #4a5568; color: #4a5568; background: transparent; }
+.wf-step.wf-done .wf-num { background: #16a34a; border-color: #16a34a; color: #fff; }
+.wf-step.wf-current .wf-num { background: #1a73e8; border-color: #1a73e8; color: #fff; }
+.wf-step.wf-current { color: #e2e8f0; font-weight: 500; }
+.wf-step .wf-label { flex: 1; }
+.wf-step .wf-check { color: #16a34a; font-size: 12px; display: none; }
+.wf-step.wf-done .wf-check { display: inline; }

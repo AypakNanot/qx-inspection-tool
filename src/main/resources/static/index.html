@@ -14,6 +14,11 @@
             <h1>巡检工具</h1>
             <div class="subtitle">设备巡检</div>
         </div>
+        <!-- 快速开始流程引导 -->
+        <div id="workflowSteps" style="padding:8px 12px 12px;border-bottom:1px solid rgba(255,255,255,0.08);display:none;">
+            <div style="font-size:10px;color:#718096;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px;font-weight:600;">快速开始</div>
+            <div id="workflowList"></div>
+        </div>
         <div class="sidebar-nav">
             <div class="nav-group">
                 <div class="nav-group-title">设备管理</div>
@@ -113,17 +118,6 @@
                     <button class="btn btn-danger" onclick="disconnectAll()" title="断开当前筛选范围内的所有设备连接">一键断开</button>
                     <div class="toolbar-right">
                         <button class="btn btn-outline" onclick="loadDevices()">刷新</button>
-                    </div>
-                </div>
-
-                <!-- 首次使用提示 -->
-                <div id="firstUseHint" style="display:none;padding:10px 16px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;margin-bottom:12px;font-size:13px;color:#1e40af;line-height:1.8;">
-                    <div style="display:flex;justify-content:space-between;align-items:flex-start;">
-                        <div>
-                            <strong>快速上手：</strong>
-                            ① 点击「同步设备」导入设备列表 → ② 点击「一键连接」建立设备连接 → ③ 前往「任务配置」执行巡检 → ④ 巡检完成后在「数据查询」查看结果
-                        </div>
-                        <button onclick="dismissFirstUseHint()" style="background:none;border:none;color:#6b7280;cursor:pointer;font-size:16px;padding:0 0 0 12px;" title="不再提示">&times;</button>
                     </div>
                 </div>
 
