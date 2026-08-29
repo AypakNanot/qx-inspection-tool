@@ -528,6 +528,52 @@ export function exportExcel() {
 let trendChart = null;
 let trendData = null;
 let trendChartMode = 'rx';
+let trendAllDevices = [];
+let trendAllPorts = [];
+
+/** 级联：网络变化 → 刷新网元列表 */
+function populateTrendNeList(network) {
+    const filtered = network
+        ? trendAllDevices.filter(d => d.networkName === network)
+        : trendAllDevices;
+    const neSel = document.getElementById('trendNe');
+    neSel.innerHTML = '<option value="">全部网元</option>';
+    filtered.forEach(d => {
+        const o = document.createElement('option');
+        o.value = d.neId; o.textContent = d.neName || d.neId;
+        neSel.appendChild(o);
+    });
+    // 网元变化后清空端口
+    populateTrendPortList('');
+}
+
+/** 级联：网元变化 → 刷新端口列表 */
+function populateTrendPortList(neId) {
+    const filtered = neId
+        ? trendAllPorts.filter(p => p.neId === neId)
+        : trendAllPorts;
+    const portSel = document.getElementById('trendPort');
+    portSel.innerHTML = '<option value="">请选择端口</option>';
+    const seen = new Set();
+    filtered.forEach(p => {
+        const key = p.neId + ':' + p.portName;
+        if (seen.has(key)) return;
+        seen.add(key);
+        const o = document.createElement('option');
+        o.value = p.portName;
+        // 显示网元名+端口名让用户看清楚
+        const ne = trendAllDevices.find(d => d.neId === p.neId);
+        o.textContent = (ne ? ne.neName : p.neId) + ' / ' + p.portName;
+        portSel.appendChild(o);
+    });
+}
+
+window.onTrendNetworkChange = function() {
+    populateTrendNeList(document.getElementById('trendNetwork').value);
+};
+window.onTrendNeChange = function() {
+    populateTrendPortList(document.getElementById('trendNe').value);
+};
 
 /** 打开趋势分析弹窗 */
 export async function openTrendModal() {
@@ -560,31 +606,27 @@ export async function openTrendModal() {
     const selectCount = Math.min(5, cbs.length);
     for (let i = 0; i < selectCount; i++) cbs[i].checked = true;
 
-    // 加载筛选下拉
+    // 加载设备和端口数据，构建级联筛选
     try {
-        const networks = await get('/inventory/networks');
-        const dl = document.getElementById('trendNetworkList');
-        dl.textContent = '';
-        networks.forEach(n => { const o = document.createElement('option'); o.value = n; dl.appendChild(o); });
-    } catch (e) { /* ignore */ }
-    try {
-        const devices = await get('/connection/status');
-        const neDl = document.getElementById('trendNeList');
-        neDl.textContent = '';
-        devices.forEach(d => {
-            const o = document.createElement('option');
-            o.value = d.neId; o.textContent = d.neName;
-            neDl.appendChild(o);
+        const [devices, portList] = await Promise.all([
+            get('/connection/status'),
+            get('/inspection/port-names')
+        ]);
+        // 存储全量数据
+        trendAllDevices = devices;
+        trendAllPorts = portList; // [{neId, portName}]
+
+        // 提取去重网络列表
+        const networkSet = new Set(devices.map(d => d.networkName).filter(Boolean));
+        const netSel = document.getElementById('trendNetwork');
+        netSel.innerHTML = '<option value="">全部网络</option>';
+        [...networkSet].sort().forEach(n => {
+            const o = document.createElement('option'); o.value = n; o.textContent = n;
+            netSel.appendChild(o);
         });
-    } catch (e) { /* ignore */ }
-    try {
-        const portNames = await get('/inspection/port-names');
-        const portDl = document.getElementById('trendPortList');
-        portDl.textContent = '';
-        portNames.forEach(name => {
-            const o = document.createElement('option'); o.value = name; portDl.appendChild(o);
-        });
-    } catch (e) { /* ignore */ }
+        // 初始化网元和端口
+        populateTrendNeList('');
+    } catch (e) { console.error('loadTrendFilters', e); }
 
     setTimeout(() => { if (trendChart) trendChart.resize(); }, 200);
 }

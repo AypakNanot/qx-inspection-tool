@@ -97,7 +97,7 @@ public class InspectionController {
      * 获取最新轮次中去重的端口名列表
      */
     @GetMapping("/port-names")
-    public List<String> getPortNames() {
+    public List<Map<String, String>> getPortNames() {
         return inspectionService.getPortNames();
     }
 

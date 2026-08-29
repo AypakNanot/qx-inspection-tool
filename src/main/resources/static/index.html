@@ -790,18 +790,21 @@
                         <div style="font-size:13px;font-weight:600;color:var(--text,#374151);margin-bottom:8px;">筛选条件</div>
                         <div class="form-group" style="margin-bottom:8px;">
                             <label style="font-size:12px;color:#6b7280;">网络</label>
-                            <input list="trendNetworkList" id="trendNetwork" placeholder="全部网络" style="width:100%;padding:5px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;">
-                            <datalist id="trendNetworkList"></datalist>
+                            <select id="trendNetwork" onchange="onTrendNetworkChange()" style="width:100%;padding:5px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;">
+                                <option value="">全部网络</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="margin-bottom:8px;">
+                            <label style="font-size:12px;color:#6b7280;">网元</label>
+                            <select id="trendNe" onchange="onTrendNeChange()" style="width:100%;padding:5px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;">
+                                <option value="">全部网元</option>
+                            </select>
                         </div>
                         <div class="form-group" style="margin-bottom:0;">
-                            <label style="font-size:12px;color:#6b7280;">网元</label>
-                            <input list="trendNeList" id="trendNe" placeholder="全部网元" style="width:100%;padding:5px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;">
-                            <datalist id="trendNeList"></datalist>
-                        </div>
-                        <div class="form-group" style="margin-bottom:0;margin-top:8px;">
-                            <label style="font-size:12px;color:#6b7280;">端口名 <span style="color:#dc2626;">*</span></label>
-                            <input list="trendPortList" id="trendPort" placeholder="请选择端口" style="width:100%;padding:5px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;">
-                            <datalist id="trendPortList"></datalist>
+                            <label style="font-size:12px;color:#6b7280;">端口 <span style="color:#dc2626;">*</span></label>
+                            <select id="trendPort" style="width:100%;padding:5px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;">
+                                <option value="">请选择端口</option>
+                            </select>
                         </div>
                     </div>
                     <!-- 图表模式切换 -->

@@ -280,10 +280,18 @@ public class InspectionService {
     }
 
     /**
-     * 获取最新轮次中去重的端口名列表
+     * 获取最新轮次中去重的端口列表（neId + portName）
      */
-    public List<String> getPortNames() {
-        return powerRecordRepository.findDistinctPortNamesInLatestRound();
+    public List<Map<String, String>> getPortNames() {
+        List<Object[]> rows = powerRecordRepository.findDistinctPortsInLatestRound();
+        List<Map<String, String>> result = new ArrayList<>();
+        for (Object[] row : rows) {
+            Map<String, String> m = new LinkedHashMap<>();
+            m.put("neId", (String) row[0]);
+            m.put("portName", (String) row[1]);
+            result.add(m);
+        }
+        return result;
     }
 
     /**

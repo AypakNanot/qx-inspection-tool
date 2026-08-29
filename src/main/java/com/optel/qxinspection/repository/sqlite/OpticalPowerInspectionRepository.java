@@ -52,7 +52,7 @@ public interface OpticalPowerInspectionRepository extends JpaRepository<OpticalP
     @Query("SELECT o.neId, o.neName, COUNT(o) FROM OpticalPowerInspection o WHERE o.roundId = :roundId AND (o.txPowerStatus > 0 OR o.rxPowerStatus > 0) GROUP BY o.neId, o.neName")
     List<Object[]> countOverThresholdGroupByNe(@Param("roundId") Long roundId);
 
-    // 最新轮次中去重的端口名列表
-    @Query("SELECT DISTINCT o.portName FROM OpticalPowerInspection o WHERE o.roundId = (SELECT MAX(o2.roundId) FROM OpticalPowerInspection o2) AND o.portName IS NOT NULL AND o.portName <> '' ORDER BY o.portName")
-    List<String> findDistinctPortNamesInLatestRound();
+    // 最新轮次中去重的端口（neId + portName）
+    @Query("SELECT DISTINCT o.neId, o.portName FROM OpticalPowerInspection o WHERE o.roundId = (SELECT MAX(o2.roundId) FROM OpticalPowerInspection o2) AND o.portName IS NOT NULL AND o.portName <> '' ORDER BY o.neId, o.portName")
+    List<Object[]> findDistinctPortsInLatestRound();
 }
