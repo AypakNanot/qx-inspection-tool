@@ -128,6 +128,30 @@ public class SQLiteSchemaInitializer {
         createIndexIfNotExists("idx_opi_ne", "optical_power_inspection", "ne_id");
         createIndexIfNotExists("idx_opi_round_ne", "optical_power_inspection", "round_id,ne_id");
 
+        createTableIfNotExists("port_watched", """
+            CREATE TABLE IF NOT EXISTS port_watched (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ne_id VARCHAR(64) NOT NULL,
+                slot_no INTEGER NOT NULL,
+                port_no INTEGER NOT NULL,
+                port_name VARCHAR(128),
+                ne_name VARCHAR(128),
+                UNIQUE(ne_id, slot_no, port_no)
+            )
+        """);
+
+        createTableIfNotExists("audit_log", """
+            CREATE TABLE IF NOT EXISTS audit_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                op_time TIMESTAMP NOT NULL,
+                op_type VARCHAR(32) NOT NULL,
+                target VARCHAR(128),
+                result VARCHAR(16),
+                remark VARCHAR(500)
+            )
+        """);
+        createIndexIfNotExists("idx_audit_time", "audit_log", "op_time DESC");
+
         log.info("SQLite 表结构初始化完成");
     }
 
