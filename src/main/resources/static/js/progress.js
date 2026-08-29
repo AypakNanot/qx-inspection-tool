@@ -21,6 +21,14 @@ function jumpToQuery(roundId) {
     window.loadQueryResults();
 }
 
+/** 从完成横幅跳转到查询页面 */
+function jumpToQueryFromBanner() {
+    const banner = document.getElementById('progCompleteBanner');
+    const roundId = banner.dataset.roundId;
+    if (roundId) jumpToQuery(Number(roundId));
+}
+window.jumpToQueryFromBanner = jumpToQueryFromBanner;
+
 /** 创建文本单元格 */
 function createTextCell(text) {
     const td = document.createElement('td');
@@ -47,6 +55,10 @@ function renderProgress(d) {
         stopProgressPoll();
         loadSummary();
         loadRounds();
+        // 检查是否刚完成（有roundId且当前空闲）
+        if (d.roundId) {
+            showCompleteBanner(d.roundId);
+        }
         return;
     }
     statusEl.textContent = '进行中';
@@ -124,8 +136,86 @@ async function loadSummary() {
         document.getElementById('sumPorts').textContent = d.totalPorts || 0;
         document.getElementById('sumSupported').textContent = d.supportedPorts || 0;
         document.getElementById('sumOver').textContent = d.overThresholdPorts || 0;
+        document.getElementById('sumDuration').textContent = formatDurationSec(d.durationSec);
         renderModuleSummary(d.byModuleType || {});
+        renderDeviceTypeSummary(d.byDeviceType || {});
+        renderTopAnomalies(d.topAnomalies || []);
     } catch (e) { console.error('loadSummary', e); }
+}
+
+/** 显示巡检完成横幅 */
+function showCompleteBanner(roundId) {
+    const banner = document.getElementById('progCompleteBanner');
+    banner.style.display = '';
+    banner.dataset.roundId = roundId;
+    // 从摘要数据中读取概要
+    get('/inspection/summary').then(d => {
+        if (d.hasData) {
+            const over = d.overThresholdPorts || 0;
+            const total = d.totalPorts || 0;
+            const dur = formatDurationSec(d.durationSec);
+            let text = '共采集 ' + total + ' 个端口';
+            if (over > 0) text += '，' + over + ' 个越限';
+            if (dur !== '-') text += '，耗时 ' + dur;
+            document.getElementById('bannerSummary').textContent = text;
+        }
+    }).catch(() => {});
+}
+
+/** 格式化秒数为可读时间 */
+function formatDurationSec(sec) {
+    if (sec == null || sec < 0) return '-';
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const s = sec % 60;
+    if (h > 0) return h + '时' + m + '分' + s + '秒';
+    if (m > 0) return m + '分' + s + '秒';
+    return s + '秒';
+}
+
+/** 渲染按设备类型统计 */
+function renderDeviceTypeSummary(byDeviceType) {
+    const section = document.getElementById('sumDeviceTypeSection');
+    const tbody = document.getElementById('sumDeviceTypeTable');
+    const entries = Object.entries(byDeviceType);
+    if (entries.length === 0) { section.style.display = 'none'; return; }
+    section.style.display = '';
+    tbody.textContent = '';
+    entries.forEach(([type, stats]) => {
+        const tr = document.createElement('tr');
+        tr.appendChild(createTextCell(type));
+        tr.appendChild(createTextCell(String(stats.totalPorts || 0)));
+        tr.appendChild(createTextCell(String(stats.supportedPorts || 0)));
+        const overTd = createTextCell(String(stats.overThreshold || 0));
+        if (stats.overThreshold > 0) overTd.style.color = '#dc2626';
+        tr.appendChild(overTd);
+        tbody.appendChild(tr);
+    });
+}
+
+/** 渲染越限端口TOP10 */
+function renderTopAnomalies(anomalies) {
+    const section = document.getElementById('sumTopAnomalySection');
+    const tbody = document.getElementById('sumTopAnomalyTable');
+    if (!anomalies || anomalies.length === 0) { section.style.display = 'none'; return; }
+    section.style.display = '';
+    tbody.textContent = '';
+    anomalies.forEach(a => {
+        const tr = document.createElement('tr');
+        tr.appendChild(createTextCell(a.neName || ''));
+        tr.appendChild(createTextCell(String(a.slotNo || '')));
+        tr.appendChild(createTextCell(String(a.portNo || '')));
+        tr.appendChild(createTextCell(a.portName || ''));
+        tr.appendChild(createTextCell(a.txPower != null ? a.txPower.toFixed(1) + ' dBm' : '--'));
+        tr.appendChild(createTextCell(a.rxPower != null ? a.rxPower.toFixed(1) + ' dBm' : '--'));
+        const statusText = [];
+        if (a.txStatus > 0) statusText.push('发送' + (a.txStatus === 1 ? '越下限' : '越上限'));
+        if (a.rxStatus > 0) statusText.push('接收' + (a.rxStatus === 1 ? '越下限' : '越上限'));
+        const stTd = createTextCell(statusText.join('，') || '正常');
+        if (statusText.length > 0) stTd.style.color = '#dc2626';
+        tr.appendChild(stTd);
+        tbody.appendChild(tr);
+    });
 }
 
 /** 渲染按模块类型统计 */

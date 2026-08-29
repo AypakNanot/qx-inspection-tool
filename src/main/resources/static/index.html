@@ -395,6 +395,18 @@
                 <div style="margin-bottom:12px;">
                     <button class="btn btn-outline btn-sm" onclick="loadProgress()">刷新状态</button>
                 </div>
+
+                <!-- 巡检完成横幅 -->
+                <div id="progCompleteBanner" style="display:none;background:linear-gradient(135deg,#ecfdf5,#d1fae5);border:1px solid #6ee7b7;border-radius:10px;padding:20px 24px;margin-bottom:16px;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;">
+                        <div>
+                            <div style="font-size:16px;font-weight:700;color:#065f46;">巡检已完成</div>
+                            <div style="font-size:13px;color:#047857;margin-top:4px;" id="bannerSummary"></div>
+                        </div>
+                        <button class="btn btn-primary" onclick="jumpToQueryFromBanner()">查看结果</button>
+                    </div>
+                </div>
+
                 <!-- 当前任务状态 -->
                 <div class="cards">
                     <div class="card"><div class="label">任务状态</div><div class="value" id="progStatus" style="color:#6b7280">空闲</div></div>
@@ -427,10 +439,10 @@
                     </div>
                 </div>
 
-                <!-- 本轮摘要 -->
+                <!-- 本轮摘要报告 -->
                 <div class="panel" id="progSummaryPanel" style="display:none;">
                     <div class="panel-header" onclick="togglePanel(this)">
-                        <h3>本轮摘要</h3>
+                        <h3>巡检报告</h3>
                         <span class="toggle">&#9660;</span>
                     </div>
                     <div class="panel-body">
@@ -438,6 +450,7 @@
                             <div class="card"><div class="label">总端口</div><div class="value blue" id="sumPorts">-</div></div>
                             <div class="card"><div class="label">支持光功率</div><div class="value green" id="sumSupported">-</div></div>
                             <div class="card"><div class="label">越限端口</div><div class="value red" id="sumOver">-</div></div>
+                            <div class="card"><div class="label">巡检耗时</div><div class="value" id="sumDuration" style="color:#6b7280">-</div></div>
                         </div>
                         <div style="font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">按模块类型统计</div>
                         <div class="table-wrap">
@@ -445,6 +458,24 @@
                                 <thead><tr><th>模块类型</th><th>总数</th><th>越限</th></tr></thead>
                                 <tbody id="sumModuleTable"><tr><td colspan="3" class="empty">暂无数据</td></tr></tbody>
                             </table>
+                        </div>
+                        <div id="sumDeviceTypeSection" style="display:none;margin-top:12px;">
+                            <div style="font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">按设备类型统计</div>
+                            <div class="table-wrap">
+                                <table>
+                                    <thead><tr><th>设备类型</th><th>总端口</th><th>支持</th><th>越限</th></tr></thead>
+                                    <tbody id="sumDeviceTypeTable"><tr><td colspan="4" class="empty">暂无数据</td></tr></tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div id="sumTopAnomalySection" style="display:none;margin-top:12px;">
+                            <div style="font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">越限端口 TOP 10</div>
+                            <div class="table-wrap">
+                                <table>
+                                    <thead><tr><th>网元</th><th>槽位</th><th>端口</th><th>端口名</th><th>发送功率</th><th>接收功率</th><th>状态</th></tr></thead>
+                                    <tbody id="sumTopAnomalyTable"><tr><td colspan="7" class="empty">暂无数据</td></tr></tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
                 </div>

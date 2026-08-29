@@ -417,6 +417,38 @@ public class InspectionService {
         }
         summary.put("byDeviceType", byDeviceType);
 
+        // 异常端口Top10
+        List<Map<String, Object>> topAnomalies = supported.stream()
+                .filter(r -> (r.getTxPowerStatus() != null && r.getTxPowerStatus() > 0)
+                        || (r.getRxPowerStatus() != null && r.getRxPowerStatus() > 0))
+                .sorted((a, b) -> {
+                    int sa = Math.max(a.getTxPowerStatus() != null ? a.getTxPowerStatus() : 0,
+                            a.getRxPowerStatus() != null ? a.getRxPowerStatus() : 0);
+                    int sb = Math.max(b.getTxPowerStatus() != null ? b.getTxPowerStatus() : 0,
+                            b.getRxPowerStatus() != null ? b.getRxPowerStatus() : 0);
+                    return sb - sa;
+                })
+                .limit(10)
+                .map(r -> {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("neName", r.getNeName());
+                    m.put("slotNo", r.getSlotNo());
+                    m.put("portNo", r.getPortNo());
+                    m.put("portName", r.getPortName());
+                    m.put("txPower", r.getTxPower());
+                    m.put("rxPower", r.getRxPower());
+                    m.put("txStatus", r.getTxPowerStatus());
+                    m.put("rxStatus", r.getRxPowerStatus());
+                    return m;
+                }).toList();
+        summary.put("topAnomalies", topAnomalies);
+
+        // 耗时（秒）
+        if (latest.getStartTime() != null && latest.getEndTime() != null) {
+            long durSec = java.time.Duration.between(latest.getStartTime(), latest.getEndTime()).getSeconds();
+            summary.put("durationSec", durSec);
+        }
+
         return summary;
     }
 
