@@ -105,14 +105,25 @@
 
                 <!-- 操作栏 -->
                 <div class="toolbar">
-                    <button class="btn btn-primary" onclick="syncDevices()">同步设备</button>
+                    <button class="btn btn-primary" onclick="syncDevices()" title="从数据库同步网元和端口信息">同步设备</button>
                     <select id="connNetwork" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
                         <option value="">全网</option>
                     </select>
-                    <button class="btn btn-success" onclick="connectAll(event)">一键连接</button>
-                    <button class="btn btn-danger" onclick="disconnectAll()">一键断开</button>
+                    <button class="btn btn-success" onclick="connectAll(event)" title="连接当前筛选范围内的所有设备">一键连接</button>
+                    <button class="btn btn-danger" onclick="disconnectAll()" title="断开当前筛选范围内的所有设备连接">一键断开</button>
                     <div class="toolbar-right">
                         <button class="btn btn-outline" onclick="loadDevices()">刷新</button>
+                    </div>
+                </div>
+
+                <!-- 首次使用提示 -->
+                <div id="firstUseHint" style="display:none;padding:10px 16px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;margin-bottom:12px;font-size:13px;color:#1e40af;line-height:1.8;">
+                    <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+                        <div>
+                            <strong>快速上手：</strong>
+                            ① 点击「同步设备」导入设备列表 → ② 点击「一键连接」建立设备连接 → ③ 前往「任务配置」执行巡检 → ④ 巡检完成后在「数据查询」查看结果
+                        </div>
+                        <button onclick="dismissFirstUseHint()" style="background:none;border:none;color:#6b7280;cursor:pointer;font-size:16px;padding:0 0 0 12px;" title="不再提示">&times;</button>
                     </div>
                 </div>
 
@@ -231,7 +242,7 @@
                     <h3 style="font-size:14px;font-weight:600;color:#374151;">模块类型规则</h3>
                     <div style="display:flex;gap:8px;">
                         <button class="btn btn-outline btn-sm" onclick="loadThresholds()">刷新</button>
-                        <button class="btn btn-primary btn-sm" onclick="openThresholdModal('MODULE')">新增规则</button>
+                        <button class="btn btn-primary btn-sm" onclick="openThresholdModal('MODULE')" title="为指定模块类型配置独立的光功率门限">新增规则</button>
                     </div>
                 </div>
                 <div class="table-wrap" style="margin-bottom:20px;">
@@ -368,7 +379,7 @@
                             </div>
                             <div class="form-group" style="justify-content:flex-end">
                                 <label>&nbsp;</label>
-                                <button class="btn btn-primary" id="btnManualInspection" onclick="startManualInspection()">立即巡检</button>
+                                <button class="btn btn-primary" id="btnManualInspection" onclick="startManualInspection()" title="连接设备并采集光功率数据">立即巡检</button>
                             </div>
                         </div>
                     </div>
@@ -481,7 +492,7 @@
                     <div class="toolbar-right">
                         <button class="btn btn-outline btn-sm" onclick="expandAll()">全部展开</button>
                         <button class="btn btn-outline btn-sm" onclick="collapseAll()">全部收缩</button>
-                        <button class="btn btn-outline btn-sm" onclick="exportExcel()">导出 Excel</button>
+                        <button class="btn btn-outline btn-sm" onclick="exportExcel()" title="将当前筛选结果导出为 Excel 文件">导出 Excel</button>
                     </div>
                 </div>
 
@@ -588,8 +599,8 @@
                         加载中...
                     </div>
                     <div class="toolbar" style="margin-bottom:0;">
-                        <button class="btn btn-success" onclick="syncEssential()">同步必要表</button>
-                        <button class="btn btn-primary" onclick="syncAll()">同步全部表</button>
+                        <button class="btn btn-success" onclick="syncEssential()" title="同步网元和端口等核心数据（速度快）">同步必要表</button>
+                        <button class="btn btn-primary" onclick="syncAll()" title="同步全部数据表（包含历史数据，耗时较长）">同步全部表</button>
                         <button class="btn btn-outline" onclick="loadSyncStatus()">刷新状态</button>
                     </div>
                     <div id="syncResult" style="margin-top:12px;font-size:12px;color:#6b7280;display:none;"></div>

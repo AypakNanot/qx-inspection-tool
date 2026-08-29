@@ -221,7 +221,7 @@ function renderQueryTable() {
     if (!filteredResults || filteredResults.length === 0) {
         const tr = document.createElement('tr');
         const td = document.createElement('td');
-        td.colSpan = 14; td.className = 'empty'; td.textContent = '暂无数据';
+        td.colSpan = 14; td.className = 'empty'; td.textContent = '暂无巡检数据，请先执行一次巡检，完成后在此查看结果';
         tr.appendChild(td); tbody.appendChild(tr);
         renderQueryPagination(0);
         return;

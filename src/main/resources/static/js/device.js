@@ -54,7 +54,7 @@ function renderDeviceTable(devices) {
         const td = document.createElement('td');
         td.colSpan = 7;
         td.className = 'empty';
-        td.textContent = '暂无设备，请先点击"同步设备"';
+        td.textContent = '暂无设备，请点击上方「同步设备」从数据库导入网元列表';
         tr.appendChild(td);
         tbody.appendChild(tr);
         renderPagination(0);
@@ -245,9 +245,29 @@ export async function loadDevices() {
         renderDeviceTable(filteredDevices);
         updateDeviceStats(allDevices);
         loadNetworkFilter();
+        updateFirstUseHint();
     } catch (e) {
         console.error('loadDevices', e);
     }
+}
+
+/** 更新首次使用提示：有设备且未关闭过则显示 */
+function updateFirstUseHint() {
+    const hint = document.getElementById('firstUseHint');
+    if (!hint) return;
+    const dismissed = localStorage.getItem('firstUseHintDismissed');
+    if (allDevices.length === 0 && !dismissed) {
+        hint.style.display = '';
+    } else {
+        hint.style.display = 'none';
+    }
+}
+
+/** 关闭首次使用提示 */
+export function dismissFirstUseHint() {
+    const hint = document.getElementById('firstUseHint');
+    if (hint) hint.style.display = 'none';
+    localStorage.setItem('firstUseHintDismissed', '1');
 }
 
 /** 加载网络筛选下拉框 */

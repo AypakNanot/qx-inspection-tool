@@ -98,7 +98,7 @@ function renderThresholdTables(rules) {
     if (moduleRules.length === 0) {
         const tr = document.createElement('tr');
         const td = document.createElement('td');
-        td.colSpan = 7; td.className = 'empty'; td.textContent = '暂无模块类型规则';
+        td.colSpan = 7; td.className = 'empty'; td.textContent = '暂无模块类型规则，可点击「添加」为特定模块类型配置独立门限';
         tr.appendChild(td); moduleTbody.appendChild(tr);
     } else {
         moduleRules.forEach(r => moduleTbody.appendChild(buildThresholdRow(r)));

@@ -181,7 +181,7 @@ function renderRoundsTable(rounds) {
     if (!rounds || rounds.length === 0) {
         const tr = document.createElement('tr');
         const td = document.createElement('td');
-        td.colSpan = 10; td.className = 'empty'; td.textContent = '暂无巡检记录';
+        td.colSpan = 10; td.className = 'empty'; td.textContent = '暂无巡检记录，请前往「任务配置」手动触发或配置定时巡检';
         tr.appendChild(td); tbody.appendChild(tr);
         return;
     }
