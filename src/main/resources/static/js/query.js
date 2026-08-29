@@ -552,6 +552,8 @@ export async function openCompareModal() {
     document.getElementById('compareChartBox').style.display = 'none';
     compareData = null;
     if (compareChart) { compareChart.dispose(); compareChart = null; }
+    // 延迟 resize 让容器尺寸确定后再初始化图表
+    setTimeout(() => { if (compareChart) compareChart.resize(); }, 200);
 }
 
 /** 关闭对比弹窗 */
@@ -644,7 +646,9 @@ function renderCompareChart(data) {
     const container = document.getElementById('compareChart');
     if (!compareChart) {
         compareChart = echarts.init(container);
-        window.addEventListener('resize', () => compareChart && compareChart.resize());
+        setTimeout(() => compareChart && compareChart.resize(), 100);
+    } else {
+        compareChart.resize();
     }
 
     const changes = data.changes;
