@@ -9,6 +9,7 @@ import com.optel.qxinspection.repository.sqlite.ThresholdRuleRepository;
 import com.optel.qxinspection.service.ClockInspectionService;
 import com.optel.qxinspection.service.InspectionScheduler;
 import com.optel.qxinspection.service.InspectionService;
+import com.optel.qxinspection.service.AuditService;
 import com.optel.qxinspection.service.ThresholdService;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -32,6 +33,7 @@ public class InspectionController {
 
     private final InspectionService inspectionService;
     private final InspectionScheduler inspectionScheduler;
+    private final AuditService auditService;
     private final ThresholdService thresholdService;
     private final ThresholdRuleRepository thresholdRuleRepository;
     private final PortWatchRepository portWatchRepository;
@@ -46,13 +48,18 @@ public class InspectionController {
     public Map<String, Object> startInspection(@RequestParam(required = false) String network,
                                                @RequestParam(required = false) String neId) {
         InspectionRound round;
+        String scope;
         if (neId != null && !neId.isEmpty()) {
             round = inspectionService.triggerInspectionByNe(neId);
+            scope = "neId=" + neId;
         } else if (network != null && !network.isEmpty()) {
             round = inspectionService.triggerInspectionByNetwork(network);
+            scope = "network=" + network;
         } else {
             round = inspectionService.triggerInspectionAll();
+            scope = "全网";
         }
+        auditService.record("INSPECTION", scope, "SUCCESS", "轮次#" + round.getId());
         return Map.of(
                 "roundId", round.getId(),
                 "status", round.getStatus(),
@@ -279,6 +286,7 @@ public class InspectionController {
         String network = (String) body.getOrDefault("network", "");
         String cron = (String) body.getOrDefault("cronExpression", "0 0 2 * * ?");
         inspectionScheduler.updateConfig(enabled, scope, network, cron);
+        auditService.record("CONFIG", "定时巡检", "SUCCESS", "enabled=" + enabled + " cron=" + cron);
         return inspectionScheduler.getStatus();
     }
 
@@ -303,6 +311,7 @@ public class InspectionController {
         boolean autoDisconnect = Boolean.TRUE.equals(body.get("autoDisconnect"));
         boolean saveInvalid = !Boolean.FALSE.equals(body.get("saveInvalid"));
         inspectionService.updateCollectParams(concurrency, maxRounds, autoConnect, autoDisconnect, saveInvalid);
+        auditService.record("CONFIG", "采集参数", "SUCCESS", "concurrency=" + concurrency);
         return inspectionService.getCollectParams();
     }
 
@@ -367,19 +376,22 @@ public class InspectionController {
      */
     @PostMapping("/thresholds")
     public ThresholdRule saveThreshold(@RequestBody ThresholdRule rule) {
-        // 查找已有的同级别同key规则
         ThresholdRule existing = thresholdRuleRepository
                 .findByLevelTypeAndMatchKey(rule.getLevelType(), rule.getMatchKey())
                 .orElse(null);
+        ThresholdRule saved;
         if (existing != null) {
             existing.setTxLow(rule.getTxLow());
             existing.setTxHigh(rule.getTxHigh());
             existing.setRxLow(rule.getRxLow());
             existing.setRxHigh(rule.getRxHigh());
             existing.setDescription(rule.getDescription());
-            return thresholdRuleRepository.save(existing);
+            saved = thresholdRuleRepository.save(existing);
+        } else {
+            saved = thresholdRuleRepository.save(rule);
         }
-        return thresholdRuleRepository.save(rule);
+        auditService.record("THRESHOLD", rule.getLevelType() + ":" + rule.getMatchKey(), "SUCCESS", null);
+        return saved;
     }
 
     /**
@@ -388,6 +400,7 @@ public class InspectionController {
     @DeleteMapping("/thresholds/{id}")
     public Map<String, Object> deleteThreshold(@PathVariable Long id) {
         thresholdRuleRepository.deleteById(id);
+        auditService.record("THRESHOLD", "id=" + id, "SUCCESS", "删除门限规则");
         return Map.of("success", true);
     }
 
@@ -445,5 +458,12 @@ public class InspectionController {
     @GetMapping("/port/watched")
     public List<PortWatch> listWatchedPorts() {
         return portWatchRepository.findAll();
+    }
+
+    // ========== 审计日志 ==========
+
+    @GetMapping("/audit/logs")
+    public List<com.optel.qxinspection.entity.sqlite.AuditLog> getAuditLogs() {
+        return auditService.getRecentLogs();
     }
 }

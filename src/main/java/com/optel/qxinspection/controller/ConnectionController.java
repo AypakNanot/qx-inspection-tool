@@ -1,6 +1,7 @@
 package com.optel.qxinspection.controller;
 
 import com.optel.qxinspection.entity.sqlite.ConnProfile;
+import com.optel.qxinspection.service.AuditService;
 import com.optel.qxinspection.service.QxConnectionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -15,31 +16,40 @@ import java.util.Map;
 public class ConnectionController {
 
     private final QxConnectionService qxConnectionService;
+    private final AuditService auditService;
 
     // ===== 批量操作 =====
 
     @PostMapping("/connect-all")
     public ResponseEntity<Map<String, Object>> connectAll(
             @RequestParam(required = false) String network) {
-        return ResponseEntity.ok(qxConnectionService.connectAll(network));
+        Map<String, Object> result = qxConnectionService.connectAll(network);
+        auditService.record("CONNECT", network != null ? network : "全网", "SUCCESS", null);
+        return ResponseEntity.ok(result);
     }
 
     @PostMapping("/disconnect-all")
     public ResponseEntity<Map<String, Object>> disconnectAll(
             @RequestParam(required = false) String network) {
-        return ResponseEntity.ok(qxConnectionService.disconnectAll(network));
+        Map<String, Object> result = qxConnectionService.disconnectAll(network);
+        auditService.record("DISCONNECT", network != null ? network : "全网", "SUCCESS", null);
+        return ResponseEntity.ok(result);
     }
 
     // ===== 单设备操作 =====
 
     @PostMapping("/connect/{neOid}")
     public ResponseEntity<Map<String, Object>> connectSingle(@PathVariable String neOid) {
-        return ResponseEntity.ok(qxConnectionService.connectSingle(neOid));
+        Map<String, Object> result = qxConnectionService.connectSingle(neOid);
+        auditService.record("CONNECT", neOid, "SUCCESS", null);
+        return ResponseEntity.ok(result);
     }
 
     @PostMapping("/disconnect/{neOid}")
     public ResponseEntity<Map<String, Object>> disconnectSingle(@PathVariable String neOid) {
-        return ResponseEntity.ok(qxConnectionService.disconnectSingle(neOid));
+        Map<String, Object> result = qxConnectionService.disconnectSingle(neOid);
+        auditService.record("DISCONNECT", neOid, "SUCCESS", null);
+        return ResponseEntity.ok(result);
     }
 
     // ===== 状态查询 =====

@@ -693,6 +693,18 @@
                         <div>MySQL 数据库：存储设备资产信息（网元、网络、端口等）</div>
                     </div>
                 </div>
+                <div class="card" style="margin-top:16px;">
+                    <div class="card-title">操作日志</div>
+                    <div style="margin-bottom:12px;">
+                        <button class="btn btn-outline btn-sm" onclick="loadAuditLogs()">刷新</button>
+                    </div>
+                    <div class="table-wrap">
+                        <table>
+                            <thead><tr><th>时间</th><th>操作</th><th>对象</th><th>结果</th><th>备注</th></tr></thead>
+                            <tbody id="auditLogTable"><tr><td colspan="5" class="empty">暂无日志</td></tr></tbody>
+                        </table>
+                    </div>
+                </div>
             </div>
         </div>
     </div>

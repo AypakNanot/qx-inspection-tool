@@ -143,3 +143,44 @@ export function clearSyncData() {
         loadSyncStatus();
     });
 }
+
+/** 加载操作审计日志 */
+export async function loadAuditLogs() {
+    try {
+        const logs = await get('/inspection/audit/logs');
+        const tbody = document.getElementById('auditLogTable');
+        tbody.textContent = '';
+        if (!logs || logs.length === 0) {
+            const tr = document.createElement('tr');
+            const td = document.createElement('td');
+            td.colSpan = 5; td.className = 'empty'; td.textContent = '暂无日志';
+            tr.appendChild(td); tbody.appendChild(tr);
+            return;
+        }
+        logs.forEach(log => {
+            const tr = document.createElement('tr');
+            const timeTd = document.createElement('td');
+            timeTd.textContent = log.opTime ? log.opTime.replace('T', ' ').replace(/\.\d+$/, '') : '-';
+            tr.appendChild(timeTd);
+            const typeTd = document.createElement('td');
+            const badge = document.createElement('span');
+            badge.className = 'badge';
+            const typeMap = { CONNECT: 'badge-online', DISCONNECT: 'badge-offline', INSPECTION: 'badge-online', CONFIG: '', THRESHOLD: '', SYNC: 'badge-online' };
+            badge.className = 'badge ' + (typeMap[log.opType] || '');
+            badge.textContent = log.opType;
+            typeTd.appendChild(badge);
+            tr.appendChild(typeTd);
+            const targetTd = document.createElement('td');
+            targetTd.textContent = log.target || '-';
+            tr.appendChild(targetTd);
+            const resultTd = document.createElement('td');
+            resultTd.textContent = log.result || '-';
+            if (log.result === 'FAIL') resultTd.style.color = '#dc2626';
+            tr.appendChild(resultTd);
+            const remarkTd = document.createElement('td');
+            remarkTd.textContent = log.remark || '-';
+            tr.appendChild(remarkTd);
+            tbody.appendChild(tr);
+        });
+    } catch (e) { console.error('loadAuditLogs', e); }
+}

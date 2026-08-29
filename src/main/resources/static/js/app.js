@@ -11,7 +11,7 @@ import { loadProgress, stopProgressPoll } from './progress.js';
 import { loadQueryRounds, loadQueryFilters, loadQueryResults, exportExcel, searchQuery, sortQueryBy, expandAll, collapseAll, openCompareModal, closeCompareModal, runCompare, togglePortWatched } from './query.js';
 import { loadClockTopology, refreshClockTopology, resizeClockChart } from './clock.js';
 import { showToast } from './toast.js';
-import { loadSyncStatus, syncEssential, syncAll, clearSyncData, loadMysqlConfig, saveMysqlConfig, testMysqlConnection } from './sync.js';
+import { loadSyncStatus, syncEssential, syncAll, clearSyncData, loadMysqlConfig, saveMysqlConfig, testMysqlConnection, loadAuditLogs } from './sync.js';
 import { get } from './api.js';
 import { initGuide } from './guide.js';
 
@@ -79,6 +79,7 @@ function switchPage(el) {
     if (page === 'page-maintenance') {
         loadMysqlConfig();
         loadSyncStatus();
+        loadAuditLogs();
     }
     if (page === 'page-guide') {
         initGuide();
@@ -148,6 +149,7 @@ window.clearSyncData = clearSyncData;
 window.loadMysqlConfig = loadMysqlConfig;
 window.saveMysqlConfig = saveMysqlConfig;
 window.testMysqlConnection = testMysqlConnection;
+window.loadAuditLogs = loadAuditLogs;
 
 // 初始化加载
 loadDevices();
