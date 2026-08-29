@@ -14,6 +14,7 @@ import { showToast } from './toast.js';
 import { loadSyncStatus, syncEssential, syncAll, clearSyncData, loadMysqlConfig, saveMysqlConfig, testMysqlConnection, loadAuditLogs, backupDatabase, restoreDatabase } from './sync.js';
 import { get } from './api.js';
 import { initGuide } from './guide.js';
+import { initTheme, toggleTheme } from './theme.js';
 
 /** 页面标题映射 */
 const TITLES = {
@@ -152,8 +153,10 @@ window.testMysqlConnection = testMysqlConnection;
 window.loadAuditLogs = loadAuditLogs;
 window.backupDatabase = backupDatabase;
 window.restoreDatabase = restoreDatabase;
+window.toggleTheme = toggleTheme;
 
 // 初始化加载
+initTheme();
 loadDevices();
 loadGlobalConfig();
 loadStatsOverview();
