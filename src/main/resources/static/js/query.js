@@ -569,9 +569,23 @@ export async function openTrendModal() {
     } catch (e) { /* ignore */ }
     try {
         const devices = await get('/connection/status');
-        const dl = document.getElementById('trendNeList');
-        dl.textContent = '';
-        devices.forEach(d => { const o = document.createElement('option'); o.value = d.neId; o.textContent = d.neName; dl.appendChild(o); });
+        const neDl = document.getElementById('trendNeList');
+        neDl.textContent = '';
+        const portSet = new Set();
+        devices.forEach(d => {
+            const o = document.createElement('option');
+            o.value = d.neId; o.textContent = d.neName;
+            neDl.appendChild(o);
+            // 收集所有端口名
+            if (d.ports) {
+                d.ports.forEach(p => { if (p.portName) portSet.add(p.portName); });
+            }
+        });
+        const portDl = document.getElementById('trendPortList');
+        portDl.textContent = '';
+        [...portSet].sort().forEach(name => {
+            const o = document.createElement('option'); o.value = name; portDl.appendChild(o);
+        });
     } catch (e) { /* ignore */ }
 
     setTimeout(() => { if (trendChart) trendChart.resize(); }, 200);
@@ -598,11 +612,12 @@ export async function runTrend() {
     if (checked.length < 2) { showToast('请至少选择2个轮次', 'error'); return; }
     if (checked.length > 50) { showToast('最多选择50个轮次', 'error'); return; }
 
-    const neId = document.getElementById('trendNe').value.trim();
-    if (!neId) { showToast('请选择一个网元', 'error'); return; }
+    const portName = document.getElementById('trendPort').value.trim();
+    if (!portName) { showToast('请选择端口', 'error'); return; }
 
     const network = document.getElementById('trendNetwork').value.trim();
-    let url = '/inspection/trend/multi?roundIds=' + checked.join(',');
+    const neId = document.getElementById('trendNe').value.trim();
+    let url = '/inspection/trend/multi?roundIds=' + checked.join(',') + '&portName=' + encodeURIComponent(portName);
     if (network) url += '&network=' + encodeURIComponent(network);
     if (neId) url += '&neId=' + encodeURIComponent(neId);
 
@@ -610,7 +625,7 @@ export async function runTrend() {
     trendData = data;
 
     document.getElementById('trendSummary').textContent =
-        '时间轴 ' + data.timeline.length + ' 个轮次，共 ' + data.ports.length + ' 个端口';
+        portName + ' · ' + data.timeline.length + ' 个轮次，共 ' + data.ports.length + ' 个匹配端口';
 
     renderTrendTable(data);
     renderTrendChart(data);
@@ -637,18 +652,11 @@ function renderTrendChart(data) {
     const textColor = isDark ? '#94a3b8' : '#6b7280';
     const splitColor = isDark ? '#334155' : '#e5e7eb';
 
-    const colors = [
-        '#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6',
-        '#ec4899', '#06b6d4', '#f97316', '#6366f1', '#14b8a6',
-        '#e11d48', '#84cc16', '#0ea5e9', '#a855f7', '#64748b'
-    ];
-
-    // 构建series：每个端口两条线（tx/rx）取决于模式
+    // 构建series：Rx 用蓝色，Tx 用橙色
     const series = [];
     const legendNames = [];
-    let portIdx = 0;
 
-    // 收集门限值（取第一个有数据的端口的门限，同网元同类型端口门限一致）
+    // 收集门限值
     let rxLow = null, rxHigh = null, txLow = null, txHigh = null;
     for (const port of data.ports) {
         for (const d of port.roundData) {
@@ -663,26 +671,23 @@ function renderTrendChart(data) {
         if (rxLow !== null && rxHigh !== null && txLow !== null && txHigh !== null) break;
     }
 
-    for (const port of data.ports) {
-        if (portIdx >= 20) break;
+    for (let i = 0; i < data.ports.length; i++) {
+        const port = data.ports[i];
         const label = (port.portName && port.portName !== '-')
-            ? (port.neName || '').substring(0, 10) + ' ' + port.portName
-            : (port.neName || '').substring(0, 10) + ' 槽位' + port.slotNo + ' 端口' + port.portNo;
-        const color = colors[portIdx % colors.length];
+            ? port.portName
+            : '槽位' + port.slotNo + ' 端口' + port.portNo;
 
         if (trendChartMode === 'rx' || trendChartMode === 'both') {
             const rxData = port.roundData.map(d => d ? d.rxPower : null);
-            const name = label + ' (Rx)';
+            const name = i === 0 ? '接收功率 (Rx)' : label + ' (Rx)';
             legendNames.push(name);
             const rxSeries = {
                 name, type: 'line', data: rxData,
-                smooth: true, symbol: 'circle', symbolSize: 6,
-                lineStyle: { width: 2, color },
-                itemStyle: { color },
-                connectNulls: true
+                symbol: 'circle', symbolSize: 6,
+                lineStyle: { width: 2, color: '#3b82f6' },
+                itemStyle: { color: '#3b82f6' }
             };
-            // 第一条 Rx 线加门限标线
-            if (portIdx === 0 && (rxLow !== null || rxHigh !== null)) {
+            if (i === 0 && (rxLow !== null || rxHigh !== null)) {
                 const markLines = [];
                 if (rxLow !== null) markLines.push({ yAxis: rxLow, lineStyle: { color: '#f59e0b', type: 'dashed', width: 1 }, label: { formatter: 'Rx低 ' + rxLow, color: '#f59e0b', fontSize: 10, position: 'insideEndTop' } });
                 if (rxHigh !== null) markLines.push({ yAxis: rxHigh, lineStyle: { color: '#ef4444', type: 'dashed', width: 1 }, label: { formatter: 'Rx高 ' + rxHigh, color: '#ef4444', fontSize: 10, position: 'insideEndTop' } });
@@ -692,16 +697,15 @@ function renderTrendChart(data) {
         }
         if (trendChartMode === 'tx' || trendChartMode === 'both') {
             const txData = port.roundData.map(d => d ? d.txPower : null);
-            const name = label + ' (Tx)';
+            const name = i === 0 ? '发送功率 (Tx)' : label + ' (Tx)';
             legendNames.push(name);
             const txSeries = {
                 name, type: 'line', data: txData,
-                smooth: true, symbol: 'diamond', symbolSize: 6,
-                lineStyle: { width: 2, color, type: trendChartMode === 'both' ? 'dashed' : 'solid' },
-                itemStyle: { color },
-                connectNulls: true
+                symbol: 'diamond', symbolSize: 6,
+                lineStyle: { width: 2, color: '#f97316', type: trendChartMode === 'both' ? 'dashed' : 'solid' },
+                itemStyle: { color: '#f97316' }
             };
-            if (portIdx === 0 && (txLow !== null || txHigh !== null)) {
+            if (i === 0 && (txLow !== null || txHigh !== null)) {
                 const markLines = [];
                 if (txLow !== null) markLines.push({ yAxis: txLow, lineStyle: { color: '#06b6d4', type: 'dashed', width: 1 }, label: { formatter: 'Tx低 ' + txLow, color: '#06b6d4', fontSize: 10, position: 'insideEndBottom' } });
                 if (txHigh !== null) markLines.push({ yAxis: txHigh, lineStyle: { color: '#8b5cf6', type: 'dashed', width: 1 }, label: { formatter: 'Tx高 ' + txHigh, color: '#8b5cf6', fontSize: 10, position: 'insideEndBottom' } });
@@ -709,7 +713,6 @@ function renderTrendChart(data) {
             }
             series.push(txSeries);
         }
-        portIdx++;
     }
 
     const option = {

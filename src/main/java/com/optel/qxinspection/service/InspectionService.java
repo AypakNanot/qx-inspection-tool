@@ -282,7 +282,7 @@ public class InspectionService {
     /**
      * 多轮次趋势数据：按端口分组，每个端口包含各轮次的功率值
      */
-    public Map<String, Object> getTrendData(List<Long> roundIds, String network, String neId) {
+    public Map<String, Object> getTrendData(List<Long> roundIds, String network, String neId, String portName) {
         Map<String, Object> result = new LinkedHashMap<>();
 
         // 查询轮次元数据并按时间排序
@@ -317,6 +317,7 @@ public class InspectionService {
                 // 筛选
                 if (network != null && !network.isEmpty() && !network.equals(r.getNetworkName())) continue;
                 if (neId != null && !neId.isEmpty() && !neId.equals(r.getNeId())) continue;
+                if (portName != null && !portName.isEmpty() && !portName.equals(r.getPortName())) continue;
 
                 String key = r.getNeId() + ":" + r.getSlotNo() + ":" + r.getPortNo();
                 portMap.computeIfAbsent(key, k -> {
