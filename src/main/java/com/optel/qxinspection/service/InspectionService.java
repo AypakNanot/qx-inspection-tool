@@ -340,6 +340,10 @@ public class InspectionService {
                 rd.put("rxPower", r.getRxPower());
                 rd.put("txStatus", r.getTxPowerStatus());
                 rd.put("rxStatus", r.getRxPowerStatus());
+                rd.put("rxLow", r.getLowThreshold());
+                rd.put("rxHigh", r.getHighThreshold());
+                rd.put("txLow", r.getTxLowThreshold());
+                rd.put("txHigh", r.getTxHighThreshold());
                 roundsData.put(round.getId(), rd);
             }
         }

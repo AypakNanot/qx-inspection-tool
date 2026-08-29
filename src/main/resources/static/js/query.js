@@ -598,8 +598,10 @@ export async function runTrend() {
     if (checked.length < 2) { showToast('请至少选择2个轮次', 'error'); return; }
     if (checked.length > 50) { showToast('最多选择50个轮次', 'error'); return; }
 
-    const network = document.getElementById('trendNetwork').value.trim();
     const neId = document.getElementById('trendNe').value.trim();
+    if (!neId) { showToast('请选择一个网元', 'error'); return; }
+
+    const network = document.getElementById('trendNetwork').value.trim();
     let url = '/inspection/trend/multi?roundIds=' + checked.join(',');
     if (network) url += '&network=' + encodeURIComponent(network);
     if (neId) url += '&neId=' + encodeURIComponent(neId);
@@ -646,34 +648,66 @@ function renderTrendChart(data) {
     const legendNames = [];
     let portIdx = 0;
 
+    // 收集门限值（取第一个有数据的端口的门限，同网元同类型端口门限一致）
+    let rxLow = null, rxHigh = null, txLow = null, txHigh = null;
     for (const port of data.ports) {
-        if (portIdx >= 20) break; // 最多显示20个端口，避免图表过密
-        const label = (port.neName || '').substring(0, 10) + ' S' + port.slotNo + 'P' + port.portNo;
+        for (const d of port.roundData) {
+            if (d) {
+                if (rxLow === null && d.rxLow != null) rxLow = d.rxLow;
+                if (rxHigh === null && d.rxHigh != null) rxHigh = d.rxHigh;
+                if (txLow === null && d.txLow != null) txLow = d.txLow;
+                if (txHigh === null && d.txHigh != null) txHigh = d.txHigh;
+                if (rxLow !== null && rxHigh !== null && txLow !== null && txHigh !== null) break;
+            }
+        }
+        if (rxLow !== null && rxHigh !== null && txLow !== null && txHigh !== null) break;
+    }
+
+    for (const port of data.ports) {
+        if (portIdx >= 20) break;
+        const label = (port.portName && port.portName !== '-')
+            ? (port.neName || '').substring(0, 10) + ' ' + port.portName
+            : (port.neName || '').substring(0, 10) + ' 槽位' + port.slotNo + ' 端口' + port.portNo;
         const color = colors[portIdx % colors.length];
 
         if (trendChartMode === 'rx' || trendChartMode === 'both') {
             const rxData = port.roundData.map(d => d ? d.rxPower : null);
             const name = label + ' (Rx)';
             legendNames.push(name);
-            series.push({
+            const rxSeries = {
                 name, type: 'line', data: rxData,
                 smooth: true, symbol: 'circle', symbolSize: 6,
                 lineStyle: { width: 2, color },
                 itemStyle: { color },
                 connectNulls: true
-            });
+            };
+            // 第一条 Rx 线加门限标线
+            if (portIdx === 0 && (rxLow !== null || rxHigh !== null)) {
+                const markLines = [];
+                if (rxLow !== null) markLines.push({ yAxis: rxLow, lineStyle: { color: '#f59e0b', type: 'dashed', width: 1 }, label: { formatter: 'Rx低 ' + rxLow, color: '#f59e0b', fontSize: 10, position: 'insideEndTop' } });
+                if (rxHigh !== null) markLines.push({ yAxis: rxHigh, lineStyle: { color: '#ef4444', type: 'dashed', width: 1 }, label: { formatter: 'Rx高 ' + rxHigh, color: '#ef4444', fontSize: 10, position: 'insideEndTop' } });
+                rxSeries.markLine = { silent: true, data: markLines };
+            }
+            series.push(rxSeries);
         }
         if (trendChartMode === 'tx' || trendChartMode === 'both') {
             const txData = port.roundData.map(d => d ? d.txPower : null);
             const name = label + ' (Tx)';
             legendNames.push(name);
-            series.push({
+            const txSeries = {
                 name, type: 'line', data: txData,
                 smooth: true, symbol: 'diamond', symbolSize: 6,
                 lineStyle: { width: 2, color, type: trendChartMode === 'both' ? 'dashed' : 'solid' },
                 itemStyle: { color },
                 connectNulls: true
-            });
+            };
+            if (portIdx === 0 && (txLow !== null || txHigh !== null)) {
+                const markLines = [];
+                if (txLow !== null) markLines.push({ yAxis: txLow, lineStyle: { color: '#06b6d4', type: 'dashed', width: 1 }, label: { formatter: 'Tx低 ' + txLow, color: '#06b6d4', fontSize: 10, position: 'insideEndBottom' } });
+                if (txHigh !== null) markLines.push({ yAxis: txHigh, lineStyle: { color: '#8b5cf6', type: 'dashed', width: 1 }, label: { formatter: 'Tx高 ' + txHigh, color: '#8b5cf6', fontSize: 10, position: 'insideEndBottom' } });
+                txSeries.markLine = { silent: true, data: markLines };
+            }
+            series.push(txSeries);
         }
         portIdx++;
     }
