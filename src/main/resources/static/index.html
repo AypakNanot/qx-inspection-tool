@@ -14,12 +14,10 @@
             <h1>巡检工具</h1>
             <div class="subtitle">设备巡检</div>
         </div>
-        <!-- 快速开始流程引导 -->
-        <div id="workflowSteps" style="padding:8px 12px 12px;border-bottom:1px solid rgba(255,255,255,0.08);display:none;">
-            <div style="font-size:10px;color:#718096;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px;font-weight:600;">快速开始</div>
-            <div id="workflowList"></div>
-        </div>
         <div class="sidebar-nav">
+            <div class="nav-item" data-page="page-guide" onclick="switchPage(this)" style="border-left-color:#f59e0b;color:#fbbf24;">
+                <span class="icon">&#9432;</span> 操作指南
+            </div>
             <div class="nav-group">
                 <div class="nav-group-title">设备管理</div>
                 <div class="nav-item active" data-page="page-device" onclick="switchPage(this)">
@@ -69,6 +67,18 @@
             <div class="breadcrumb" id="breadcrumb">设备管理</div>
         </div>
         <div class="content">
+
+            <!-- ========== 操作指南页 ========== -->
+            <div class="page" id="page-guide">
+                <div class="panel">
+                    <div class="panel-header"><h3>操作流程</h3></div>
+                    <div class="panel-body" id="guideFlowchart"></div>
+                </div>
+                <div class="panel" style="margin-top:16px;">
+                    <div class="panel-header"><h3>各页面操作说明</h3></div>
+                    <div class="panel-body" id="guideDetails"></div>
+                </div>
+            </div>
 
             <!-- ========== 设备管理页 ========== -->
             <div class="page active" id="page-device">

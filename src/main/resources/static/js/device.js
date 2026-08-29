@@ -245,29 +245,9 @@ export async function loadDevices() {
         renderDeviceTable(filteredDevices);
         updateDeviceStats(allDevices);
         loadNetworkFilter();
-        updateFirstUseHint();
     } catch (e) {
         console.error('loadDevices', e);
     }
-}
-
-/** 更新首次使用提示：有设备且未关闭过则显示 */
-function updateFirstUseHint() {
-    const hint = document.getElementById('firstUseHint');
-    if (!hint) return;
-    const dismissed = localStorage.getItem('firstUseHintDismissed');
-    if (allDevices.length === 0 && !dismissed) {
-        hint.style.display = '';
-    } else {
-        hint.style.display = 'none';
-    }
-}
-
-/** 关闭首次使用提示 */
-export function dismissFirstUseHint() {
-    const hint = document.getElementById('firstUseHint');
-    if (hint) hint.style.display = 'none';
-    localStorage.setItem('firstUseHintDismissed', '1');
 }
 
 /** 加载网络筛选下拉框 */
