@@ -3,7 +3,7 @@
  * 查询巡检结果，支持按轮次/网络/网元/状态筛选，按网元分组折叠，分页浏览，列排序，文本搜索，导出Excel
  */
 
-import { get, API } from './api.js';
+import { get, post, API } from './api.js';
 
 /** 全量查询结果 */
 let allResults = [];
@@ -42,17 +42,13 @@ function portKey(r) {
 /** 切换端口关注状态 */
 export async function togglePortWatched(r) {
     try {
-        const res = await fetch(API + '/inspection/port/watched/toggle', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                neId: r.neId,
-                slotNo: r.slotNo,
-                portNo: r.portNo,
-                portName: r.portName,
-                neName: r.neName
-            })
-        }).then(r => r.json());
+        const res = await post('/inspection/port/watched/toggle', {
+            neId: r.neId,
+            slotNo: r.slotNo,
+            portNo: r.portNo,
+            portName: r.portName,
+            neName: r.neName
+        });
         if (res.watched) {
             watchedKeys.add(portKey(r));
         } else {
@@ -269,7 +265,7 @@ function renderQueryTable() {
     if (!filteredResults || filteredResults.length === 0) {
         const tr = document.createElement('tr');
         const td = document.createElement('td');
-        td.colSpan = 14; td.className = 'empty'; td.textContent = '暂无巡检数据，请先执行一次巡检，完成后在此查看结果';
+        td.colSpan = 15; td.className = 'empty'; td.textContent = '暂无巡检数据，请先执行一次巡检，完成后在此查看结果';
         tr.appendChild(td); tbody.appendChild(tr);
         renderQueryPagination(0);
         return;
@@ -308,6 +304,9 @@ function renderQueryTable() {
         arrowTd.style.cssText = 'width:30px;text-align:center;color:#6b7280;';
         arrowTd.textContent = expanded ? '▼' : '▶';
         groupTr.appendChild(arrowTd);
+
+        // 关注列占位
+        groupTr.appendChild(createTextCell(''));
 
         // 网元名 + 端口数
         const nameTd = document.createElement('td');

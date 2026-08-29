@@ -186,9 +186,30 @@ export async function loadAuditLogs() {
 }
 
 /** 备份数据库 */
-export function backupDatabase() {
-    window.location.href = API + '/inspection/backup';
-    showToast('数据库备份已开始下载', 'success');
+export async function backupDatabase() {
+    try {
+        const res = await fetch(API + '/inspection/backup', {
+            headers: { 'X-Admin-Token': 'qx-inspection-admin' }
+        });
+        if (!res.ok) {
+            const text = await res.text();
+            showToast('备份失败: ' + text, 'error');
+            return;
+        }
+        const blob = await res.blob();
+        const disposition = res.headers.get('Content-Disposition') || '';
+        const match = disposition.match(/filename\*=UTF-8''(.+)/);
+        const filename = match ? decodeURIComponent(match[1]) : 'backup.db';
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = filename;
+        document.body.appendChild(a); a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        showToast('数据库备份已下载', 'success');
+    } catch (e) {
+        showToast('备份请求失败: ' + e.message, 'error');
+    }
 }
 
 /** 恢复数据库 */
@@ -205,6 +226,7 @@ export async function restoreDatabase() {
     try {
         const res = await fetch(API + '/inspection/restore', {
             method: 'POST',
+            headers: { 'X-Admin-Token': 'qx-inspection-admin' },
             body: formData
         }).then(r => r.json());
         const el = document.getElementById('restoreResult');

@@ -1,5 +1,6 @@
 package com.optel.qxinspection.controller;
 
+import com.optel.qxinspection.entity.sqlite.AuditLog;
 import com.optel.qxinspection.entity.sqlite.InspectionRound;
 import com.optel.qxinspection.entity.sqlite.OpticalPowerInspection;
 import com.optel.qxinspection.entity.sqlite.PortWatch;
@@ -11,6 +12,7 @@ import com.optel.qxinspection.service.InspectionScheduler;
 import com.optel.qxinspection.service.InspectionService;
 import com.optel.qxinspection.service.AuditService;
 import com.optel.qxinspection.service.ThresholdService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -388,7 +390,20 @@ public class InspectionController {
             existing.setDescription(rule.getDescription());
             saved = thresholdRuleRepository.save(existing);
         } else {
-            saved = thresholdRuleRepository.save(rule);
+            try {
+                saved = thresholdRuleRepository.save(rule);
+            } catch (org.springframework.dao.DataIntegrityViolationException e) {
+                // 并发创建同一规则，回退为更新
+                existing = thresholdRuleRepository
+                        .findByLevelTypeAndMatchKey(rule.getLevelType(), rule.getMatchKey())
+                        .orElseThrow(() -> e);
+                existing.setTxLow(rule.getTxLow());
+                existing.setTxHigh(rule.getTxHigh());
+                existing.setRxLow(rule.getRxLow());
+                existing.setRxHigh(rule.getRxHigh());
+                existing.setDescription(rule.getDescription());
+                saved = thresholdRuleRepository.save(existing);
+            }
         }
         auditService.record("THRESHOLD", rule.getLevelType() + ":" + rule.getMatchKey(), "SUCCESS", null);
         return saved;
@@ -428,6 +443,7 @@ public class InspectionController {
      * 切换端口关注状态
      */
     @PostMapping("/port/watched/toggle")
+    @org.springframework.transaction.annotation.Transactional
     public Map<String, Object> togglePortWatched(@RequestBody Map<String, Object> body) {
         String neId = (String) body.get("neId");
         int slotNo = ((Number) body.get("slotNo")).intValue();
@@ -438,7 +454,7 @@ public class InspectionController {
         return portWatchRepository.findByNeIdAndSlotNoAndPortNo(neId, slotNo, portNo)
                 .map(existing -> {
                     portWatchRepository.delete(existing);
-                    return Map.of("watched", false);
+                    return Map.<String, Object>of("watched", false);
                 })
                 .orElseGet(() -> {
                     PortWatch pw = new PortWatch();
@@ -448,7 +464,7 @@ public class InspectionController {
                     pw.setPortName(portName);
                     pw.setNeName(neName);
                     portWatchRepository.save(pw);
-                    return Map.of("watched", true);
+                    return Map.<String, Object>of("watched", true);
                 });
     }
 
@@ -463,17 +479,28 @@ public class InspectionController {
     // ========== 审计日志 ==========
 
     @GetMapping("/audit/logs")
-    public List<com.optel.qxinspection.entity.sqlite.AuditLog> getAuditLogs() {
+    public List<AuditLog> getAuditLogs() {
         return auditService.getRecentLogs();
     }
 
     // ========== 数据备份/恢复 ==========
 
+    private static final long MAX_RESTORE_SIZE = 100 * 1024 * 1024; // 100MB
+
+    private boolean checkAdminAuth(HttpServletRequest request) {
+        String token = request.getHeader("X-Admin-Token");
+        return "qx-inspection-admin".equals(token);
+    }
+
     /**
      * 备份 SQLite 数据库
      */
     @GetMapping("/backup")
-    public void backupDatabase(HttpServletResponse response) throws IOException {
+    public void backupDatabase(HttpServletRequest request, HttpServletResponse response) throws IOException {
+        if (!checkAdminAuth(request)) {
+            response.sendError(HttpServletResponse.SC_FORBIDDEN, "需要管理员权限");
+            return;
+        }
         java.nio.file.Path dbPath = java.nio.file.Path.of("./data/qx_inspection.db");
         if (!java.nio.file.Files.exists(dbPath)) {
             response.sendError(HttpServletResponse.SC_NOT_FOUND, "数据库文件不存在");
@@ -485,16 +512,48 @@ public class InspectionController {
 
         response.setContentType("application/octet-stream");
         response.setHeader("Content-Disposition", "attachment; filename=\"backup.db\"; filename*=UTF-8''" + encodedName);
-        java.nio.file.Files.copy(dbPath, response.getOutputStream());
-        response.getOutputStream().flush();
-        auditService.record("BACKUP", "SQLite数据库", "SUCCESS", filename);
+        try {
+            java.nio.file.Files.copy(dbPath, response.getOutputStream());
+            response.getOutputStream().flush();
+            auditService.record("BACKUP", "SQLite数据库", "SUCCESS", filename);
+        } catch (IOException e) {
+            log.error("backup failed", e);
+            auditService.record("BACKUP", "SQLite数据库", "FAIL", e.getMessage());
+        }
     }
 
     /**
      * 恢复 SQLite 数据库
      */
     @PostMapping("/restore")
-    public Map<String, Object> restoreDatabase(@RequestParam("file") org.springframework.web.multipart.MultipartFile file) {
+    public Map<String, Object> restoreDatabase(HttpServletRequest request,
+                                               @RequestParam("file") org.springframework.web.multipart.MultipartFile file) {
+        if (!checkAdminAuth(request)) {
+            return Map.of("success", false, "message", "需要管理员权限");
+        }
+        if (file.isEmpty()) {
+            return Map.of("success", false, "message", "上传文件不能为空");
+        }
+        if (file.getSize() > MAX_RESTORE_SIZE) {
+            return Map.of("success", false, "message", "文件大小不能超过100MB");
+        }
+        String originalName = file.getOriginalFilename();
+        if (originalName == null || !originalName.endsWith(".db")) {
+            return Map.of("success", false, "message", "仅支持 .db 文件");
+        }
+        // 校验文件头是否为 SQLite 格式（前16字节应包含 "SQLite format 3"）
+        try {
+            byte[] header = new byte[16];
+            file.getInputStream().read(header);
+            file.getInputStream().reset();
+            String headerStr = new String(header, java.nio.charset.StandardCharsets.US_ASCII);
+            if (!headerStr.contains("SQLite format 3")) {
+                return Map.of("success", false, "message", "文件格式不正确，不是有效的 SQLite 数据库");
+            }
+        } catch (IOException e) {
+            return Map.of("success", false, "message", "文件读取失败: " + e.getMessage());
+        }
+
         try {
             java.nio.file.Path dbDir = java.nio.file.Path.of("./data");
             if (!java.nio.file.Files.exists(dbDir)) {
@@ -511,8 +570,8 @@ public class InspectionController {
             // 写入新数据库
             java.nio.file.Files.copy(file.getInputStream(), dbPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
 
-            auditService.record("RESTORE", "SQLite数据库", "SUCCESS", file.getOriginalFilename());
-            return Map.of("success", true, "message", "数据库恢复成功，重启应用后生效");
+            auditService.record("RESTORE", "SQLite数据库", "SUCCESS", originalName);
+            return Map.of("success", true, "message", "数据库恢复成功，请重启应用");
         } catch (IOException e) {
             log.error("restore database failed", e);
             auditService.record("RESTORE", "SQLite数据库", "FAIL", e.getMessage());
