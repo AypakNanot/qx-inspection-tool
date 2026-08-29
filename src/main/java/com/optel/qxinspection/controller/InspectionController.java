@@ -94,6 +94,14 @@ public class InspectionController {
     }
 
     /**
+     * 获取最新轮次中去重的端口名列表
+     */
+    @GetMapping("/port-names")
+    public List<String> getPortNames() {
+        return inspectionService.getPortNames();
+    }
+
+    /**
      * 查询巡检结果（最新轮次或指定轮次）
      */
     @GetMapping("/results")

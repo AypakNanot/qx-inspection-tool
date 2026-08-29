@@ -571,19 +571,17 @@ export async function openTrendModal() {
         const devices = await get('/connection/status');
         const neDl = document.getElementById('trendNeList');
         neDl.textContent = '';
-        const portSet = new Set();
         devices.forEach(d => {
             const o = document.createElement('option');
             o.value = d.neId; o.textContent = d.neName;
             neDl.appendChild(o);
-            // 收集所有端口名
-            if (d.ports) {
-                d.ports.forEach(p => { if (p.portName) portSet.add(p.portName); });
-            }
         });
+    } catch (e) { /* ignore */ }
+    try {
+        const portNames = await get('/inspection/port-names');
         const portDl = document.getElementById('trendPortList');
         portDl.textContent = '';
-        [...portSet].sort().forEach(name => {
+        portNames.forEach(name => {
             const o = document.createElement('option'); o.value = name; portDl.appendChild(o);
         });
     } catch (e) { /* ignore */ }

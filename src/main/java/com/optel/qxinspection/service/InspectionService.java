@@ -280,6 +280,13 @@ public class InspectionService {
     }
 
     /**
+     * 获取最新轮次中去重的端口名列表
+     */
+    public List<String> getPortNames() {
+        return powerRecordRepository.findDistinctPortNamesInLatestRound();
+    }
+
+    /**
      * 多轮次趋势数据：按端口分组，每个端口包含各轮次的功率值
      */
     public Map<String, Object> getTrendData(List<Long> roundIds, String network, String neId, String portName) {
