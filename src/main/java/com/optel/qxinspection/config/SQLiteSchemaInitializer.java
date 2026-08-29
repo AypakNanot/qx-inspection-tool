@@ -54,10 +54,8 @@ public class SQLiteSchemaInitializer {
 
         createTableIfNotExists("sys_config", """
             CREATE TABLE IF NOT EXISTS sys_config (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                config_key VARCHAR(100) NOT NULL UNIQUE,
-                config_value VARCHAR(500),
-                description VARCHAR(200)
+                config_key VARCHAR(64) PRIMARY KEY,
+                config_value VARCHAR(512)
             )
         """);
 
@@ -78,15 +76,15 @@ public class SQLiteSchemaInitializer {
         createTableIfNotExists("inspection_round", """
             CREATE TABLE IF NOT EXISTS inspection_round (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                status VARCHAR(20),
-                start_time TIMESTAMP,
-                end_time TIMESTAMP,
+                trigger_type VARCHAR(20) NOT NULL,
+                scope_type VARCHAR(20) NOT NULL,
+                scope_param VARCHAR(200),
+                status VARCHAR(20) NOT NULL DEFAULT 'RUNNING',
                 total_count INTEGER DEFAULT 0,
                 done_count INTEGER DEFAULT 0,
                 fail_count INTEGER DEFAULT 0,
-                scope_type VARCHAR(20),
-                scope_param VARCHAR(200),
-                create_time TIMESTAMP
+                start_time TIMESTAMP,
+                end_time TIMESTAMP
             )
         """);
 
