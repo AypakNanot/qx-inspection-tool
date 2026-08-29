@@ -285,7 +285,7 @@ public class InspectionService {
     public Map<String, Object> getTrendData(List<Long> roundIds, String network, String neId) {
         Map<String, Object> result = new LinkedHashMap<>();
 
-        // 查询每个轮次的数据并按时间排序
+        // 查询轮次元数据并按时间排序
         List<InspectionRound> rounds = inspectionRoundRepository.findAllById(roundIds);
         rounds.sort(Comparator.comparing(r -> r.getStartTime() != null ? r.getStartTime() : LocalDateTime.MIN));
 
@@ -299,12 +299,19 @@ public class InspectionService {
         }
         result.put("timeline", timeline);
 
+        // 批量查询所有轮次数据，避免 N+1
+        List<Long> validRoundIds = rounds.stream().map(InspectionRound::getId).toList();
+        List<OpticalPowerInspection> allRecords = thresholdService.applyThresholds(
+                powerRecordRepository.findByRoundIdIn(validRoundIds));
+        // 按 roundId 分组
+        Map<Long, List<OpticalPowerInspection>> recordsByRound = allRecords.stream()
+                .collect(java.util.stream.Collectors.groupingBy(OpticalPowerInspection::getRoundId));
+
         // 收集所有端口数据：key = neId:slotNo:portNo
         Map<String, Map<String, Object>> portMap = new LinkedHashMap<>();
 
         for (InspectionRound round : rounds) {
-            List<OpticalPowerInspection> records = thresholdService.applyThresholds(
-                    powerRecordRepository.findByRoundId(round.getId()));
+            List<OpticalPowerInspection> records = recordsByRound.getOrDefault(round.getId(), List.of());
 
             for (OpticalPowerInspection r : records) {
                 // 筛选
@@ -348,7 +355,7 @@ public class InspectionService {
                 if (rd != null) {
                     roundList.add((Map<String, Object>) rd);
                 } else {
-                    roundList.add(null); // 该轮次无数据
+                    roundList.add(null);
                 }
             }
             port.put("roundData", roundList);
@@ -356,17 +363,17 @@ public class InspectionService {
             ports.add(port);
         }
 
-        // 按网元名+端口号排序
+        // 按网元名+槽位+端口号排序（使用 Number 拆箱避免 ClassCastException）
         ports.sort((a, b) -> {
             String na = (String) a.get("neName");
             String nb = (String) b.get("neName");
             int cmp = (na != null ? na : "").compareTo(nb != null ? nb : "");
             if (cmp != 0) return cmp;
-            int sa = a.get("slotNo") != null ? (int) a.get("slotNo") : 0;
-            int sb = b.get("slotNo") != null ? (int) b.get("slotNo") : 0;
+            int sa = a.get("slotNo") != null ? ((Number) a.get("slotNo")).intValue() : 0;
+            int sb = b.get("slotNo") != null ? ((Number) b.get("slotNo")).intValue() : 0;
             if (sa != sb) return sa - sb;
-            int pa = a.get("portNo") != null ? (int) a.get("portNo") : 0;
-            int pb = b.get("portNo") != null ? (int) b.get("portNo") : 0;
+            int pa = a.get("portNo") != null ? ((Number) a.get("portNo")).intValue() : 0;
+            int pb = b.get("portNo") != null ? ((Number) b.get("portNo")).intValue() : 0;
             return pa - pb;
         });
 

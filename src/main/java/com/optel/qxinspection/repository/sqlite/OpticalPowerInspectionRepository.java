@@ -12,6 +12,8 @@ public interface OpticalPowerInspectionRepository extends JpaRepository<OpticalP
 
     List<OpticalPowerInspection> findByRoundId(Long roundId);
 
+    List<OpticalPowerInspection> findByRoundIdIn(List<Long> roundIds);
+
     List<OpticalPowerInspection> findByRoundIdAndNeId(Long roundId, String neId);
 
     List<OpticalPowerInspection> findByRoundIdAndNetworkName(Long roundId, String networkName);

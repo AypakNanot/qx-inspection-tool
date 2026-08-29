@@ -345,6 +345,9 @@ public class InspectionController {
             @RequestParam List<Long> roundIds,
             @RequestParam(required = false) String network,
             @RequestParam(required = false) String neId) {
+        if (roundIds == null || roundIds.size() < 2 || roundIds.size() > 50) {
+            return Map.of("timeline", List.of(), "ports", List.of());
+        }
         return inspectionService.getTrendData(roundIds, network, neId);
     }
 

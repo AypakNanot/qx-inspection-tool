@@ -584,27 +584,27 @@ export function closeTrendModal() {
 }
 
 /** 全选轮次 */
-window.trendSelectAllRounds = function() {
+export function trendSelectAllRounds() {
     document.querySelectorAll('.trend-round-cb').forEach(cb => cb.checked = true);
-};
+}
 /** 清空轮次 */
-window.trendDeselectAllRounds = function() {
+export function trendDeselectAllRounds() {
     document.querySelectorAll('.trend-round-cb').forEach(cb => cb.checked = false);
-};
+}
 
 /** 执行趋势查询 */
 export async function runTrend() {
-    const checked = [...document.querySelectorAll('.trend-round-cb:checked')].map(cb => parseInt(cb.value));
+    const checked = [...document.querySelectorAll('.trend-round-cb:checked')].map(cb => parseInt(cb.value, 10));
     if (checked.length < 2) { showToast('请至少选择2个轮次', 'error'); return; }
+    if (checked.length > 50) { showToast('最多选择50个轮次', 'error'); return; }
 
     const network = document.getElementById('trendNetwork').value.trim();
     const neId = document.getElementById('trendNe').value.trim();
-    const params = new URLSearchParams();
-    params.set('roundIds', checked.join(','));
-    if (network) params.set('network', network);
-    if (neId) params.set('neId', neId);
+    let url = '/inspection/trend/multi?roundIds=' + checked.join(',');
+    if (network) url += '&network=' + encodeURIComponent(network);
+    if (neId) url += '&neId=' + encodeURIComponent(neId);
 
-    const data = await get('/inspection/trend/multi?' + params.toString());
+    const data = await get(url);
     trendData = data;
 
     document.getElementById('trendSummary').textContent =
