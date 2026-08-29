@@ -8,7 +8,7 @@ import { loadStatsOverview, loadStatsNetworks, loadStats, switchStatsChart, resi
 import { loadGlobalThreshold, saveGlobalThreshold, loadThresholds, openThresholdModal, closeThresholdModal, saveThreshold, onModuleSelectChange } from './threshold.js';
 import { loadScheduleStatus, toggleSchedule, toggleSchedScope, toggleManualScope, loadTaskNetworks, loadTaskDevices, startManualInspection, onSchedPresetChange, saveScheduleConfig, loadCollectParams, saveCollectParams } from './task.js';
 import { loadProgress, stopProgressPoll } from './progress.js';
-import { loadQueryRounds, loadQueryFilters, loadQueryResults, exportExcel, searchQuery, sortQueryBy, expandAll, collapseAll, openCompareModal, closeCompareModal, runCompare, togglePortWatched } from './query.js';
+import { loadQueryRounds, loadQueryFilters, loadQueryResults, exportExcel, searchQuery, sortQueryBy, expandAll, collapseAll, openCompareModal, closeCompareModal, runCompare, switchCompareChart, togglePortWatched } from './query.js';
 import { loadClockTopology, refreshClockTopology, resizeClockChart } from './clock.js';
 import { showToast } from './toast.js';
 import { loadSyncStatus, syncEssential, syncAll, clearSyncData, loadMysqlConfig, saveMysqlConfig, testMysqlConnection, loadAuditLogs, backupDatabase, restoreDatabase } from './sync.js';
@@ -140,6 +140,7 @@ window.collapseAll = collapseAll;
 window.openCompareModal = openCompareModal;
 window.closeCompareModal = closeCompareModal;
 window.runCompare = runCompare;
+window.switchCompareChart = switchCompareChart;
 window.togglePortWatched = togglePortWatched;
 window.refreshClockTopology = refreshClockTopology;
 window.showToast = showToast;

@@ -761,25 +761,35 @@
 
     <!-- 轮次对比弹窗 -->
     <div class="modal-overlay hidden" id="compareModal">
-        <div class="modal" style="max-width:900px;">
+        <div class="modal" style="max-width:1000px;width:95vw;">
             <div class="modal-header">
                 <h3>轮次对比</h3>
                 <button class="modal-close" onclick="closeCompareModal()">&times;</button>
             </div>
-            <div class="modal-body">
+            <div class="modal-body" style="padding:16px 20px;">
                 <div class="form-row" style="margin-bottom:12px;gap:16px;align-items:flex-end;">
                     <div class="form-group"><label>基准轮次 (A)</label><select id="compareRoundA" style="width:200px;padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;"></select></div>
                     <div class="form-group"><label>对比轮次 (B)</label><select id="compareRoundB" style="width:200px;padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;"></select></div>
                     <button class="btn btn-primary btn-sm" onclick="runCompare()">开始对比</button>
                 </div>
                 <div id="compareSummary" style="font-size:13px;color:#6b7280;margin-bottom:8px;"></div>
-                <div style="max-height:400px;overflow-y:auto;">
-                    <table style="width:100%;font-size:13px;">
+                <!-- 图表区域 -->
+                <div id="compareChartBox" style="display:none;margin-bottom:12px;">
+                    <div style="display:flex;gap:8px;margin-bottom:8px;">
+                        <button class="btn btn-sm stats-chart-btn active" onclick="switchCompareChart('tx',this)">发送功率变化</button>
+                        <button class="btn btn-sm stats-chart-btn" onclick="switchCompareChart('rx',this)">接收功率变化</button>
+                        <button class="btn btn-sm stats-chart-btn" onclick="switchCompareChart('both',this)">综合对比</button>
+                    </div>
+                    <div id="compareChart" style="height:320px;background:#fff;border-radius:8px;"></div>
+                </div>
+                <!-- 详情表格 -->
+                <div style="max-height:300px;overflow-y:auto;">
+                    <table style="width:100%;font-size:12px;">
                         <thead><tr>
-                            <th>网元</th><th>端口</th><th>变化类型</th>
-                            <th>发送功率 A</th><th>发送功率 B</th><th>发送变化</th>
-                            <th>接收功率 A</th><th>接收功率 B</th><th>接收变化</th>
-                            <th>状态 A</th><th>状态 B</th>
+                            <th>网元</th><th>端口</th><th>类型</th>
+                            <th>发送A</th><th>发送B</th><th>发送变化</th>
+                            <th>接收A</th><th>接收B</th><th>接收变化</th>
+                            <th>状态A</th><th>状态B</th>
                         </tr></thead>
                         <tbody id="compareTable"></tbody>
                     </table>
