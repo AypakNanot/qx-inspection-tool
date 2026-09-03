@@ -12,6 +12,10 @@ import java.time.LocalDateTime;
 @Table(name = "inspection_round")
 public class InspectionRound {
 
+    public static final String STATUS_RUNNING = "RUNNING";
+    public static final String STATUS_COMPLETED = "COMPLETED";
+    public static final String STATUS_FAILED = "FAILED";
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -28,9 +32,9 @@ public class InspectionRound {
     @Column(name = "scope_param", length = 200)
     private String scopeParam;
 
-    /** 状态：RUNNING / COMPLETED / FAILED */
+    /** 状态：{@link #STATUS_RUNNING} / {@link #STATUS_COMPLETED} / {@link #STATUS_FAILED} */
     @Column(name = "status", length = 20, nullable = false)
-    private volatile String status = "RUNNING";
+    private volatile String status = STATUS_RUNNING;
 
     /** 目标设备总数 */
     @Column(name = "total_count")

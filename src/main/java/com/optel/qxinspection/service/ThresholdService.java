@@ -19,6 +19,8 @@ import java.util.*;
 @RequiredArgsConstructor
 public class ThresholdService {
 
+    private static final String LEVEL_GLOBAL = "GLOBAL";
+
     private final ThresholdRuleRepository thresholdRuleRepository;
 
     // 默认门限值
@@ -102,7 +104,7 @@ public class ThresholdService {
         List<ThresholdRule> allRules = thresholdRuleRepository.findAll();
 
         ThresholdRule global = allRules.stream()
-                .filter(r -> "GLOBAL".equals(r.getLevelType()))
+                .filter(r -> LEVEL_GLOBAL.equals(r.getLevelType()))
                 .findFirst().orElse(null);
 
         snapshot.put("global", global != null ? ruleToMap(global) : getDefaultRuleMap());
@@ -129,7 +131,7 @@ public class ThresholdService {
 
     private Map<String, Object> getDefaultRuleMap() {
         Map<String, Object> m = new LinkedHashMap<>();
-        m.put("matchKey", "GLOBAL");
+        m.put("matchKey", LEVEL_GLOBAL);
         m.put("txLow", DEFAULT_TX_LOW);
         m.put("txHigh", DEFAULT_TX_HIGH);
         m.put("rxLow", DEFAULT_RX_LOW);
@@ -142,10 +144,10 @@ public class ThresholdService {
      * 初始化默认GLOBAL规则
      */
     public void initDefaultGlobalRule() {
-        if (thresholdRuleRepository.findByLevelTypeAndMatchKey("GLOBAL", "GLOBAL").isEmpty()) {
+        if (thresholdRuleRepository.findByLevelTypeAndMatchKey(LEVEL_GLOBAL, LEVEL_GLOBAL).isEmpty()) {
             ThresholdRule global = new ThresholdRule();
-            global.setLevelType("GLOBAL");
-            global.setMatchKey("GLOBAL");
+            global.setLevelType(LEVEL_GLOBAL);
+            global.setMatchKey(LEVEL_GLOBAL);
             global.setTxLow(DEFAULT_TX_LOW);
             global.setTxHigh(DEFAULT_TX_HIGH);
             global.setRxLow(DEFAULT_RX_LOW);

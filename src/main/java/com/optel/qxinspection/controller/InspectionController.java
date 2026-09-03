@@ -26,6 +26,7 @@ import java.io.OutputStream;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
+import org.springframework.beans.factory.annotation.Value;
 
 @Slf4j
 @RestController
@@ -42,6 +43,9 @@ public class InspectionController {
     private final ClockInspectionService clockInspectionService;
 
     private static final DateTimeFormatter DT_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
+    @Value("${app.admin-token:}")
+    private String adminToken;
 
     /**
      * 触发全网巡检
@@ -511,8 +515,12 @@ public class InspectionController {
     private static final long MAX_RESTORE_SIZE = 100 * 1024 * 1024; // 100MB
 
     private boolean checkAdminAuth(HttpServletRequest request) {
+        if (adminToken == null || adminToken.isEmpty()) {
+            log.warn("app.admin-token 未配置，备份/恢复功能已禁用");
+            return false;
+        }
         String token = request.getHeader("X-Admin-Token");
-        return "qx-inspection-admin".equals(token);
+        return adminToken.equals(token);
     }
 
     /**
@@ -565,10 +573,12 @@ public class InspectionController {
             return Map.of("success", false, "message", "仅支持 .db 文件");
         }
         // 校验文件头是否为 SQLite 格式（前16字节应包含 "SQLite format 3"）
-        try {
+        try (var in = file.getInputStream()) {
             byte[] header = new byte[16];
-            file.getInputStream().read(header);
-            file.getInputStream().reset();
+            int read = in.read(header);
+            if (read < 16) {
+                return Map.of("success", false, "message", "文件太小，不是有效的 SQLite 数据库");
+            }
             String headerStr = new String(header, java.nio.charset.StandardCharsets.US_ASCII);
             if (!headerStr.contains("SQLite format 3")) {
                 return Map.of("success", false, "message", "文件格式不正确，不是有效的 SQLite 数据库");

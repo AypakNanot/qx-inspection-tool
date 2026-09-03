@@ -38,10 +38,10 @@ public class MysqlConnectionManager {
     @Value("${app.mysql.database:Uniview}")
     private String defaultDatabase;
 
-    @Value("${app.mysql.username:sa}")
+    @Value("${app.mysql.username:}")
     private String defaultUsername;
 
-    @Value("${app.mysql.password:DB_Admin123}")
+    @Value("${app.mysql.password:}")
     private String defaultPassword;
 
     private volatile HikariDataSource dataSource;
@@ -70,9 +70,7 @@ public class MysqlConnectionManager {
         log.info("=== 测试连接 === host='{}', port={}, database='{}', username='{}'",
                 host, port, database, username);
 
-        HikariDataSource testDs = null;
-        try {
-            testDs = createDataSource(host, port, database, username, password);
+        try (HikariDataSource testDs = createDataSource(host, port, database, username, password)) {
             try (Connection conn = testDs.getConnection();
                  var stmt = conn.createStatement();
                  var rs = stmt.executeQuery("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()")) {
@@ -96,10 +94,6 @@ public class MysqlConnectionManager {
                 result.put("message", "连接失败，请检查 MySQL 连接配置");
             }
             log.error("MySQL 连接测试失败", e);
-        } finally {
-            if (testDs != null) {
-                testDs.close();
-            }
         }
         return result;
     }

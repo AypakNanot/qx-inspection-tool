@@ -1,46 +1,139 @@
-# 激光器属性查询 (0x2410)
-# 仅包含巡检工具需要的命令
+# 源文档: Qx接口-C19 一般维护管理.docx
+#   覆盖: 激光器属性查询（收/发光功率、模块速率/距离/波长、厂商信息、光功率查询能力位）
+#         + 激光器 ALS 自动开关协议设置 + 激光器工作状态设置 + 激光器强制关断设置/查询
 schema:
   namespace: "laser"
 
 messages:
+
+  # ===================================================================
+  #  0x2410 — 激光器属性查询
+  #  STRU_CFG_Qx_LaserAttribute_Get
+  # ===================================================================
+
   - cmdCode: 0x2410
     operation: "激光器属性查询"
     request:
       className: "LaserAttributeGetData"
       fields:
-        - { name: subcaseNo,   type: BYTE,  desc: "子架序号" }
+        - { name: subcaseNo,   type: BYTE,  desc: "子架序号（1=中心子架, 2=扩展子架1...）" }
         - { name: slotId,      type: BYTE,  desc: "槽位序号" }
-        - { name: portType,    type: BYTE,  desc: "端口类型" }
-        - { name: portSubType, type: BYTE,  desc: "端口子类型" }
-        - { name: portId,      type: SHORT, desc: "端口号" }
-        - { name: backup,      type: SHORT, desc: "备用" }
+        - { name: portType,    type: BYTE,  desc: "端口类型（见信息模型）" }
+        - { name: portSubType, type: BYTE,  desc: "端口子类型（见信息模型）" }
+        - { name: portId,      type: SHORT, desc: "端口号（见信息模型）" }
+        - { name: backup,      type: SHORT, desc: "备用字节×2" }
     response:
       className: "LaserAttributeAckData"
       fields:
-        - { name: subcaseNo,      type: BYTE,     desc: "子架序号" }
-        - { name: slotId,         type: BYTE,     desc: "槽位序号" }
-        - { name: portType,       type: BYTE,     desc: "端口类型" }
-        - { name: portSubType,    type: BYTE,     desc: "端口子类型" }
-        - { name: portId,         type: SHORT,    desc: "端口号" }
+        - { name: subcaseNo,      type: BYTE,     desc: "子架序号（回显请求）" }
+        - { name: slotId,         type: BYTE,     desc: "槽位序号（1-14 表示 MCU/MCP）" }
+        - { name: portType,       type: BYTE,     desc: "端口类型（回显请求）" }
+        - { name: portSubType,    type: BYTE,     desc: "端口子类型（回显请求）" }
+        - { name: portId,         type: SHORT,    desc: "端口号（回显请求）" }
         - { name: laserWave,      type: BYTE,     desc: "波长: 1=1310nm, 2=1550nm, 3=850nm" }
-        - { name: autoProState,   type: BYTE,     desc: "ALS状态" }
-        - { name: manualControl,  type: BYTE,     desc: "手动控制" }
-        - { name: laserState,     type: BYTE,     desc: "激光器状态: 1=开, 2=关" }
-        - { name: delayTime,      type: SHORT,    desc: "ALS延迟" }
-        - { name: laserType,      type: BYTE,     desc: "速率: 1=2.5G, 2=622M, 3=155M, 4=10G, 0x10=GE" }
-        - { name: distance,       type: BYTE,     desc: "距离档: 1=I, 2=S, 3=L, 4=V; GE: 0x10=SX, 0x11=LX" }
-        - { name: backup,         type: SHORT,    desc: "备用" }
-        - { name: vendorName,     type: STRING, len: 16, desc: "厂商" }
-        - { name: partNumber,     type: STRING, len: 16, desc: "型号编码" }
-        - { name: serialNumber,   type: STRING, len: 16, desc: "序列号" }
-        - { name: laserVersion,   type: STRING, len: 4,  desc: "版本号" }
-        - { name: productYear,    type: SHORT,    desc: "生产年" }
-        - { name: productMonth,   type: SHORT,    desc: "生产月" }
-        - { name: productDay,     type: SHORT,    desc: "生产日" }
-        - { name: productSpare,   type: SHORT,    desc: "备用" }
-        - { name: laserOpenTime,  type: BYTE,     desc: "LOS后打开时间" }
-        - { name: moduleBackup,   type: BIN,   len: 6,  desc: "备用x6" }
-        - { name: supportFlag,    type: BYTE,     desc: "bit0: 1=支持光功率" }
-        - { name: recvLaserPower, type: INT,      desc: "接收光功率 dBm (原始整数,需Float.intBitsToFloat转换)" }
-        - { name: tranLaserPower, type: INT,      desc: "发送光功率 dBm (原始整数,需Float.intBitsToFloat转换)" }
+        - { name: autoProState,   type: BYTE,     desc: "ALS 自动开关协议状态: 1=开, 2=关" }
+        - { name: manualControl,  type: BYTE,     desc: "手动打开: 0=无, 1=手动打开(2s), 2=手动测试打开(90s)" }
+        - { name: laserState,     type: BYTE,     desc: "激光器实际工作状态: 1=开, 2=关" }
+        - { name: delayTime,      type: SHORT,    desc: "ALS 延迟时间" }
+        - { name: laserType,      type: BYTE,     desc: "激光器速率: 1=2.5G, 2=622M, 3=155M, 4=10G, 0x10=GE" }
+        - { name: distance,       type: BYTE,     desc: "传输距离档: 1=I(短), 2=S(中), 3=L(长), 4=V(超长); GE: 0x10=SX, 0x11=LX" }
+        - { name: backup,         type: SHORT,    desc: "备用字节×2" }
+        - { name: vendorName,     type: STRING, len: 16, desc: "生产厂商 ASCII（网管不显示）" }
+        - { name: partNumber,     type: STRING, len: 16, desc: "激光器型号编码 ASCII（网管不显示）" }
+        - { name: serialNumber,   type: STRING, len: 16, desc: "生产序列号 ASCII（网管不显示）" }
+        - { name: laserVersion,   type: STRING, len: 4,  desc: "激光器版本号 ASCII" }
+        - { name: productYear,    type: SHORT,    desc: "生产日期-年" }
+        - { name: productMonth,   type: SHORT,    desc: "生产日期-月" }
+        - { name: productDay,     type: SHORT,    desc: "生产日期-日" }
+        - { name: productSpare,   type: SHORT,    desc: "生产日期-空闲字" }
+        - { name: laserOpenTime,  type: BYTE,     desc: "LOS 后激光器输出打开时间: 2=2s, 9=9s（ALS 或手动短时打开时有效）" }
+        - { name: moduleBackup,   type: BIN,   len: 6,  desc: "备用字节×6" }
+        - { name: supportFlag,    type: BYTE,     desc: "bit0: 1=支持光功率查询, 0=不支持; bit7 保留" }
+        - { name: recvLaserPower, type: FLOAT,    desc: "接收光功率 dBm（精确到 0.1）" }
+        - { name: tranLaserPower, type: FLOAT,    desc: "发送光功率 dBm（精确到 0.1）" }
+
+  # ===================================================================
+  #  0x221B — 激光器自动开关协议（ALS）设置
+  #  STRU_CFG_Qx_LaserARP_Set
+  # ===================================================================
+
+  - cmdCode: 0x221B
+    operation: "激光器自动开关协议设置"
+    request:
+      className: "LaserArpSetData"
+      fields:
+        - { name: subcaseNo,      type: BYTE,  desc: "子架序号（1=中心子架, 2=扩展子架1...）" }
+        - { name: slotId,         type: BYTE,  desc: "槽位序号（1-14 表示 MCU/MCP）" }
+        - { name: portType,       type: BYTE,  desc: "端口类型（见信息模型）" }
+        - { name: portSubType,    type: BYTE,  desc: "端口子类型（见信息模型）" }
+        - { name: portId,         type: SHORT, desc: "端口号（见信息模型）" }
+        - { name: autoProState,   type: BYTE,  desc: "自动开关协议: 1=开启, 2=关闭" }
+        - { name: backup1,        type: BYTE,  desc: "备用" }
+        - { name: delayTime,      type: SHORT, desc: "Laser 启动延迟周期: 60/180/300 秒, 缺省 60s" }
+        - { name: laserOpenTime,  type: BYTE,  desc: "LOS 后激光器输出打开时间: 0=2s（兼容）, 1=9s" }
+        - { name: moduleBackup,   type: BIN,   len: 9, desc: "备用×9" }
+
+  # ===================================================================
+  #  0x221C — 激光器工作状态设置
+  #  STRU_CFG_Qx_LaserState_Set
+  # ===================================================================
+
+  - cmdCode: 0x221C
+    operation: "激光器工作状态设置"
+    request:
+      className: "LaserStateSetData"
+      fields:
+        - { name: subcaseNo,    type: BYTE,  desc: "子架序号（1=中心子架, 2=扩展子架1...）" }
+        - { name: slotId,       type: BYTE,  desc: "槽位序号（1-14 表示 MCU/MCP）" }
+        - { name: portType,     type: BYTE,  desc: "端口类型（见信息模型）" }
+        - { name: portSubType,  type: BYTE,  desc: "端口子类型（见信息模型）" }
+        - { name: portId,       type: SHORT, desc: "端口号（见信息模型）" }
+        - { name: manualControl, type: BYTE, desc: "1=手动打开（短时 2s/9s, 仅激光器已关闭时可操作）, 2=手动测试打开（长时 90s）" }
+        - { name: backup,       type: BYTE,  desc: "备用" }
+
+  # ===================================================================
+  #  0x2A1A — 激光器强制关断设置
+  #  STRU_MAN_LaserForceControl_Set
+  # ===================================================================
+
+  - cmdCode: 0x2A1A
+    operation: "激光器强制关断设置"
+    request:
+      className: "LaserForceControlSetData"
+      fields:
+        - { name: subcaseNo,   type: BYTE,  desc: "子架序号" }
+        - { name: slotId,      type: BYTE,  desc: "槽位序号" }
+        - { name: portType,    type: BYTE,  desc: "端口类型（见信息模型）" }
+        - { name: portSubType, type: BYTE,  desc: "端口子类型（见信息模型）" }
+        - { name: portId,      type: SHORT, desc: "端口号（见信息模型）" }
+        - { name: shutFlag,    type: BYTE,  desc: "1=强制关断, 2=清除强制关断" }
+        - { name: backup1,     type: BYTE,  desc: "备用" }
+        - { name: backup2,     type: INT,   desc: "备用（dword）" }
+
+  # ===================================================================
+  #  0x2C0A — 激光器强制关断查询
+  #  STRU_MAN_LaserForceControl_Get / Ack
+  # ===================================================================
+
+  - cmdCode: 0x2C0A
+    operation: "激光器强制关断查询"
+    request:
+      className: "LaserForceControlGetData"
+      fields:
+        - { name: subcaseNo,   type: BYTE,  desc: "子架序号" }
+        - { name: slotId,      type: BYTE,  desc: "槽位序号" }
+        - { name: portType,    type: BYTE,  desc: "端口类型（见信息模型）" }
+        - { name: portSubType, type: BYTE,  desc: "端口子类型（见信息模型）" }
+        - { name: portId,      type: SHORT, desc: "端口号（见信息模型）" }
+        - { name: backup,      type: SHORT, desc: "备用" }
+    response:
+      className: "LaserForceControlAckData"
+      fields:
+        - { name: subcaseNo,   type: BYTE,  desc: "子架序号" }
+        - { name: slotId,      type: BYTE,  desc: "槽位序号" }
+        - { name: portType,    type: BYTE,  desc: "端口类型（回显请求）" }
+        - { name: portSubType, type: BYTE,  desc: "端口子类型（回显请求）" }
+        - { name: portId,      type: SHORT, desc: "端口号（回显请求）" }
+        - { name: shutFlag,    type: BYTE,  desc: "1=强制关断, 2=清除强制关断" }
+        - { name: realStatus,  type: BYTE,  desc: "激光器实际开关状态: 1=打开, 2=关断" }
+        - { name: backup,      type: INT,   desc: "备用（dword）" }

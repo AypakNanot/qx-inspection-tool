@@ -77,7 +77,7 @@ public class ConnectionController {
     public ResponseEntity<ConnProfile> saveGlobalConfig(@RequestBody Map<String, Object> body) {
         String username = (String) body.get("username");
         String password = (String) body.get("password");
-        int port = body.containsKey("port") ? (int) body.get("port") : 9900;
+        int port = body.containsKey("port") ? ((Number) body.get("port")).intValue() : 9900;
         return ResponseEntity.ok(qxConnectionService.saveGlobalConfig(username, password, port));
     }
 

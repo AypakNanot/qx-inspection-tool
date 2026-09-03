@@ -26,6 +26,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 @RequiredArgsConstructor
 public class QxConnectionService {
 
+    private static final String SCOPE_GLOBAL = "GLOBAL";
+
     private final QxDeviceServiceImpl qxDeviceService;
     private final QxReconnectManager reconnectManager;
     private final ConnProfileRepository connProfileRepository;
@@ -94,7 +96,7 @@ public class QxConnectionService {
         AtomicInteger fail = new AtomicInteger();
         List<String> failedDevices = new ArrayList<>();
 
-        ConnProfile globalProfile = connProfileRepository.findByScopeAndNeOid("GLOBAL", "")
+        ConnProfile globalProfile = connProfileRepository.findByScopeAndNeOid(SCOPE_GLOBAL, "")
                 .orElse(null);
 
         List<CompletableFuture<QxChannel>> futures = new ArrayList<>();
@@ -192,7 +194,7 @@ public class QxConnectionService {
             return result;
         }
 
-        ConnProfile globalProfile = connProfileRepository.findByScopeAndNeOid("GLOBAL", "").orElse(null);
+        ConnProfile globalProfile = connProfileRepository.findByScopeAndNeOid(SCOPE_GLOBAL, "").orElse(null);
         int port = getPort(config, globalProfile);
 
         // 注册端点到 QxDeviceServiceImpl（供生成的 Service 使用）
@@ -232,7 +234,9 @@ public class QxConnectionService {
     public boolean isConnected(String neOid) {
         ChannelID channelId = channelIdMap.get(neOid);
         if (channelId == null) return false;
-        QxChannel ch = qxDeviceService.getManager().getRegistry().getIfPresent(channelId);
+        var manager = qxDeviceService.getManager();
+        if (manager == null) return false;
+        QxChannel ch = manager.getRegistry().getIfPresent(channelId);
         return ch != null && ch.isOnline();
     }
 
@@ -279,10 +283,13 @@ public class QxConnectionService {
 
             ChannelID channelId = channelIdMap.get(device.getNeId());
             if (channelId != null) {
-                QxChannel ch = qxDeviceService.getManager().getRegistry().getIfPresent(channelId);
-                if (ch != null) {
-                    item.put("sdkState", ch.getState().name());
-                    item.put("online", ch.isOnline());
+                var manager = qxDeviceService.getManager();
+                if (manager != null) {
+                    QxChannel ch = manager.getRegistry().getIfPresent(channelId);
+                    if (ch != null) {
+                        item.put("sdkState", ch.getState().name());
+                        item.put("online", ch.isOnline());
+                    }
                 }
             }
 
@@ -311,9 +318,9 @@ public class QxConnectionService {
      * 保存全局连接配置
      */
     public ConnProfile saveGlobalConfig(String username, String password, int port) {
-        ConnProfile profile = connProfileRepository.findByScopeAndNeOid("GLOBAL", "")
+        ConnProfile profile = connProfileRepository.findByScopeAndNeOid(SCOPE_GLOBAL, "")
                 .orElse(new ConnProfile());
-        profile.setScope("GLOBAL");
+        profile.setScope(SCOPE_GLOBAL);
         profile.setNeOid("");
         profile.setUsername(username);
         profile.setPassword(password);
@@ -325,7 +332,7 @@ public class QxConnectionService {
      * 获取全局连接配置
      */
     public Optional<ConnProfile> getGlobalConfig() {
-        return connProfileRepository.findByScopeAndNeOid("GLOBAL", "");
+        return connProfileRepository.findByScopeAndNeOid(SCOPE_GLOBAL, "");
     }
 
     /**
@@ -363,7 +370,7 @@ public class QxConnectionService {
     private ChannelProp buildChannelProp(String neOid) {
         Optional<ConnProfile> deviceProfile = connProfileRepository.findByScopeAndNeOid("NE", neOid);
         ConnProfile profile = deviceProfile.orElse(
-                connProfileRepository.findByScopeAndNeOid("GLOBAL", "").orElse(null));
+                connProfileRepository.findByScopeAndNeOid(SCOPE_GLOBAL, "").orElse(null));
 
         if (profile == null) return null;
 
@@ -376,7 +383,7 @@ public class QxConnectionService {
     }
 
     public int getEffectivePort(DeviceAccessConfig device) {
-        ConnProfile globalProfile = connProfileRepository.findByScopeAndNeOid("GLOBAL", "").orElse(null);
+        ConnProfile globalProfile = connProfileRepository.findByScopeAndNeOid(SCOPE_GLOBAL, "").orElse(null);
         return getPort(device, globalProfile);
     }
 

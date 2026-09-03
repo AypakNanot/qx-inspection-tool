@@ -389,12 +389,15 @@ public class DynamicSyncService {
     public List<Map<String, Object>> query(String table, List<String> fields,
                                             Map<String, Object> conditions, String orderBy,
                                             Integer limit) {
+        validateIdentifier(table, "table");
+
         StringBuilder sql = new StringBuilder("SELECT ");
 
         if (fields == null || fields.isEmpty()) {
             sql.append("*");
         } else {
             sql.append(fields.stream()
+                    .peek(f -> validateIdentifier(f, "field"))
                     .map(f -> "\"" + f + "\"")
                     .collect(Collectors.joining(", ")));
         }
@@ -405,6 +408,7 @@ public class DynamicSyncService {
         if (conditions != null && !conditions.isEmpty()) {
             String where = conditions.entrySet().stream()
                     .map(e -> {
+                        validateIdentifier(e.getKey(), "condition field");
                         params.add(e.getValue());
                         return "\"" + e.getKey() + "\" = ?";
                     })
@@ -413,7 +417,7 @@ public class DynamicSyncService {
         }
 
         if (orderBy != null && !orderBy.isEmpty()) {
-            sql.append(" ORDER BY ").append(orderBy);
+            sql.append(" ORDER BY ").append(sanitizeOrderBy(orderBy));
         }
 
         if (limit != null && limit > 0) {
@@ -421,5 +425,28 @@ public class DynamicSyncService {
         }
 
         return sqliteJdbc.queryForList(sql.toString(), params.toArray());
+    }
+
+    private static final java.util.regex.Pattern IDENTIFIER_PATTERN =
+            java.util.regex.Pattern.compile("^[a-zA-Z_][a-zA-Z0-9_]*$");
+
+    private static void validateIdentifier(String value, String label) {
+        if (value == null || !IDENTIFIER_PATTERN.matcher(value).matches()) {
+            throw new IllegalArgumentException("Invalid " + label + ": " + value);
+        }
+    }
+
+    private static String sanitizeOrderBy(String orderBy) {
+        // 允许 "column" 或 "column ASC" / "column DESC"
+        String[] parts = orderBy.trim().split("\\s+");
+        validateIdentifier(parts[0], "orderBy column");
+        if (parts.length > 1) {
+            String dir = parts[1].toUpperCase(Locale.ROOT);
+            if (!dir.equals("ASC") && !dir.equals("DESC")) {
+                throw new IllegalArgumentException("Invalid orderBy direction: " + parts[1]);
+            }
+            return "\"" + parts[0] + "\" " + dir;
+        }
+        return "\"" + parts[0] + "\"";
     }
 }

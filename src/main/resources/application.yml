@@ -37,7 +37,9 @@ server:
 
 # 应用自定义配置
 app:
-  # MySQL 老网管库连接配置
+  # 备份/恢复管理员认证令牌（必须配置，留空则禁用备份/恢复功能）
+  admin-token: ""
+  # MySQL 老网管库连接配置（生产环境请通过环境变量覆盖密码：APP_MYSQL_PASSWORD）
   mysql:
     host: "127.0.0.1"
     port: 3306

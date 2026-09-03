@@ -117,7 +117,7 @@ public class InspectionService {
             progress.put("running", false);
             return progress;
         }
-        progress.put("running", "RUNNING".equals(round.getStatus()));
+        progress.put("running", InspectionRound.STATUS_RUNNING.equals(round.getStatus()));
         progress.put("roundId", round.getId());
         progress.put("total", round.getTotalCount());
         progress.put("done", progressCurrent.get());
@@ -578,7 +578,7 @@ public class InspectionService {
 
     private synchronized InspectionRound triggerInspection(String scopeType, String scopeParam, String triggerType) {
         // 检查是否有正在运行的巡检
-        if (currentRound != null && "RUNNING".equals(currentRound.getStatus())) {
+        if (currentRound != null && InspectionRound.STATUS_RUNNING.equals(currentRound.getStatus())) {
             throw new IllegalStateException("已有巡检任务正在运行，请等待完成后再触发");
         }
 
@@ -611,7 +611,7 @@ public class InspectionService {
         CompletableFuture.runAsync(() -> executeInspection(finalRound, targets), inspectionPool)
                 .exceptionally(ex -> {
                     log.error("巡检执行异常: roundId={}, {}", finalRound.getId(), ex.getMessage(), ex);
-                    finalRound.setStatus("FAILED");
+                    finalRound.setStatus(InspectionRound.STATUS_FAILED);
                     finalRound.setEndTime(LocalDateTime.now());
                     inspectionRoundRepository.save(finalRound);
                     return null;
@@ -625,10 +625,10 @@ public class InspectionService {
         List<DeviceAccessConfig> all = deviceAccessConfigRepository.findAll();
         return switch (scopeType) {
             case "NETWORK" -> all.stream()
-                    .filter(d -> scopeParam.equals(d.getNetworkName()))
+                    .filter(d -> scopeParam != null && scopeParam.equals(d.getNetworkName()))
                     .toList();
             case "SINGLE" -> all.stream()
-                    .filter(d -> scopeParam.equals(d.getNeId()))
+                    .filter(d -> scopeParam != null && scopeParam.equals(d.getNeId()))
                     .toList();
             default -> all; // ALL
         };
@@ -684,7 +684,7 @@ public class InspectionService {
         // 更新轮次状态
         round.setDoneCount(doneCount.get());
         round.setFailCount(failCount.get());
-        round.setStatus("COMPLETED");
+        round.setStatus(InspectionRound.STATUS_COMPLETED);
         round.setEndTime(LocalDateTime.now());
         inspectionRoundRepository.save(round);
 
@@ -954,14 +954,14 @@ public class InspectionService {
     }
 
     /**
-     * 将原始整数光功率转换为 dBm 值。
-     * 设备返回 0xFFFFFFFF 表示无光功率读数。
+     * 将浮点光功率转换为 dBm 值。
+     * 设备返回 NaN 表示无光功率读数（原始字节 0xFFFFFFFF）。
      */
-    private static Double toOpticalPower(int rawPower, int laserState) {
-        if (rawPower == 0xFFFFFFFF) {
+    private static Double toOpticalPower(float rawPower, int laserState) {
+        if (Float.isNaN(rawPower)) {
             return null; // 无光功率
         }
-        return (double) Float.intBitsToFloat(rawPower);
+        return (double) rawPower;
     }
 
 

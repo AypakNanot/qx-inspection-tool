@@ -196,13 +196,16 @@ public class QxDeviceServiceImpl implements IQxDeviceService {
 
             if (response != null && response.length > MsgHead.HEAD_BYTE_LEN) {
                 Message msg = Message.wrap(response);
+                byte[] header = new byte[MsgHead.HEAD_BYTE_LEN];
+                System.arraycopy(response, 0, header, 0, MsgHead.HEAD_BYTE_LEN);
                 if (msg.getMsgHead().getResult() == 0) {
-                    return QxSendResult.ok(msg.getPayload(), elapsed);
+                    return QxSendResult.ok(msg.getPayload(), header, elapsed);
                 }
                 return QxSendResult.fail(msg.getMsgHead().getResult(),
-                        "Device error: 0x" + Integer.toHexString(msg.getMsgHead().getResult()), elapsed);
+                        "Device error: 0x" + Integer.toHexString(msg.getMsgHead().getResult()),
+                        elapsed, msg.getPayload(), header);
             }
-            return QxSendResult.ok(new byte[0], elapsed);
+            return QxSendResult.ok(new byte[0], null, elapsed);
         } catch (Exception e) {
             log.error("send failed: neId={}, cmdCode=0x{}, err={}",
                     neId, String.format("%04X", cmdCode & 0xFFFF), e.getMessage());
