@@ -19,11 +19,43 @@ let searchText = '';
 let expandedGroups = new Set();
 /** 关注端口集合 "neId:slotNo:portNo" */
 let watchedKeys = new Set();
+/** 带宽数据索引 key=neId:slotNo:portNo */
+let bandwidthMap = new Map();
 
 /** 格式化时间：去掉T和毫秒 */
 function formatTime(t) {
     if (!t) return '-';
     return t.replace('T', ' ').replace(/\.\d+$/, '');
+}
+
+/** 格式化容量（Mbps → 人类可读） */
+function formatCapacity(mbps) {
+    if (!mbps || mbps <= 0) return '--';
+    if (mbps >= 1000000) return (mbps / 1000000).toFixed(0) + ' Tbps';
+    if (mbps >= 1000) return (mbps / 1000).toFixed(mbps % 1000 === 0 ? 0 : 1) + ' Gbps';
+    return mbps + ' Mbps';
+}
+
+/** 格式化已用/总容量 */
+function formatUsedCapacity(used, capacity) {
+    if (!capacity || capacity <= 0) return '--';
+    return formatCapacity(used) + ' / ' + formatCapacity(capacity);
+}
+
+/** 格式化通道使用摘要（取最高有数据的VC等级） */
+function formatChannelSummary(bw) {
+    const levels = [
+        { key: 'vc4', label: 'VC4' },
+        { key: 'vc3', label: 'VC3' },
+        { key: 'vc12', label: 'VC12' }
+    ];
+    for (const lv of levels) {
+        const info = bw[lv.key];
+        if (info && info.totalCount > 0) {
+            return lv.label + ': ' + info.usedCount + '/' + info.totalCount;
+        }
+    }
+    return '--';
 }
 
 /** 加载关注端口列表 */
@@ -123,7 +155,39 @@ export async function loadQueryResults() {
     if (network) params.set('network', network);
     if (neId) params.set('neId', neId);
     try {
-        allResults = await get('/inspection/results' + (params.toString() ? '?' + params : ''));
+        // 并行加载巡检结果和带宽数据
+        const [inspectionData, bandwidthData] = await Promise.all([
+            get('/inspection/results' + (params.toString() ? '?' + params : '')),
+            get('/bandwidth/all').catch(() => [])
+        ]);
+
+        // 构建巡检索引 key=neId:slotNo:portNo（只取有有效slotNo/portNo的记录）
+        const inspectionMap = new Map();
+        for (const r of inspectionData) {
+            if (r.slotNo != null && r.portNo != null) {
+                const key = r.neId + ':' + r.slotNo + ':' + r.portNo;
+                inspectionMap.set(key, r);
+            }
+        }
+
+        // 以带宽数据为主，合并巡检数据
+        allResults = bandwidthData.map(bw => {
+            const key = bw.neId + ':' + bw.slotNo + ':' + bw.portNo;
+            const inspection = inspectionMap.get(key);
+            if (inspection) {
+                return { ...inspection, bandwidth: bw };
+            }
+            // 无巡检记录的端口，用带宽数据填充基本信息
+            return {
+                neId: bw.neId,
+                neName: bw.neName,
+                slotNo: bw.slotNo,
+                portNo: bw.portNo,
+                supported: false,
+                bandwidth: bw
+            };
+        });
+
         currentPage = 1;
         expandedGroups = new Set();
         await loadWatchedPorts();
@@ -138,13 +202,14 @@ function applyFilterAndSort() {
     const watchedOnly = document.getElementById('queryWatchedOnly').checked;
 
     filteredResults = allResults.filter(r => {
-        // 显示无效记录开关
-        if (!showInvalid && !r.supported) return false;
+        // 显示无效记录开关（有带宽数据的记录始终显示）
+        const hasBandwidth = r.bandwidth && r.bandwidth.hasBandwidth;
+        if (!showInvalid && !r.supported && !hasBandwidth) return false;
 
         // 仅关注
         if (watchedOnly && !isWatched(r)) return false;
 
-        if (statusFilter !== '') {
+        if (statusFilter !== '' && !hasBandwidth) {
             if (statusFilter === '-1') {
                 if (r.supported) return false;
             } else {
@@ -247,7 +312,9 @@ export function sortQueryBy(field) {
 
 /** 获取端口状态（正常/劣化/过载/无效） */
 function getPortStatus(r) {
-    if (!r.supported) return { text: '无效', cls: 'badge-offline' };
+    const hasBw = r.bandwidth && r.bandwidth.hasBandwidth;
+    if (!r.supported && !hasBw) return { text: '无效', cls: 'badge-offline' };
+    if (!r.supported && hasBw) return { text: '仅带宽', cls: 'badge-bandwidth' };
     if (r.txPowerStatus > 0 || r.rxPowerStatus > 0) {
         const isOver = (r.txPowerStatus === 2 || r.rxPowerStatus === 2);
         return { text: isOver ? '过载' : '劣化', cls: 'badge-failed' };
@@ -265,7 +332,7 @@ function renderQueryTable() {
     if (!filteredResults || filteredResults.length === 0) {
         const tr = document.createElement('tr');
         const td = document.createElement('td');
-        td.colSpan = 15; td.className = 'empty'; td.textContent = '暂无巡检数据，请先执行一次巡检，完成后在此查看结果';
+        td.colSpan = 16; td.className = 'empty'; td.textContent = '暂无巡检数据，请先执行一次巡检，完成后在此查看结果';
         tr.appendChild(td); tbody.appendChild(tr);
         renderQueryPagination(0);
         return;
@@ -288,11 +355,19 @@ function renderQueryTable() {
         const expanded = expandedGroups.has(neId);
 
         // 统计该网元下的端口状态
-        let normal = 0, abnormal = 0, invalid = 0;
+        let normal = 0, abnormal = 0, invalid = 0, bwOnly = 0;
+        let bwSum = 0, bwCount = 0, bwMax = 0;
         for (const p of ports) {
-            if (!p.supported) { invalid++; continue; }
-            if (p.txPowerStatus > 0 || p.rxPowerStatus > 0) { abnormal++; continue; }
-            normal++;
+            const hasBw = p.bandwidth && p.bandwidth.hasBandwidth;
+            if (!p.supported && !hasBw) { invalid++; continue; }
+            if (!p.supported && hasBw) { bwOnly++; }
+            else if (p.txPowerStatus > 0 || p.rxPowerStatus > 0) { abnormal++; }
+            else { normal++; }
+            if (hasBw && p.bandwidth.usageRate != null) {
+                bwSum += p.bandwidth.usageRate;
+                bwCount++;
+                if (p.bandwidth.usageRate > bwMax) bwMax = p.bandwidth.usageRate;
+            }
         }
 
         // === 网元汇总行 ===
@@ -314,7 +389,7 @@ function renderQueryTable() {
         nameTd.textContent = (first.neName || '-') + '（' + ports.length + ' 个端口）';
         groupTr.appendChild(nameTd);
 
-        // 状态摘要（安全拼接，不用 innerHTML）
+        // 状态摘要
         const statusTd = document.createElement('td');
         statusTd.colSpan = 2;
         statusTd.style.cssText = 'font-size:12px;font-weight:400;color:#6b7280;';
@@ -330,6 +405,13 @@ function renderQueryTable() {
             s.textContent = '异常 ' + abnormal;
             statusTd.appendChild(s);
         }
+        if (bwOnly > 0) {
+            if (statusTd.childNodes.length > 0) statusTd.appendChild(document.createTextNode(' / '));
+            const s = document.createElement('span');
+            s.style.color = '#1a73e8';
+            s.textContent = '仅带宽 ' + bwOnly;
+            statusTd.appendChild(s);
+        }
         if (invalid > 0) {
             if (statusTd.childNodes.length > 0) statusTd.appendChild(document.createTextNode(' / '));
             const s = document.createElement('span');
@@ -339,12 +421,26 @@ function renderQueryTable() {
         if (statusTd.childNodes.length === 0) statusTd.textContent = '-';
         groupTr.appendChild(statusTd);
 
-        // 空列占位（moduleTypeKey, laserState, vendorName, txPower, rxPower, txThreshold, rxThreshold）
+        // 空列占位（laserState, vendorName, txPower, rxPower, status）
         groupTr.appendChild(createTextCell(''));
         groupTr.appendChild(createTextCell(''));
         groupTr.appendChild(createTextCell(''));
         groupTr.appendChild(createTextCell(''));
         groupTr.appendChild(createTextCell(''));
+
+        // 带宽利用率汇总
+        const bwTd = document.createElement('td');
+        bwTd.style.cssText = 'font-size:12px;font-weight:400;color:#6b7280;';
+        if (bwCount > 0) {
+            const avg = (bwSum / bwCount).toFixed(1);
+            bwTd.textContent = '均 ' + avg + '% / 峰 ' + bwMax.toFixed(1) + '%';
+            if (bwMax >= 90) bwTd.style.color = '#dc2626';
+            else if (bwMax >= 70) bwTd.style.color = '#f59e0b';
+        } else {
+            bwTd.textContent = '-';
+        }
+        groupTr.appendChild(bwTd);
+
         groupTr.appendChild(createTextCell(''));
         groupTr.appendChild(createTextCell(''));
 
@@ -377,39 +473,57 @@ function renderQueryTable() {
                 tr.appendChild(createTextCell(r.slotNo != null ? String(r.slotNo) : '-'));
                 tr.appendChild(createTextCell(r.portNo != null ? String(r.portNo) : '-'));
                 tr.appendChild(createTextCell(r.portName || '-'));
-                tr.appendChild(createTextCell(r.laserWave || '-'));
-                tr.appendChild(createTextCell(r.moduleTypeKey || '-'));
 
-                // 激光器状态
-                const lsTd = document.createElement('td');
-                const lsText = r.laserState === 1 ? '开' : r.laserState === 2 ? '关' : '--';
-                lsTd.textContent = lsText;
-                if (r.laserState === 2) lsTd.style.color = '#dc2626';
-                tr.appendChild(lsTd);
-
-                tr.appendChild(createTextCell(r.vendorName || '--'));
-
-                // 发送功率
-                const txTd = document.createElement('td');
-                if (r.supported && r.txPower != null) {
-                    txTd.textContent = r.txPower.toFixed(1);
-                    if (r.txPowerStatus > 0) txTd.style.color = '#dc2626';
+                // 纯带宽端口：显示带宽详情；否则显示光功率信息
+                const hasBw = r.bandwidth && r.bandwidth.hasBandwidth;
+                if (!r.supported && hasBw) {
+                    // 波长列 → 总容量
+                    tr.appendChild(createTextCell(formatCapacity(r.bandwidth.capacity)));
+                    // 激光器类型列 → 通道使用摘要
+                    tr.appendChild(createTextCell(formatChannelSummary(r.bandwidth)));
+                    // 激光器状态 → 空
+                    tr.appendChild(createTextCell('--'));
+                    // 生产厂商 → 空
+                    tr.appendChild(createTextCell('--'));
+                    // 发送功率 → 已用/总量
+                    tr.appendChild(createTextCell(formatUsedCapacity(r.bandwidth.used, r.bandwidth.capacity)));
+                    // 接收功率 → 空
+                    tr.appendChild(createTextCell('--'));
                 } else {
-                    txTd.textContent = '--';
-                    txTd.style.color = '#9ca3af';
-                }
-                tr.appendChild(txTd);
+                    tr.appendChild(createTextCell(r.laserWave || '-'));
+                    tr.appendChild(createTextCell(r.moduleTypeKey || '-'));
 
-                // 接收功率
-                const rxTd = document.createElement('td');
-                if (r.supported && r.rxPower != null) {
-                    rxTd.textContent = r.rxPower.toFixed(1);
-                    if (r.rxPowerStatus > 0) rxTd.style.color = '#dc2626';
-                } else {
-                    rxTd.textContent = '--';
-                    rxTd.style.color = '#9ca3af';
+                    // 激光器状态
+                    const lsTd = document.createElement('td');
+                    const lsText = r.laserState === 1 ? '开' : r.laserState === 2 ? '关' : '--';
+                    lsTd.textContent = lsText;
+                    if (r.laserState === 2) lsTd.style.color = '#dc2626';
+                    tr.appendChild(lsTd);
+
+                    tr.appendChild(createTextCell(r.vendorName || '--'));
+
+                    // 发送功率
+                    const txTd = document.createElement('td');
+                    if (r.supported && r.txPower != null) {
+                        txTd.textContent = r.txPower.toFixed(1);
+                        if (r.txPowerStatus > 0) txTd.style.color = '#dc2626';
+                    } else {
+                        txTd.textContent = '--';
+                        txTd.style.color = '#9ca3af';
+                    }
+                    tr.appendChild(txTd);
+
+                    // 接收功率
+                    const rxTd = document.createElement('td');
+                    if (r.supported && r.rxPower != null) {
+                        rxTd.textContent = r.rxPower.toFixed(1);
+                        if (r.rxPowerStatus > 0) rxTd.style.color = '#dc2626';
+                    } else {
+                        rxTd.textContent = '--';
+                        rxTd.style.color = '#9ca3af';
+                    }
+                    tr.appendChild(rxTd);
                 }
-                tr.appendChild(rxTd);
 
                 // 状态
                 const stTd = document.createElement('td');
@@ -419,6 +533,37 @@ function renderQueryTable() {
                 badge.textContent = status.text;
                 stTd.appendChild(badge);
                 tr.appendChild(stTd);
+
+                // 带宽利用率
+                const bwTd = document.createElement('td');
+                if (r.bandwidth && r.bandwidth.hasBandwidth) {
+                    const rate = r.bandwidth.usageRate || 0;
+                    const rateText = rate.toFixed(1) + '%';
+                    // 进度条容器
+                    const barWrap = document.createElement('div');
+                    barWrap.style.cssText = 'display:flex;align-items:center;gap:6px;min-width:120px;';
+                    const barOuter = document.createElement('div');
+                    barOuter.style.cssText = 'flex:1;height:6px;background:#e5e7eb;border-radius:3px;overflow:hidden;min-width:60px;';
+                    const barInner = document.createElement('div');
+                    barInner.style.cssText = 'height:100%;border-radius:3px;transition:width .3s;';
+                    if (rate >= 90) barInner.style.background = '#dc2626';
+                    else if (rate >= 70) barInner.style.background = '#f59e0b';
+                    else barInner.style.background = '#22c55e';
+                    barInner.style.width = Math.min(rate, 100) + '%';
+                    barOuter.appendChild(barInner);
+                    const rateSpan = document.createElement('span');
+                    rateSpan.style.cssText = 'font-size:12px;white-space:nowrap;min-width:42px;text-align:right;';
+                    rateSpan.textContent = rateText;
+                    if (rate >= 90) rateSpan.style.color = '#dc2626';
+                    else if (rate >= 70) rateSpan.style.color = '#f59e0b';
+                    barWrap.appendChild(barOuter);
+                    barWrap.appendChild(rateSpan);
+                    bwTd.appendChild(barWrap);
+                } else {
+                    bwTd.textContent = '--';
+                    bwTd.style.color = '#9ca3af';
+                }
+                tr.appendChild(bwTd);
 
                 tr.appendChild(createTextCell(r.txLowThreshold != null ? r.txLowThreshold + '~' + r.txHighThreshold : '-'));
                 tr.appendChild(createTextCell(r.lowThreshold != null ? r.lowThreshold + '~' + r.highThreshold : '-'));

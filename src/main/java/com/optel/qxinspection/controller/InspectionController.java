@@ -41,6 +41,7 @@ public class InspectionController {
     private final ThresholdRuleRepository thresholdRuleRepository;
     private final PortWatchRepository portWatchRepository;
     private final ClockInspectionService clockInspectionService;
+    private final com.optel.qxinspection.service.BandwidthService bandwidthService;
 
     private static final DateTimeFormatter DT_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
@@ -136,7 +137,7 @@ public class InspectionController {
     }
 
     /**
-     * 导出巡检结果为 Excel
+     * 导出巡检结果为 Excel（含带宽利用率）
      */
     @GetMapping("/export")
     public void exportExcel(@RequestParam(required = false) Long roundId,
@@ -151,6 +152,14 @@ public class InspectionController {
         }
         if (!showInvalid) {
             data = data.stream().filter(r -> Boolean.TRUE.equals(r.getSupported())).toList();
+        }
+
+        // 加载带宽数据并构建索引
+        List<Map<String, Object>> bandwidthData = bandwidthService.queryAll();
+        Map<String, Map<String, Object>> bwMap = new java.util.HashMap<>();
+        for (Map<String, Object> bw : bandwidthData) {
+            String key = bw.get("neId") + ":" + bw.get("slotNo") + ":" + bw.get("portNo");
+            bwMap.put(key, bw);
         }
 
         // 动态文件名
@@ -172,6 +181,7 @@ public class InspectionController {
             String[] columns = {"网元名称", "网元ID", "所属网络", "设备类型", "槽位", "端口", "端口名称", "激光器状态",
                     "光模块速率", "距离档", "模块型号", "生产厂商",
                     "发送功率(dBm)", "接收功率(dBm)", "发送状态", "接收状态",
+                    "带宽利用率(%)", "已用容量", "总容量",
                     "发送低门限", "发送高门限", "接收低门限", "接收高门限", "巡检时间", "备注"};
 
             CellStyle headerStyle = workbook.createCellStyle();
@@ -234,12 +244,26 @@ public class InspectionController {
                 rxStatusCell.setCellValue(rxStatus);
                 rxStatusCell.setCellStyle(r.getRxPowerStatus() != null && r.getRxPowerStatus() > 0 ? warnStyle : normalStyle);
 
-                row.createCell(16).setCellValue(r.getTxLowThreshold() != null ? r.getTxLowThreshold() : 0);
-                row.createCell(17).setCellValue(r.getTxHighThreshold() != null ? r.getTxHighThreshold() : 0);
-                row.createCell(18).setCellValue(r.getLowThreshold() != null ? r.getLowThreshold() : 0);
-                row.createCell(19).setCellValue(r.getHighThreshold() != null ? r.getHighThreshold() : 0);
-                row.createCell(20).setCellValue(r.getInspectionTime() != null ? r.getInspectionTime().format(DT_FMT) : "");
-                row.createCell(21).setCellValue(r.getFailReason() != null ? r.getFailReason() : "");
+                // 带宽利用率
+                String bwKey = r.getNeId() + ":" + r.getSlotNo() + ":" + r.getPortNo();
+                Map<String, Object> bwData = bwMap.get(bwKey);
+                if (bwData != null) {
+                    Number rate = (Number) bwData.get("usageRate");
+                    row.createCell(16).setCellValue(rate != null ? rate.doubleValue() : 0);
+                    row.createCell(17).setCellValue(((Number) bwData.getOrDefault("used", 0)).intValue());
+                    row.createCell(18).setCellValue(((Number) bwData.getOrDefault("capacity", 0)).intValue());
+                } else {
+                    row.createCell(16).setCellValue("--");
+                    row.createCell(17).setCellValue("--");
+                    row.createCell(18).setCellValue("--");
+                }
+
+                row.createCell(19).setCellValue(r.getTxLowThreshold() != null ? r.getTxLowThreshold() : 0);
+                row.createCell(20).setCellValue(r.getTxHighThreshold() != null ? r.getTxHighThreshold() : 0);
+                row.createCell(21).setCellValue(r.getLowThreshold() != null ? r.getLowThreshold() : 0);
+                row.createCell(22).setCellValue(r.getHighThreshold() != null ? r.getHighThreshold() : 0);
+                row.createCell(23).setCellValue(r.getInspectionTime() != null ? r.getInspectionTime().format(DT_FMT) : "");
+                row.createCell(24).setCellValue(r.getFailReason() != null ? r.getFailReason() : "");
             }
 
             // 自动列宽
