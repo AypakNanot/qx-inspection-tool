@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
 
 import java.nio.ByteBuffer;
+import java.util.List;
 
 /**
  * Common base class for all auto-generated Qx protocol services.
@@ -289,6 +290,123 @@ public abstract class AbstractGeneratedQxService extends AbstractQxService {
         return decoded;
     }
 
+    // ---- Raw send/decode for listRecord support ----
+
+    /**
+     * Send pre-encoded payload, check device result, publish COMM log.
+     * Used by Set commands with request-side listRecord.
+     */
+    protected final QxSendResult sendRaw(String neId, int cmdCode, byte[] payload,
+                                         Object reqLog, String operation) {
+        long sendTs = System.currentTimeMillis();
+        QxSendResult result = qxDeviceService.send(neId, cmdCode, payload, null);
+        long recvTs = System.currentTimeMillis();
+        int ms = (int) (recvTs - sendTs);
+
+        if (!result.isSuccess()) {
+            sendFailAndThrow(neId, cmdCode, operation, sendTs, ms,
+                    toHex(payload), toJson(reqLog), result);
+        }
+
+        logComm(neId, cmdCode, operation, true, sendTs, ms,
+                toHex(payload), toJson(reqLog),
+                toHex(result.getRawPayload()), null,
+                "{\"deviceResult\":0}", result.getResponseHeader());
+        return result;
+    }
+
+    /**
+     * Send pre-encoded payload, check result, decode response, publish COMM log.
+     * Used by Get commands where request or response is a listRecord (not in codec registry).
+     * Falls back to reflection-based codec instantiation for listRecord types.
+     */
+    @SuppressWarnings("unchecked")
+    protected final <Resp> Object sendAndDecodeRaw(String neId, int cmdCode, byte[] payload,
+                                                   Object reqLog, Class<Resp> responseType,
+                                                   String operation) {
+        QxPayloadCodec<Resp> codec;
+        try {
+            codec = getCodec(responseType, cmdCode, neId);
+        } catch (Exception e) {
+            codec = tryCreateListRecordCodec(responseType);
+            if (codec == null) {
+                logComm(neId, cmdCode, operation, false, 0L, 0,
+                        toHex(payload), toJson(reqLog), null, null,
+                        "{\"errorType\":\"CODEC_LOOKUP\",\"error\":\"" + escapeJson(e.getMessage()) + "\"}",
+                        null);
+                throw e;
+            }
+        }
+
+        long sendTs = System.currentTimeMillis();
+        QxSendResult result = qxDeviceService.send(neId, cmdCode, payload, null);
+        long recvTs = System.currentTimeMillis();
+        int ms = (int) (recvTs - sendTs);
+
+        if (!result.isSuccess()) {
+            int deviceCode = result.getDeviceErrorCode() != null
+                    ? result.getDeviceErrorCode() : QxErrorCode.OTHER_ERROR;
+            String deviceMsg = result.getDeviceErrorMessage();
+            log.error("{} failed: neId={}, cmdCode=0x{}, deviceResult={}, desc={}",
+                    operation, neId, String.format("%04X", cmdCode & 0xFFFF), deviceCode, deviceMsg);
+            logComm(neId, cmdCode, operation, false, sendTs, ms,
+                    toHex(payload), toJson(reqLog), null, null,
+                    "{\"errorType\":\"SEND\",\"deviceResult\":" + deviceCode
+                            + ",\"error\":\"" + escapeJson(deviceMsg) + "\"}",
+                    result.getResponseHeader());
+            throw new QxCommandException(deviceCode,
+                    operation + " failed: [" + deviceCode + "] " + deviceMsg);
+        }
+        byte[] raw = result.getRawPayload();
+
+        Object decoded;
+        try {
+            if (codec.isListRecord()) {
+                decoded = codec.decodeList(raw);
+            } else {
+                decoded = codec.decode(raw);
+            }
+        } catch (Exception e) {
+            logComm(neId, cmdCode, operation, false, sendTs, ms,
+                    toHex(payload), toJson(reqLog), toHex(raw), null,
+                    "{\"errorType\":\"DECODE\",\"error\":\"" + escapeJson(e.getMessage()) + "\"}",
+                    result.getResponseHeader());
+            throw e;
+        }
+
+        logComm(neId, cmdCode, operation, true, sendTs, ms,
+                toHex(payload), toJson(reqLog), toHex(raw), toJson(decoded), null,
+                result.getResponseHeader());
+        return decoded;
+    }
+
+    // ---- List-record thin wrappers ----
+
+    /**
+     * Encode multiple records, concat, send, check result.
+     * Used by Set commands with request-side listRecord.
+     */
+    protected final <Rec> void sendAndCheck(String neId, int cmdCode,
+                                            List<Rec> records,
+                                            QxPayloadCodec<Rec> codec,
+                                            String operation) {
+        sendRaw(neId, cmdCode, concatRecords(records, codec), records, operation);
+    }
+
+    /**
+     * Encode a list of records, send, decode response.
+     * Used by Get commands with request-side listRecord.
+     */
+    @SuppressWarnings("unchecked")
+    protected final <Rec, Resp> Resp sendListAndDecode(String neId, int cmdCode,
+                                                       List<Rec> records,
+                                                       QxPayloadCodec<Rec> recordCodec,
+                                                       Class<Resp> responseType,
+                                                       String operation) {
+        return (Resp) sendAndDecodeRaw(neId, cmdCode, concatRecords(records, recordCodec),
+                records, responseType, operation);
+    }
+
     // ---- Log publishing ----
 
     /**
@@ -449,5 +567,42 @@ public abstract class AbstractGeneratedQxService extends AbstractQxService {
                     "No codec registered for response type: " + responseType.getName());
         }
         return codec;
+    }
+
+    /**
+     * Try to instantiate a listRecord codec via reflection.
+     * listRecord codecs are not registered in the codec registry (they share
+     * cmdCode with their parent), so we create them directly by convention:
+     * {@code <RecordClass>Codec} in the same package.
+     */
+    @SuppressWarnings("unchecked")
+    private <Resp> QxPayloadCodec<Resp> tryCreateListRecordCodec(Class<Resp> responseType) {
+        try {
+            String codecClassName = responseType.getName() + "Codec";
+            Class<?> codecClass = Class.forName(codecClassName);
+            return (QxPayloadCodec<Resp>) codecClass.getDeclaredConstructor().newInstance();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * Encode multiple records and concatenate into a single byte array.
+     * Used for request-side listRecord encoding.
+     */
+    protected <Rec> byte[] concatRecords(List<Rec> records, QxPayloadCodec<Rec> codec) {
+        byte[][] chunks = new byte[records.size()][];
+        int totalLen = 0;
+        for (int i = 0; i < records.size(); i++) {
+            chunks[i] = codec.encode(records.get(i));
+            totalLen += chunks[i].length;
+        }
+        byte[] payload = new byte[totalLen];
+        int offset = 0;
+        for (byte[] chunk : chunks) {
+            System.arraycopy(chunk, 0, payload, offset, chunk.length);
+            offset += chunk.length;
+        }
+        return payload;
     }
 }
