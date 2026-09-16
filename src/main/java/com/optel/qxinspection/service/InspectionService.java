@@ -2,6 +2,7 @@ package com.optel.qxinspection.service;
 
 import com.optel.qxinspection.entity.sqlite.DeviceAccessConfig;
 import com.optel.qxinspection.entity.sqlite.InspectionRound;
+import com.optel.qxinspection.entity.sqlite.LinkInspectionResult;
 import com.optel.qxinspection.entity.sqlite.OpticalPowerInspection;
 import com.optel.qxinspection.laser.LaserAttributeAckData;
 import com.optel.qxinspection.laser.LaserAttributeGetData;
@@ -42,15 +43,11 @@ public class InspectionService {
     private static final String KEY_AUTO_CONNECT = "inspect.autoConnect";
     private static final String KEY_AUTO_DISCONNECT = "inspect.autoDisconnect";
     private static final String KEY_SAVE_INVALID = "inspect.saveInvalid";
-
     @Value("${app.inspection.concurrency:10}")
     private int concurrency;
 
     @Value("${app.inspection.max-rounds:10}")
     private int maxRounds;
-
-    @Value("${app.inspection.port-defname-patterns:STM%,GE%}")
-    private String portDefnamePatterns;
 
     @jakarta.annotation.PostConstruct
     public void init() {
@@ -729,13 +726,13 @@ public class InspectionService {
         String neId = device.getNeId();
         int failPorts = 0;
 
-        for (Map<String, Object> dmeoPort : opticalPorts) {
-            String oid = (String) dmeoPort.get("oid");
+        for (Map<String, Object> port : opticalPorts) {
+            String oid = (String) port.get("oid");
             int subrackId = OidUtil.getSubrackId(oid);
             int slotId = OidUtil.getSlotId(oid);
             int portId = OidUtil.getPortId(oid);
-            int portType = dmeoPort.get("type") != null ? ((Number) dmeoPort.get("type")).intValue() : 0xFF;
-            String portName = (String) dmeoPort.get("name");
+            int portType = port.get("type") instanceof Number n ? n.intValue() : 0xFF;
+            String portName = (String) port.get("name");
             progressCurrentPort = "槽位" + slotId + " 端口" + portId + (portName != null ? " (" + portName + ")" : "");
 
             try {
@@ -749,10 +746,10 @@ public class InspectionService {
                         .build();
 
                 LaserAttributeAckData laser = laserService.attributeGet(neId, req);
-                records.add(buildRecord(round, device, slotId, portType, 0xFF, portId, (String) dmeoPort.get("name"), laser));
+                records.add(buildRecord(round, device, slotId, portType, 0xFF, portId, portName, laser));
             } catch (Exception e) {
                 failPorts++;
-                records.add(buildFailRecord(round, device, slotId, portType, 0xFF, portId, (String) dmeoPort.get("name"), e.getMessage()));
+                records.add(buildFailRecord(round, device, slotId, portType, 0xFF, portId, portName, e.getMessage()));
                 log.debug("端口查询失败: {} oid={}, {}",
                         device.getNeName(), oid, e.getMessage());
             }
@@ -773,41 +770,31 @@ public class InspectionService {
     }
 
     /**
-     * 从 SQLite dmeo 表查询该网元下符合 defName 模式的光口端口
+     * 基于链路的端口查询：从 dmconnection（cid=100）获取链路端口，再从 dmeo 获取端口详情。
      */
     private List<Map<String, Object>> queryOpticalPorts(String neId) {
-        String[] patterns = parsePatterns();
-        // 构建 defName LIKE 条件（OR 逻辑）
-        StringBuilder where = new StringBuilder("cid = 5 AND oid LIKE ? || ':%' AND (");
-        List<Object> params = new ArrayList<>();
-        params.add(neId);
+        String nePrefix = neId + ":";
+        List<String> portOids = new ArrayList<>();
 
-        List<String> likeConditions = new ArrayList<>();
-        for (String p : patterns) {
-            if (p != null) {
-                likeConditions.add("defName LIKE ?");
-                params.add(p);
-            }
+        List<Map<String, Object>> connections = sqliteJdbc.queryForList(
+                "SELECT \"aEnd\", \"zEnd\" FROM \"dmconnection\" WHERE \"cid\" = 100 AND (\"aEnd\" LIKE ? OR \"zEnd\" LIKE ?)",
+                nePrefix + "%", nePrefix + "%");
+        for (Map<String, Object> conn : connections) {
+            String aEnd = (String) conn.get("aEnd");
+            String zEnd = (String) conn.get("zEnd");
+            if (aEnd != null && aEnd.startsWith(nePrefix)) portOids.add(aEnd);
+            if (zEnd != null && zEnd.startsWith(nePrefix)) portOids.add(zEnd);
         }
-        if (likeConditions.isEmpty()) {
+
+        if (portOids.isEmpty()) {
             return List.of();
         }
-        where.append(String.join(" OR ", likeConditions));
-        where.append(")");
 
+        List<String> uniqueOids = new ArrayList<>(new LinkedHashSet<>(portOids));
+        String placeholders = String.join(",", Collections.nCopies(uniqueOids.size(), "?"));
         return sqliteJdbc.queryForList(
-                "SELECT * FROM \"dmeo\" WHERE " + where, params.toArray());
-    }
-
-    private static final int MAX_PATTERNS = 5;
-
-    private String[] parsePatterns() {
-        String[] raw = portDefnamePatterns.split(",");
-        String[] result = new String[MAX_PATTERNS];
-        for (int i = 0; i < MAX_PATTERNS; i++) {
-            result[i] = i < raw.length ? raw[i].trim() : null;
-        }
-        return result;
+                "SELECT \"oid\", \"type\", \"name\" FROM \"dmeo\" WHERE \"oid\" IN (" + placeholders + ")",
+                uniqueOids.toArray());
     }
 
     private OpticalPowerInspection buildRecord(InspectionRound round, DeviceAccessConfig device,
@@ -1018,5 +1005,202 @@ public class InspectionService {
         }
         log.info("采集参数已更新: concurrency={}, maxRounds={}, autoConnect={}, autoDisconnect={}, saveInvalid={}",
                 concurrency, maxRounds, autoConnect, autoDisconnect, saveInvalid);
+    }
+
+    // ========== 链路巡检结果查询 ==========
+
+    /**
+     * 获取链路巡检结果（A端+Z端合并显示）
+     */
+    public List<LinkInspectionResult> getLinkResults(Long roundId, String network) {
+        // 获取所有巡检记录
+        List<OpticalPowerInspection> allRecords;
+        if (roundId != null) {
+            allRecords = powerRecordRepository.findByRoundId(roundId);
+        } else {
+            allRecords = inspectionRoundRepository.findFirstByOrderByStartTimeDesc()
+                    .map(r -> powerRecordRepository.findByRoundId(r.getId()))
+                    .orElse(Collections.emptyList());
+        }
+
+        // 应用门限
+        allRecords = thresholdService.applyThresholds(allRecords);
+
+        // 按端口构建索引：neId:slotNo:portNo -> OpticalPowerInspection
+        Map<String, OpticalPowerInspection> portIndex = new LinkedHashMap<>();
+        for (OpticalPowerInspection r : allRecords) {
+            portIndex.put(r.getNeId() + ":" + r.getSlotNo() + ":" + r.getPortNo(), r);
+        }
+
+        // 查询所有链路（cid=100）
+        List<Map<String, Object>> links = sqliteJdbc.queryForList(
+                "SELECT \"oid\", \"name\", \"aEnd\", \"zEnd\" FROM \"dmconnection\" WHERE \"cid\" = 100");
+
+        // 批量加载参考数据（避免循环内逐条查询）
+        Map<String, String> portNameMap = loadDmeoNameMap();
+        Map<String, String> neNameMap = loadNeNameMap();
+        Map<String, String> neTypeNameMap = loadNeTypeNameMap();
+        Map<String, List<String>> networkMap = loadNetworkMap();
+
+        List<LinkInspectionResult> results = new ArrayList<>();
+        int seq = 1;
+
+        for (Map<String, Object> link : links) {
+            String linkOid = (String) link.get("oid");
+            String linkName = (String) link.get("name");
+            String aEnd = (String) link.get("aEnd");
+            String zEnd = (String) link.get("zEnd");
+
+            // 网络过滤
+            if (network != null && !network.isEmpty()) {
+                if (!isPortInNetwork(aEnd, network, networkMap) && !isPortInNetwork(zEnd, network, networkMap)) {
+                    continue;
+                }
+            }
+
+            LinkInspectionResult result = new LinkInspectionResult();
+            result.setSeqNo(seq++);
+            result.setLinkName(linkName);
+            result.setLinkOid(linkOid);
+
+            fillPortInfo(result, aEnd, portIndex, true, portNameMap, neNameMap, neTypeNameMap);
+            fillPortInfo(result, zEnd, portIndex, false, portNameMap, neNameMap, neTypeNameMap);
+
+            results.add(result);
+        }
+
+        return results;
+    }
+
+    private Map<String, String> loadDmeoNameMap() {
+        Map<String, String> map = new HashMap<>();
+        for (Map<String, Object> row : sqliteJdbc.queryForList("SELECT \"oid\", \"name\" FROM \"dmeo\"")) {
+            map.put((String) row.get("oid"), (String) row.get("name"));
+        }
+        return map;
+    }
+
+    private Map<String, String> loadNeNameMap() {
+        Map<String, String> map = new HashMap<>();
+        for (Map<String, Object> row : sqliteJdbc.queryForList("SELECT \"oid\", \"name\" FROM \"dmeo\" WHERE \"cid\" = 2")) {
+            map.put((String) row.get("oid"), (String) row.get("name"));
+        }
+        return map;
+    }
+
+    private Map<String, String> loadNeTypeNameMap() {
+        Map<String, String> map = new HashMap<>();
+        for (Map<String, Object> row : sqliteJdbc.queryForList(
+                "SELECT m.\"oid\", f.\"cName\" FROM \"dmne\" m JOIN \"defdmne\" f ON m.\"type\" = f.\"neType\"")) {
+            map.put((String) row.get("oid"), (String) row.get("cName"));
+        }
+        return map;
+    }
+
+    private Map<String, List<String>> loadNetworkMap() {
+        Map<String, List<String>> map = new HashMap<>();
+        for (Map<String, Object> row : sqliteJdbc.queryForList(
+                "SELECT r.\"oid\", d.\"name\" FROM \"dmrelation\" r JOIN \"dmeo\" d ON r.\"reo\" = d.\"oid\" WHERE r.\"type\" = 1")) {
+            String oid = (String) row.get("oid");
+            String name = (String) row.get("name");
+            map.computeIfAbsent(oid, k -> new ArrayList<>()).add(name);
+        }
+        return map;
+    }
+
+    private boolean isPortInNetwork(String portOid, String network, Map<String, List<String>> networkMap) {
+        if (portOid == null) return false;
+        String neId = OidUtil.getNeOid(portOid);
+        List<String> networks = networkMap.get(neId);
+        return networks != null && networks.contains(network);
+    }
+
+    private void fillPortInfo(LinkInspectionResult result,
+                              String portOid, Map<String, OpticalPowerInspection> portIndex, boolean isAEnd,
+                              Map<String, String> portNameMap, Map<String, String> neNameMap,
+                              Map<String, String> neTypeNameMap) {
+        if (portOid == null) return;
+
+        String portName = portNameMap.get(portOid);
+
+        // 从 portOid 解析 neId 和 portKey
+        int[] seg = OidUtil.parseSegments(portOid);
+        if (seg.length < 4) return;
+        String neId = String.valueOf(seg[0]);
+        String portKey = seg[0] + ":" + seg[2] + ":" + seg[3];
+
+        // neName / neTypeName 从巡检记录取，无记录时从预加载 Map 取
+        OpticalPowerInspection record = portIndex.get(portKey);
+        String neName = record != null ? record.getNeName() : neNameMap.get(neId);
+        String neTypeName = record != null ? record.getNeTypeName() : neTypeNameMap.get(neId);
+
+        if (isAEnd) {
+            result.setANeId(neId);
+            result.setANeName(neName);
+            result.setANeTypeName(neTypeName);
+            result.setAPortName(portName);
+            if (record != null) {
+                result.setAModuleType(record.getModuleTypeKey());
+                result.setATxPower(record.getTxPower());
+                result.setARxPower(record.getRxPower());
+                result.setATxStatus(formatStatus(record.getTxPowerStatus()));
+                result.setARxStatus(formatStatus(record.getRxPowerStatus()));
+                result.setATxLowThreshold(record.getTxLowThreshold());
+                result.setATxHighThreshold(record.getTxHighThreshold());
+                result.setARxLowThreshold(record.getLowThreshold());
+                result.setARxHighThreshold(record.getHighThreshold());
+            }
+            result.setAB1Error("--");
+            result.setABandwidthUsage(null);
+        } else {
+            result.setZNeId(neId);
+            result.setZNeName(neName);
+            result.setZNeTypeName(neTypeName);
+            result.setZPortName(portName);
+            if (record != null) {
+                result.setZModuleType(record.getModuleTypeKey());
+                result.setZTxPower(record.getTxPower());
+                result.setZRxPower(record.getRxPower());
+                result.setZTxStatus(formatStatus(record.getTxPowerStatus()));
+                result.setZRxStatus(formatStatus(record.getRxPowerStatus()));
+                result.setZTxLowThreshold(record.getTxLowThreshold());
+                result.setZTxHighThreshold(record.getTxHighThreshold());
+                result.setZRxLowThreshold(record.getLowThreshold());
+                result.setZRxHighThreshold(record.getHighThreshold());
+            }
+            result.setZB1Error("--");
+            result.setZBandwidthUsage(null);
+        }
+    }
+
+    private String queryNeName(String neId) {
+        try {
+            return sqliteJdbc.queryForObject(
+                    "SELECT \"name\" FROM \"dmeo\" WHERE \"cid\" = 2 AND \"oid\" = ?", String.class, neId);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String queryNeTypeName(String neId) {
+        try {
+            return sqliteJdbc.queryForObject(
+                    "SELECT f.\"cName\" FROM \"dmne\" m JOIN \"defdmne\" f ON m.\"type\" = f.\"neType\" WHERE m.\"oid\" = ?",
+                    String.class, neId);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    // ========== 工具方法 ==========
+
+    private String formatStatus(Integer status) {
+        if (status == null) return "--";
+        return switch (status) {
+            case 0 -> "正常";
+            case 1 -> "越下限";
+            case 2 -> "越上限";
+            default -> "未知";
+        };
     }
 }

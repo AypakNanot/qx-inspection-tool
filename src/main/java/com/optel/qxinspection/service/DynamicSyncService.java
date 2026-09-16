@@ -233,6 +233,7 @@ public class DynamicSyncService {
         });
 
         log.info("表 {} 同步完成, 共 {} 行", table, rowCount[0]);
+
         return rowCount[0];
     }
 
@@ -368,6 +369,7 @@ public class DynamicSyncService {
             }
         });
         log.info("clearSyncData: 已清除 {} 张表", result.size());
+
         return result;
     }
 

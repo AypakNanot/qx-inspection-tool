@@ -207,6 +207,7 @@ export async function loadCollectParams() {
         document.getElementById('paramAutoConnect').checked = d.autoConnect !== false;
         document.getElementById('paramAutoDisconnect').checked = d.autoDisconnect !== false;
         document.getElementById('paramSaveInvalid').checked = d.saveInvalid !== false;
+        document.getElementById('paramLinkBasedFilter').checked = d.linkBasedPortFilter === true;
     } catch (e) { console.error('loadCollectParams', e); }
 }
 
@@ -223,7 +224,8 @@ export async function saveCollectParams() {
         maxRounds,
         autoConnect: document.getElementById('paramAutoConnect').checked,
         autoDisconnect: document.getElementById('paramAutoDisconnect').checked,
-        saveInvalid: document.getElementById('paramSaveInvalid').checked
+        saveInvalid: document.getElementById('paramSaveInvalid').checked,
+        linkBasedPortFilter: document.getElementById('paramLinkBasedFilter').checked
     };
     try {
         await post('/inspection/collect-params', body);

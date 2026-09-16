@@ -295,6 +295,188 @@ public class InspectionController {
         };
     }
 
+    // ========== 链路巡检结果 ==========
+
+    /**
+     * 获取链路巡检结果（A端+Z端合并显示）
+     */
+    @GetMapping("/link-results")
+    public List<com.optel.qxinspection.entity.sqlite.LinkInspectionResult> getLinkResults(
+            @RequestParam(required = false) Long roundId,
+            @RequestParam(required = false) String network) {
+        return inspectionService.getLinkResults(roundId, network);
+    }
+
+    /**
+     * 导出链路巡检结果为 Excel（A端+Z端在同一行）
+     */
+    @GetMapping("/export-link")
+    public void exportLinkExcel(@RequestParam(required = false) Long roundId,
+                                @RequestParam(required = false) String network,
+                                HttpServletResponse response) throws IOException {
+        List<com.optel.qxinspection.entity.sqlite.LinkInspectionResult> data =
+                inspectionService.getLinkResults(roundId, network);
+
+        // 动态文件名
+        String scope = (network != null && !network.isEmpty()) ? network : "全网";
+        String timestamp = java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMddHHmm"));
+        String filename = "链路巡检_" + scope + "_" + timestamp + ".xlsx";
+
+        response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        String encodedName = java.net.URLEncoder.encode(filename, "UTF-8").replace("+", "%20");
+        response.setHeader("Content-Disposition", "attachment; filename=\"link_inspection.xlsx\"; filename*=UTF-8''" + encodedName);
+
+        try (Workbook workbook = new XSSFWorkbook();
+             OutputStream out = response.getOutputStream()) {
+
+            Sheet sheet = workbook.createSheet("链路巡检结果");
+
+            // 单元格样式
+            CellStyle headerStyle = workbook.createCellStyle();
+            Font headerFont = workbook.createFont();
+            headerFont.setBold(true);
+            headerStyle.setFont(headerFont);
+            headerStyle.setAlignment(HorizontalAlignment.CENTER);
+            headerStyle.setBorderBottom(BorderStyle.THIN);
+            headerStyle.setBorderTop(BorderStyle.THIN);
+            headerStyle.setBorderLeft(BorderStyle.THIN);
+            headerStyle.setBorderRight(BorderStyle.THIN);
+
+            CellStyle normalStyle = workbook.createCellStyle();
+            normalStyle.setAlignment(HorizontalAlignment.CENTER);
+            normalStyle.setBorderBottom(BorderStyle.THIN);
+            normalStyle.setBorderTop(BorderStyle.THIN);
+            normalStyle.setBorderLeft(BorderStyle.THIN);
+            normalStyle.setBorderRight(BorderStyle.THIN);
+
+            CellStyle warnStyle = workbook.createCellStyle();
+            warnStyle.setAlignment(HorizontalAlignment.CENTER);
+            warnStyle.setBorderBottom(BorderStyle.THIN);
+            warnStyle.setBorderTop(BorderStyle.THIN);
+            warnStyle.setBorderLeft(BorderStyle.THIN);
+            warnStyle.setBorderRight(BorderStyle.THIN);
+            Font warnFont = workbook.createFont();
+            warnFont.setColor(IndexedColors.RED.getIndex());
+            warnStyle.setFont(warnFont);
+
+            // 第一行：合并表头（A端、Z端）
+            Row row0 = sheet.createRow(0);
+            Cell seqHeader0 = row0.createCell(0);
+            seqHeader0.setCellValue("序号");
+            seqHeader0.setCellStyle(headerStyle);
+
+            Cell linkHeader0 = row0.createCell(1);
+            linkHeader0.setCellValue("链路名称");
+            linkHeader0.setCellStyle(headerStyle);
+
+            // A端合并单元格
+            CellRangeAddress aRange = new CellRangeAddress(0, 0, 2, 11);
+            sheet.addMergedRegion(aRange);
+            Cell aHeader0 = row0.createCell(2);
+            aHeader0.setCellValue("A端");
+            aHeader0.setCellStyle(headerStyle);
+
+            // Z端合并单元格
+            CellRangeAddress zRange = new CellRangeAddress(0, 0, 12, 21);
+            sheet.addMergedRegion(zRange);
+            Cell zHeader0 = row0.createCell(12);
+            zHeader0.setCellValue("Z端");
+            zHeader0.setCellStyle(headerStyle);
+
+            // 第二行：详细列名
+            Row row1 = sheet.createRow(1);
+            String[] columns = {
+                    "序号", "链路名称",
+                    "A端网元", "A端网元类型", "A端口", "光模块类型", "发光功率\n(dBm)", "收光功率\n(dBm)", "发光状态", "收光状态", "B1差错率", "带宽利用率",
+                    "Z端网元", "Z端网元类型", "Z端口", "光模块类型", "发光功率\n(dBm)", "收光功率\n(dBm)", "发光状态", "收光状态", "B1差错率", "带宽利用率"
+            };
+            for (int i = 0; i < columns.length; i++) {
+                Cell cell = row1.createCell(i);
+                cell.setCellValue(columns[i]);
+                cell.setCellStyle(headerStyle);
+            }
+
+            // 数据行
+            int rowIdx = 2;
+            for (com.optel.qxinspection.entity.sqlite.LinkInspectionResult r : data) {
+                Row row = sheet.createRow(rowIdx++);
+
+                row.createCell(0).setCellValue(r.getSeqNo() != null ? r.getSeqNo() : 0);
+                row.createCell(1).setCellValue(r.getLinkName() != null ? r.getLinkName() : "");
+
+                // A端
+                row.createCell(2).setCellValue(r.getANeName() != null ? r.getANeName() : "");
+                row.createCell(3).setCellValue(r.getANeTypeName() != null ? r.getANeTypeName() : "");
+                row.createCell(4).setCellValue(r.getAPortName() != null ? r.getAPortName() : "");
+                row.createCell(5).setCellValue(r.getAModuleType() != null ? r.getAModuleType() : "--");
+
+                Cell aTxCell = row.createCell(6);
+                if (r.getATxPower() != null) {
+                    aTxCell.setCellValue(String.format("%.1f", r.getATxPower()));
+                } else {
+                    aTxCell.setCellValue("--");
+                }
+
+                Cell aRxCell = row.createCell(7);
+                if (r.getARxPower() != null) {
+                    aRxCell.setCellValue(String.format("%.1f", r.getARxPower()));
+                } else {
+                    aRxCell.setCellValue("--");
+                }
+
+                Cell aTxStatusCell = row.createCell(8);
+                aTxStatusCell.setCellValue(r.getATxStatus() != null ? r.getATxStatus() : "--");
+                aTxStatusCell.setCellStyle("正常".equals(r.getATxStatus()) ? normalStyle : warnStyle);
+
+                Cell aRxStatusCell = row.createCell(9);
+                aRxStatusCell.setCellValue(r.getARxStatus() != null ? r.getARxStatus() : "--");
+                aRxStatusCell.setCellStyle("正常".equals(r.getARxStatus()) ? normalStyle : warnStyle);
+
+                row.createCell(10).setCellValue(r.getAB1Error() != null ? r.getAB1Error() : "--");
+                row.createCell(11).setCellValue(r.getABandwidthUsage() != null ? String.format("%.2f", r.getABandwidthUsage()) : "--");
+
+                // Z端
+                row.createCell(12).setCellValue(r.getZNeName() != null ? r.getZNeName() : "");
+                row.createCell(13).setCellValue(r.getZNeTypeName() != null ? r.getZNeTypeName() : "");
+                row.createCell(14).setCellValue(r.getZPortName() != null ? r.getZPortName() : "");
+                row.createCell(15).setCellValue(r.getZModuleType() != null ? r.getZModuleType() : "--");
+
+                Cell zTxCell = row.createCell(16);
+                if (r.getZTxPower() != null) {
+                    zTxCell.setCellValue(String.format("%.1f", r.getZTxPower()));
+                } else {
+                    zTxCell.setCellValue("--");
+                }
+
+                Cell zRxCell = row.createCell(17);
+                if (r.getZRxPower() != null) {
+                    zRxCell.setCellValue(String.format("%.1f", r.getZRxPower()));
+                } else {
+                    zRxCell.setCellValue("--");
+                }
+
+                Cell zTxStatusCell = row.createCell(18);
+                zTxStatusCell.setCellValue(r.getZTxStatus() != null ? r.getZTxStatus() : "--");
+                zTxStatusCell.setCellStyle("正常".equals(r.getZTxStatus()) ? normalStyle : warnStyle);
+
+                Cell zRxStatusCell = row.createCell(19);
+                zRxStatusCell.setCellValue(r.getZRxStatus() != null ? r.getZRxStatus() : "--");
+                zRxStatusCell.setCellStyle("正常".equals(r.getZRxStatus()) ? normalStyle : warnStyle);
+
+                row.createCell(20).setCellValue(r.getZB1Error() != null ? r.getZB1Error() : "--");
+                row.createCell(21).setCellValue(r.getZBandwidthUsage() != null ? String.format("%.2f", r.getZBandwidthUsage()) : "--");
+            }
+
+            // 自动列宽
+            for (int i = 0; i < columns.length; i++) {
+                sheet.autoSizeColumn(i);
+            }
+
+            workbook.write(out);
+            out.flush();
+        }
+    }
+
     // ========== 定时巡检 ==========
 
     /**
