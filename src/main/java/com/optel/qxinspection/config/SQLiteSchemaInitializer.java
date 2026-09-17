@@ -96,6 +96,7 @@ public class SQLiteSchemaInitializer {
                 ne_name VARCHAR(100),
                 network_name VARCHAR(100),
                 ne_type_name VARCHAR(100),
+                port_oid VARCHAR(128),
                 slot_no INTEGER,
                 port_no INTEGER,
                 port_name VARCHAR(256),
@@ -122,6 +123,7 @@ public class SQLiteSchemaInitializer {
                 fail_reason VARCHAR(200)
             )
         """);
+        addColumnIfNotExists("optical_power_inspection", "port_oid", "VARCHAR(128)");
 
         // 创建索引
         createIndexIfNotExists("idx_opi_round", "optical_power_inspection", "round_id");
@@ -169,6 +171,16 @@ public class SQLiteSchemaInitializer {
             sqliteJdbc.execute("CREATE INDEX IF NOT EXISTS " + indexName + " ON " + tableName + " (" + columns + ")");
         } catch (Exception e) {
             log.debug("索引 {} 已存在或创建失败", indexName);
+        }
+    }
+
+    private void addColumnIfNotExists(String tableName, String column, String type) {
+        try {
+            sqliteJdbc.execute("ALTER TABLE " + tableName + " ADD COLUMN " + column + " " + type);
+            log.info("表 {} 新增列 {}", tableName, column);
+        } catch (Exception e) {
+            // 列已存在时 SQLite 会报错，忽略即可
+            log.debug("表 {} 列 {} 已存在或添加失败: {}", tableName, column, e.getMessage());
         }
     }
 }

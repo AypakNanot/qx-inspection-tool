@@ -746,10 +746,10 @@ public class InspectionService {
                         .build();
 
                 LaserAttributeAckData laser = laserService.attributeGet(neId, req);
-                records.add(buildRecord(round, device, slotId, portType, 0xFF, portId, portName, laser));
+                records.add(buildRecord(round, device, oid, slotId, portType, 0xFF, portId, portName, laser));
             } catch (Exception e) {
                 failPorts++;
-                records.add(buildFailRecord(round, device, slotId, portType, 0xFF, portId, portName, e.getMessage()));
+                records.add(buildFailRecord(round, device, oid, slotId, portType, 0xFF, portId, portName, e.getMessage()));
                 log.debug("端口查询失败: {} oid={}, {}",
                         device.getNeName(), oid, e.getMessage());
             }
@@ -798,7 +798,7 @@ public class InspectionService {
     }
 
     private OpticalPowerInspection buildRecord(InspectionRound round, DeviceAccessConfig device,
-                                                int slotId, int portType, int portSubType, int portId,
+                                                String portOid, int slotId, int portType, int portSubType, int portId,
                                                 String portName, LaserAttributeAckData laser) {
         OpticalPowerInspection r = new OpticalPowerInspection();
         r.setRoundId(round.getId());
@@ -806,6 +806,7 @@ public class InspectionService {
         r.setNeName(device.getNeName());
         r.setNetworkName(device.getNetworkName());
         r.setNeTypeName(device.getNeTypeName());
+        r.setPortOid(portOid);
         r.setSlotNo(slotId);
         r.setPortNo(portId);
         r.setPortName(portName);
@@ -839,7 +840,7 @@ public class InspectionService {
     }
 
     private OpticalPowerInspection buildFailRecord(InspectionRound round, DeviceAccessConfig device,
-                                                    int slotId, int portType, int portSubType, int portId,
+                                                    String portOid, int slotId, int portType, int portSubType, int portId,
                                                     String portName, String reason) {
         OpticalPowerInspection r = new OpticalPowerInspection();
         r.setRoundId(round.getId());
@@ -847,6 +848,7 @@ public class InspectionService {
         r.setNeName(device.getNeName());
         r.setNetworkName(device.getNetworkName());
         r.setNeTypeName(device.getNeTypeName());
+        r.setPortOid(portOid);
         r.setSlotNo(slotId);
         r.setPortNo(portId);
         r.setPortName(portName);
@@ -1026,10 +1028,12 @@ public class InspectionService {
         // 应用门限
         allRecords = thresholdService.applyThresholds(allRecords);
 
-        // 按端口构建索引：neId:slotNo:portNo -> OpticalPowerInspection
+        // 按端口完整oid构建索引：portOid -> OpticalPowerInspection
         Map<String, OpticalPowerInspection> portIndex = new LinkedHashMap<>();
         for (OpticalPowerInspection r : allRecords) {
-            portIndex.put(r.getNeId() + ":" + r.getSlotNo() + ":" + r.getPortNo(), r);
+            if (r.getPortOid() != null) {
+                portIndex.put(r.getPortOid(), r);
+            }
         }
 
         // 查询所有链路（cid=100）
@@ -1041,6 +1045,7 @@ public class InspectionService {
         Map<String, String> neNameMap = loadNeNameMap();
         Map<String, String> neTypeNameMap = loadNeTypeNameMap();
         Map<String, List<String>> networkMap = loadNetworkMap();
+        Map<String, Double> bandwidthMap = loadBandwidthMap();
 
         List<LinkInspectionResult> results = new ArrayList<>();
         int seq = 1;
@@ -1063,8 +1068,8 @@ public class InspectionService {
             result.setLinkName(linkName);
             result.setLinkOid(linkOid);
 
-            fillPortInfo(result, aEnd, portIndex, true, portNameMap, neNameMap, neTypeNameMap);
-            fillPortInfo(result, zEnd, portIndex, false, portNameMap, neNameMap, neTypeNameMap);
+            fillPortInfo(result, aEnd, portIndex, true, portNameMap, neNameMap, neTypeNameMap, bandwidthMap);
+            fillPortInfo(result, zEnd, portIndex, false, portNameMap, neNameMap, neTypeNameMap, bandwidthMap);
 
             results.add(result);
         }
@@ -1108,6 +1113,25 @@ public class InspectionService {
         return map;
     }
 
+    /**
+     * 加载带宽利用率数据，key=端口完整oid, value=usageRate(%)。
+     * portbandwidth.oid 格式与 dmconnection.aEnd/zEnd 一致，直接用完整 oid 匹配。
+     */
+    private Map<String, Double> loadBandwidthMap() {
+        Map<String, Double> map = new HashMap<>();
+        for (Map<String, Object> row : sqliteJdbc.queryForList("SELECT * FROM \"portbandwidth\"")) {
+            int dir = row.get("dir") != null ? ((Number) row.get("dir")).intValue() : 0;
+            if (dir != 1) continue;
+            String oid = (String) row.get("oid");
+            if (oid == null) continue;
+            int capacity = row.get("capacity") != null ? ((Number) row.get("capacity")).intValue() : 0;
+            int used = row.get("used") != null ? ((Number) row.get("used")).intValue() : 0;
+            double usageRate = capacity > 0 ? Math.round(used * 1000.0 / capacity) / 10.0 : 0;
+            map.put(oid, usageRate);
+        }
+        return map;
+    }
+
     private boolean isPortInNetwork(String portOid, String network, Map<String, List<String>> networkMap) {
         if (portOid == null) return false;
         String neId = OidUtil.getNeOid(portOid);
@@ -1118,19 +1142,14 @@ public class InspectionService {
     private void fillPortInfo(LinkInspectionResult result,
                               String portOid, Map<String, OpticalPowerInspection> portIndex, boolean isAEnd,
                               Map<String, String> portNameMap, Map<String, String> neNameMap,
-                              Map<String, String> neTypeNameMap) {
+                              Map<String, String> neTypeNameMap, Map<String, Double> bandwidthMap) {
         if (portOid == null) return;
 
         String portName = portNameMap.get(portOid);
 
-        // 从 portOid 解析 neId 和 portKey
-        int[] seg = OidUtil.parseSegments(portOid);
-        if (seg.length < 4) return;
-        String neId = String.valueOf(seg[0]);
-        String portKey = seg[0] + ":" + seg[2] + ":" + seg[3];
-
-        // neName / neTypeName 从巡检记录取，无记录时从预加载 Map 取
-        OpticalPowerInspection record = portIndex.get(portKey);
+        // 直接用完整 oid 匹配巡检记录和带宽数据
+        OpticalPowerInspection record = portIndex.get(portOid);
+        String neId = record != null ? record.getNeId() : OidUtil.getNeOid(portOid);
         String neName = record != null ? record.getNeName() : neNameMap.get(neId);
         String neTypeName = record != null ? record.getNeTypeName() : neTypeNameMap.get(neId);
 
@@ -1151,7 +1170,7 @@ public class InspectionService {
                 result.setARxHighThreshold(record.getHighThreshold());
             }
             result.setAB1Error("--");
-            result.setABandwidthUsage(null);
+            result.setABandwidthUsage(bandwidthMap.get(portOid));
         } else {
             result.setZNeId(neId);
             result.setZNeName(neName);
@@ -1169,7 +1188,7 @@ public class InspectionService {
                 result.setZRxHighThreshold(record.getHighThreshold());
             }
             result.setZB1Error("--");
-            result.setZBandwidthUsage(null);
+            result.setZBandwidthUsage(bandwidthMap.get(portOid));
         }
     }
 

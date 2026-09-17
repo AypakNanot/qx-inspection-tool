@@ -465,7 +465,7 @@ function renderLinkQueryTable() {
     if (!filteredLinkResults || filteredLinkResults.length === 0) {
         const tr = document.createElement('tr');
         const td = document.createElement('td');
-        td.colSpan = 12;
+        td.colSpan = 22;
         td.style.cssText = 'text-align:center;padding:40px 0;color:#9ca3af;';
         td.textContent = '暂无链路巡检数据';
         tr.appendChild(td);
@@ -512,14 +512,17 @@ function renderLinkQueryTable() {
         if (r.aRxStatus !== '正常' && r.aRxStatus !== '--') aRxTd.style.color = '#dc2626';
         tr.appendChild(aRxTd);
 
-        // A端状态
-        const aStatus = getLinkPortStatus(r.aTxStatus, r.aRxStatus);
-        const aStatusTd = document.createElement('td');
-        const aBadge = document.createElement('span');
-        aBadge.className = 'badge ' + aStatus.cls;
-        aBadge.textContent = aStatus.text;
-        aStatusTd.appendChild(aBadge);
-        tr.appendChild(aStatusTd);
+        // A端发光状态
+        const aTxStatusTd = document.createElement('td');
+        aTxStatusTd.textContent = r.aTxStatus || '--';
+        if (r.aTxStatus && r.aTxStatus !== '正常') aTxStatusTd.style.color = '#dc2626';
+        tr.appendChild(aTxStatusTd);
+
+        // A端收光状态
+        const aRxStatusTd = document.createElement('td');
+        aRxStatusTd.textContent = r.aRxStatus || '--';
+        if (r.aRxStatus && r.aRxStatus !== '正常') aRxStatusTd.style.color = '#dc2626';
+        tr.appendChild(aRxStatusTd);
 
         // A端B1差错率和带宽利用率
         tr.appendChild(createTextCell(r.aB1Error || '--'));
@@ -542,14 +545,17 @@ function renderLinkQueryTable() {
         if (r.zRxStatus !== '正常' && r.zRxStatus !== '--') zRxTd.style.color = '#dc2626';
         tr.appendChild(zRxTd);
 
-        // Z端状态
-        const zStatus = getLinkPortStatus(r.zTxStatus, r.zRxStatus);
-        const zStatusTd = document.createElement('td');
-        const zBadge = document.createElement('span');
-        zBadge.className = 'badge ' + zStatus.cls;
-        zBadge.textContent = zStatus.text;
-        zStatusTd.appendChild(zBadge);
-        tr.appendChild(zStatusTd);
+        // Z端发光状态
+        const zTxStatusTd = document.createElement('td');
+        zTxStatusTd.textContent = r.zTxStatus || '--';
+        if (r.zTxStatus && r.zTxStatus !== '正常') zTxStatusTd.style.color = '#dc2626';
+        tr.appendChild(zTxStatusTd);
+
+        // Z端收光状态
+        const zRxStatusTd = document.createElement('td');
+        zRxStatusTd.textContent = r.zRxStatus || '--';
+        if (r.zRxStatus && r.zRxStatus !== '正常') zRxStatusTd.style.color = '#dc2626';
+        tr.appendChild(zRxStatusTd);
 
         // Z端B1差错率和带宽利用率
         tr.appendChild(createTextCell(r.zB1Error || '--'));

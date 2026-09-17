@@ -51,6 +51,10 @@ public class OpticalPowerInspection implements Serializable {
     @Column(name = "port_no")
     private Integer portNo;
 
+    /** 端口完整OID（如 22:1:3:100），与 dmconnection.aEnd/zEnd 直接匹配 */
+    @Column(name = "port_oid", length = 128)
+    private String portOid;
+
     /** 端口名称（用户自定义） */
     @Column(name = "port_name", length = 256)
     private String portName;
