@@ -46,8 +46,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .btn-sm { padding: 4px 10px; font-size: 12px; }
 .toolbar-right { margin-left: auto; }
 
-.table-wrap { background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); overflow: hidden; }
-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.table-wrap { background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); overflow-x: auto; }
+table { border-collapse: collapse; font-size: 13px; min-width: 100%; }
 th { background: #f8fafc; padding: 10px 12px; text-align: left; font-weight: 600; color: #475569; border: 1px solid #e2e8f0; white-space: nowrap; }
 td { padding: 8px 12px; border: 1px solid #e2e8f0; }
 tr:hover td { background: #f8fafc; }
