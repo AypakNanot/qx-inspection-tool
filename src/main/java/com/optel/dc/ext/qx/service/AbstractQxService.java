@@ -17,6 +17,18 @@ import java.util.TreeMap;
 
 /**
  * Qx 协议服务基类，提供 codec 自动扫描注册。
+ *
+ * <h3>Registry key space</h3>
+ * {@code cmdCode + direction} must be globally unique within this module.
+ * The YAML {@code namespace} is a code-organization dimension (Java package),
+ * not a runtime isolation boundary — the Qx protocol header has no namespace field.
+ *
+ * <h3>Registration rules</h3>
+ * <ul>
+ *   <li>{@code 0x0000} 模板已废弃（Set 成败在 Qx 报文头），防御性跳过。</li>
+ *   <li>listRecord 编解码器与父 cmdCode 共享，跳过注册。</li>
+ *   <li>跨包 cmdCode+direction 碰撞 → 启动时抛 {@link IllegalStateException}。</li>
+ * </ul>
  */
 public abstract class AbstractQxService {
 
