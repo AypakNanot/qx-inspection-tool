@@ -107,7 +107,7 @@ public class DeviceAccessService {
             Map<String, Object> typeInfo = type != null ? typeMap.get(type) : null;
             String neName = neNameMap.getOrDefault(oid,
                     typeInfo != null ? (String) typeInfo.get("cName") : "Unknown");
-            String typeName = typeInfo != null ? (String) typeInfo.get("eName") :
+            String typeName = typeInfo != null ? InspectionService.stripNeTypePrefix((String) typeInfo.get("eName")) :
                     (type != null ? String.valueOf(type) : "Unknown");
             String networkName = netNameMap.getOrDefault(oid, "");
 

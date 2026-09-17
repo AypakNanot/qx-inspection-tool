@@ -212,7 +212,7 @@ public class InspectionController {
                 row.createCell(0).setCellValue(r.getNeName() != null ? r.getNeName() : "");
                 row.createCell(1).setCellValue(r.getNeId() != null ? r.getNeId() : "");
                 row.createCell(2).setCellValue(r.getNetworkName() != null ? r.getNetworkName() : "");
-                row.createCell(3).setCellValue(r.getNeTypeName() != null ? r.getNeTypeName() : "");
+                row.createCell(3).setCellValue(r.getNeTypeName() != null ? r.getNeTypeName().replaceAll("^[A-Za-z]+", "") : "");
                 row.createCell(4).setCellValue(r.getSlotNo() != null ? r.getSlotNo() : 0);
                 row.createCell(5).setCellValue(r.getPortNo() != null ? r.getPortNo() : 0);
                 row.createCell(6).setCellValue(r.getPortName() != null ? r.getPortName() : "");
@@ -406,7 +406,7 @@ public class InspectionController {
 
                 // A端
                 row.createCell(2).setCellValue(r.getANeName() != null ? r.getANeName() : "");
-                row.createCell(3).setCellValue(r.getANeTypeName() != null ? r.getANeTypeName() : "");
+                row.createCell(3).setCellValue(r.getANeTypeName() != null ? r.getANeTypeName().replaceAll("^[A-Za-z]+", "") : "");
                 row.createCell(4).setCellValue(r.getAPortName() != null ? r.getAPortName() : "");
                 row.createCell(5).setCellValue(r.getAModuleType() != null ? r.getAModuleType() : "--");
 
@@ -439,7 +439,7 @@ public class InspectionController {
 
                 // Z端
                 row.createCell(14).setCellValue(r.getZNeName() != null ? r.getZNeName() : "");
-                row.createCell(15).setCellValue(r.getZNeTypeName() != null ? r.getZNeTypeName() : "");
+                row.createCell(15).setCellValue(r.getZNeTypeName() != null ? r.getZNeTypeName().replaceAll("^[A-Za-z]+", "") : "");
                 row.createCell(16).setCellValue(r.getZPortName() != null ? r.getZPortName() : "");
                 row.createCell(17).setCellValue(r.getZModuleType() != null ? r.getZModuleType() : "--");
 

@@ -1097,9 +1097,15 @@ public class InspectionService {
         Map<String, String> map = new HashMap<>();
         for (Map<String, Object> row : sqliteJdbc.queryForList(
                 "SELECT m.\"oid\", f.\"cName\" FROM \"dmne\" m JOIN \"defdmne\" f ON m.\"type\" = f.\"neType\"")) {
-            map.put((String) row.get("oid"), (String) row.get("cName"));
+            map.put((String) row.get("oid"), stripNeTypePrefix((String) row.get("cName")));
         }
         return map;
+    }
+
+    /** 去掉网元类型名中的前缀（如 MatrixEdge），只保留数字型号（如 2080）。 */
+    static String stripNeTypePrefix(String name) {
+        if (name == null || name.isEmpty()) return name;
+        return name.replaceAll("^[A-Za-z]+", "");
     }
 
     private Map<String, List<String>> loadNetworkMap() {
@@ -1162,7 +1168,7 @@ public class InspectionService {
         OpticalPowerInspection record = portIndex.get(portOid);
         String neId = record != null ? record.getNeId() : OidUtil.getNeOid(portOid);
         String neName = record != null ? record.getNeName() : neNameMap.get(neId);
-        String neTypeName = record != null ? record.getNeTypeName() : neTypeNameMap.get(neId);
+        String neTypeName = stripNeTypePrefix(record != null ? record.getNeTypeName() : neTypeNameMap.get(neId));
 
         if (isAEnd) {
             result.setANeId(neId);
@@ -1220,9 +1226,10 @@ public class InspectionService {
 
     private String queryNeTypeName(String neId) {
         try {
-            return sqliteJdbc.queryForObject(
+            String name = sqliteJdbc.queryForObject(
                     "SELECT f.\"cName\" FROM \"dmne\" m JOIN \"defdmne\" f ON m.\"type\" = f.\"neType\" WHERE m.\"oid\" = ?",
                     String.class, neId);
+            return stripNeTypePrefix(name);
         } catch (Exception e) {
             return null;
         }
