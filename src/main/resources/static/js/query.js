@@ -231,30 +231,37 @@ function updateTableHeader() {
         const linkHeaders = [
             { text: '序号', width: '50px' },
             { text: '链路名称', minWidth: '150px' },
-            { text: 'A端网元' },
-            { text: 'A端网元类型' },
+            { lines: ['A端', '网元'] },
+            { lines: ['A端', '网元类型'] },
             { text: 'A端口' },
-            { text: '光模块类型' },
-            { text: '发光功率(dBm)' },
-            { text: '收光功率(dBm)' },
-            { text: '发光状态' },
-            { text: '收光状态' },
-            { text: 'B1差错率' },
-            { text: '带宽利用率' },
-            { text: 'Z端网元' },
-            { text: 'Z端网元类型' },
+            { lines: ['光模块', '类型'] },
+            { lines: ['发光功率', '(dBm)'] },
+            { lines: ['收光功率', '(dBm)'] },
+            { lines: ['发光', '状态'] },
+            { lines: ['收光', '状态'] },
+            { lines: ['B1', '差错率'] },
+            { lines: ['带宽', '利用率'] },
+            { lines: ['Z端', '网元'] },
+            { lines: ['Z端', '网元类型'] },
             { text: 'Z端口' },
-            { text: '光模块类型' },
-            { text: '发光功率(dBm)' },
-            { text: '收光功率(dBm)' },
-            { text: '发光状态' },
-            { text: '收光状态' },
-            { text: 'B1差错率' },
-            { text: '带宽利用率' }
+            { lines: ['光模块', '类型'] },
+            { lines: ['发光功率', '(dBm)'] },
+            { lines: ['收光功率', '(dBm)'] },
+            { lines: ['发光', '状态'] },
+            { lines: ['收光', '状态'] },
+            { lines: ['B1', '差错率'] },
+            { lines: ['带宽', '利用率'] }
         ];
         linkHeaders.forEach(function(h) {
             const th = document.createElement('th');
-            th.textContent = h.text;
+            if (h.lines) {
+                h.lines.forEach(function(line, i) {
+                    if (i > 0) th.appendChild(document.createElement('br'));
+                    th.appendChild(document.createTextNode(line));
+                });
+            } else {
+                th.textContent = h.text;
+            }
             if (h.width) th.style.width = h.width;
             if (h.minWidth) th.style.minWidth = h.minWidth;
             tr.appendChild(th);
@@ -267,20 +274,27 @@ function updateTableHeader() {
             { text: '端口 ⇅', sortable: true, field: 'portNo' },
             { text: '端口名称 ⇅', sortable: true, field: 'portName' },
             { text: '波长 ⇅', sortable: true, field: 'laserWave' },
-            { text: '激光器类型 ⇅', sortable: true, field: 'moduleTypeKey' },
-            { text: '激光器状态' },
+            { lines: ['激光器', '类型 ⇅'], sortable: true, field: 'moduleTypeKey' },
+            { lines: ['激光器', '状态'] },
             { text: '生产厂商 ⇅', sortable: true, field: 'vendorName' },
-            { text: '发送功率(dBm) ⇅', sortable: true, field: 'txPower' },
-            { text: '接收功率(dBm) ⇅', sortable: true, field: 'rxPower' },
+            { lines: ['发送功率', '(dBm) ⇅'], sortable: true, field: 'txPower' },
+            { lines: ['接收功率', '(dBm) ⇅'], sortable: true, field: 'rxPower' },
             { text: '状态' },
-            { text: '带宽利用率' },
-            { text: '门限(发送)' },
-            { text: '门限(接收)' },
+            { lines: ['带宽', '利用率'] },
+            { lines: ['门限', '(发送)'] },
+            { lines: ['门限', '(接收)'] },
             { text: '巡检时间 ⇅', sortable: true, field: 'inspectionTime' }
         ];
         portHeaders.forEach(function(h) {
             const th = document.createElement('th');
-            th.textContent = h.text;
+            if (h.lines) {
+                h.lines.forEach(function(line, i) {
+                    if (i > 0) th.appendChild(document.createElement('br'));
+                    th.appendChild(document.createTextNode(line));
+                });
+            } else {
+                th.textContent = h.text;
+            }
             if (h.width) th.style.width = h.width;
             if (h.align) th.style.textAlign = h.align;
             if (h.sortable) {
