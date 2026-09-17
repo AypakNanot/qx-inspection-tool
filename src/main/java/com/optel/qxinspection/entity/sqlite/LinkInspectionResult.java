@@ -55,6 +55,12 @@ public class LinkInspectionResult implements Serializable {
     /** A端带宽利用率 */
     @JsonProperty("aBandwidthUsage")
     private Double aBandwidthUsage;
+    /** A端总带宽(Mbps) */
+    @JsonProperty("aTotalBandwidth")
+    private Integer aTotalBandwidth;
+    /** A端已使用带宽(Mbps) */
+    @JsonProperty("aUsedBandwidth")
+    private Integer aUsedBandwidth;
 
     // ========== Z端信息 ==========
     /** Z端网元ID */
@@ -90,6 +96,12 @@ public class LinkInspectionResult implements Serializable {
     /** Z端带宽利用率 */
     @JsonProperty("zBandwidthUsage")
     private Double zBandwidthUsage;
+    /** Z端总带宽(Mbps) */
+    @JsonProperty("zTotalBandwidth")
+    private Integer zTotalBandwidth;
+    /** Z端已使用带宽(Mbps) */
+    @JsonProperty("zUsedBandwidth")
+    private Integer zUsedBandwidth;
 
     // ========== 门限信息 ==========
     /** A端发送低门限 */

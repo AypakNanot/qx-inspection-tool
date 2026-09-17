@@ -240,6 +240,8 @@ function updateTableHeader() {
             { lines: ['发光', '状态'] },
             { lines: ['收光', '状态'] },
             { lines: ['B1', '差错率'] },
+            { lines: ['总带宽', '(Mbps)'] },
+            { lines: ['已使用', '带宽(Mbps)'] },
             { lines: ['带宽', '利用率'] },
             { lines: ['Z端', '网元'] },
             { lines: ['Z端', '网元类型'] },
@@ -250,6 +252,8 @@ function updateTableHeader() {
             { lines: ['发光', '状态'] },
             { lines: ['收光', '状态'] },
             { lines: ['B1', '差错率'] },
+            { lines: ['总带宽', '(Mbps)'] },
+            { lines: ['已使用', '带宽(Mbps)'] },
             { lines: ['带宽', '利用率'] }
         ];
         linkHeaders.forEach(function(h) {
@@ -479,7 +483,7 @@ function renderLinkQueryTable() {
     if (!filteredLinkResults || filteredLinkResults.length === 0) {
         const tr = document.createElement('tr');
         const td = document.createElement('td');
-        td.colSpan = 22;
+        td.colSpan = 26;
         td.style.cssText = 'text-align:center;padding:40px 0;color:#9ca3af;';
         td.textContent = '暂无链路巡检数据';
         tr.appendChild(td);
@@ -538,8 +542,10 @@ function renderLinkQueryTable() {
         if (r.aRxStatus && r.aRxStatus !== '正常') aRxStatusTd.style.color = '#dc2626';
         tr.appendChild(aRxStatusTd);
 
-        // A端B1差错率和带宽利用率
+        // A端B1差错率、带宽数据
         tr.appendChild(createTextCell(r.aB1Error || '--'));
+        tr.appendChild(createTextCell(r.aTotalBandwidth != null ? r.aTotalBandwidth : '--'));
+        tr.appendChild(createTextCell(r.aUsedBandwidth != null ? r.aUsedBandwidth : '--'));
         tr.appendChild(createTextCell(r.aBandwidthUsage != null ? r.aBandwidthUsage.toFixed(2) + '%' : '--'));
 
         // Z端信息
@@ -571,8 +577,10 @@ function renderLinkQueryTable() {
         if (r.zRxStatus && r.zRxStatus !== '正常') zRxStatusTd.style.color = '#dc2626';
         tr.appendChild(zRxStatusTd);
 
-        // Z端B1差错率和带宽利用率
+        // Z端B1差错率、带宽数据
         tr.appendChild(createTextCell(r.zB1Error || '--'));
+        tr.appendChild(createTextCell(r.zTotalBandwidth != null ? r.zTotalBandwidth : '--'));
+        tr.appendChild(createTextCell(r.zUsedBandwidth != null ? r.zUsedBandwidth : '--'));
         tr.appendChild(createTextCell(r.zBandwidthUsage != null ? r.zBandwidthUsage.toFixed(2) + '%' : '--'));
 
         tbody.appendChild(tr);

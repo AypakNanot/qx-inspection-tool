@@ -370,16 +370,16 @@ public class InspectionController {
             linkHeader0.setCellStyle(headerStyle);
 
             // A端合并单元格
-            CellRangeAddress aRange = new CellRangeAddress(0, 0, 2, 11);
+            CellRangeAddress aRange = new CellRangeAddress(0, 0, 2, 13);
             sheet.addMergedRegion(aRange);
             Cell aHeader0 = row0.createCell(2);
             aHeader0.setCellValue("A端");
             aHeader0.setCellStyle(headerStyle);
 
             // Z端合并单元格
-            CellRangeAddress zRange = new CellRangeAddress(0, 0, 12, 21);
+            CellRangeAddress zRange = new CellRangeAddress(0, 0, 14, 25);
             sheet.addMergedRegion(zRange);
-            Cell zHeader0 = row0.createCell(12);
+            Cell zHeader0 = row0.createCell(14);
             zHeader0.setCellValue("Z端");
             zHeader0.setCellStyle(headerStyle);
 
@@ -387,8 +387,8 @@ public class InspectionController {
             Row row1 = sheet.createRow(1);
             String[] columns = {
                     "序号", "链路名称",
-                    "A端网元", "A端网元类型", "A端口", "光模块类型", "发光功率\n(dBm)", "收光功率\n(dBm)", "发光状态", "收光状态", "B1差错率", "带宽利用率",
-                    "Z端网元", "Z端网元类型", "Z端口", "光模块类型", "发光功率\n(dBm)", "收光功率\n(dBm)", "发光状态", "收光状态", "B1差错率", "带宽利用率"
+                    "A端网元", "A端网元类型", "A端口", "光模块类型", "发光功率\n(dBm)", "收光功率\n(dBm)", "发光状态", "收光状态", "B1差错率", "总带宽\n(Mbps)", "已使用带宽\n(Mbps)", "带宽利用率",
+                    "Z端网元", "Z端网元类型", "Z端口", "光模块类型", "发光功率\n(dBm)", "收光功率\n(dBm)", "发光状态", "收光状态", "B1差错率", "总带宽\n(Mbps)", "已使用带宽\n(Mbps)", "带宽利用率"
             };
             for (int i = 0; i < columns.length; i++) {
                 Cell cell = row1.createCell(i);
@@ -433,38 +433,42 @@ public class InspectionController {
                 aRxStatusCell.setCellStyle("正常".equals(r.getARxStatus()) ? normalStyle : warnStyle);
 
                 row.createCell(10).setCellValue(r.getAB1Error() != null ? r.getAB1Error() : "--");
-                row.createCell(11).setCellValue(r.getABandwidthUsage() != null ? String.format("%.2f", r.getABandwidthUsage()) : "--");
+                row.createCell(11).setCellValue(r.getATotalBandwidth() != null ? r.getATotalBandwidth() : 0);
+                row.createCell(12).setCellValue(r.getAUsedBandwidth() != null ? r.getAUsedBandwidth() : 0);
+                row.createCell(13).setCellValue(r.getABandwidthUsage() != null ? String.format("%.2f", r.getABandwidthUsage()) : "--");
 
                 // Z端
-                row.createCell(12).setCellValue(r.getZNeName() != null ? r.getZNeName() : "");
-                row.createCell(13).setCellValue(r.getZNeTypeName() != null ? r.getZNeTypeName() : "");
-                row.createCell(14).setCellValue(r.getZPortName() != null ? r.getZPortName() : "");
-                row.createCell(15).setCellValue(r.getZModuleType() != null ? r.getZModuleType() : "--");
+                row.createCell(14).setCellValue(r.getZNeName() != null ? r.getZNeName() : "");
+                row.createCell(15).setCellValue(r.getZNeTypeName() != null ? r.getZNeTypeName() : "");
+                row.createCell(16).setCellValue(r.getZPortName() != null ? r.getZPortName() : "");
+                row.createCell(17).setCellValue(r.getZModuleType() != null ? r.getZModuleType() : "--");
 
-                Cell zTxCell = row.createCell(16);
+                Cell zTxCell = row.createCell(18);
                 if (r.getZTxPower() != null) {
                     zTxCell.setCellValue(String.format("%.1f", r.getZTxPower()));
                 } else {
                     zTxCell.setCellValue("--");
                 }
 
-                Cell zRxCell = row.createCell(17);
+                Cell zRxCell = row.createCell(19);
                 if (r.getZRxPower() != null) {
                     zRxCell.setCellValue(String.format("%.1f", r.getZRxPower()));
                 } else {
                     zRxCell.setCellValue("--");
                 }
 
-                Cell zTxStatusCell = row.createCell(18);
+                Cell zTxStatusCell = row.createCell(20);
                 zTxStatusCell.setCellValue(r.getZTxStatus() != null ? r.getZTxStatus() : "--");
                 zTxStatusCell.setCellStyle("正常".equals(r.getZTxStatus()) ? normalStyle : warnStyle);
 
-                Cell zRxStatusCell = row.createCell(19);
+                Cell zRxStatusCell = row.createCell(21);
                 zRxStatusCell.setCellValue(r.getZRxStatus() != null ? r.getZRxStatus() : "--");
                 zRxStatusCell.setCellStyle("正常".equals(r.getZRxStatus()) ? normalStyle : warnStyle);
 
-                row.createCell(20).setCellValue(r.getZB1Error() != null ? r.getZB1Error() : "--");
-                row.createCell(21).setCellValue(r.getZBandwidthUsage() != null ? String.format("%.2f", r.getZBandwidthUsage()) : "--");
+                row.createCell(22).setCellValue(r.getZB1Error() != null ? r.getZB1Error() : "--");
+                row.createCell(23).setCellValue(r.getZTotalBandwidth() != null ? r.getZTotalBandwidth() : 0);
+                row.createCell(24).setCellValue(r.getZUsedBandwidth() != null ? r.getZUsedBandwidth() : 0);
+                row.createCell(25).setCellValue(r.getZBandwidthUsage() != null ? String.format("%.2f", r.getZBandwidthUsage()) : "--");
             }
 
             // 自动列宽

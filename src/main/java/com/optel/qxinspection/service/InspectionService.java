@@ -1045,7 +1045,7 @@ public class InspectionService {
         Map<String, String> neNameMap = loadNeNameMap();
         Map<String, String> neTypeNameMap = loadNeTypeNameMap();
         Map<String, List<String>> networkMap = loadNetworkMap();
-        Map<String, Double> bandwidthMap = loadBandwidthMap();
+        Map<String, BandwidthInfo> bandwidthMap = loadBandwidthMap();
 
         List<LinkInspectionResult> results = new ArrayList<>();
         int seq = 1;
@@ -1113,12 +1113,24 @@ public class InspectionService {
         return map;
     }
 
+    /** 带宽数据（总带宽、已使用、利用率） */
+    static class BandwidthInfo {
+        final int capacity;
+        final int used;
+        final double usageRate;
+        BandwidthInfo(int capacity, int used) {
+            this.capacity = capacity;
+            this.used = used;
+            this.usageRate = capacity > 0 ? Math.round(used * 1000.0 / capacity) / 10.0 : 0;
+        }
+    }
+
     /**
-     * 加载带宽利用率数据，key=端口完整oid, value=usageRate(%)。
+     * 加载带宽数据，key=端口完整oid。
      * portbandwidth.oid 格式与 dmconnection.aEnd/zEnd 一致，直接用完整 oid 匹配。
      */
-    private Map<String, Double> loadBandwidthMap() {
-        Map<String, Double> map = new HashMap<>();
+    private Map<String, BandwidthInfo> loadBandwidthMap() {
+        Map<String, BandwidthInfo> map = new HashMap<>();
         for (Map<String, Object> row : sqliteJdbc.queryForList("SELECT * FROM \"portbandwidth\"")) {
             int dir = row.get("dir") != null ? ((Number) row.get("dir")).intValue() : 0;
             if (dir != 1) continue;
@@ -1126,8 +1138,7 @@ public class InspectionService {
             if (oid == null) continue;
             int capacity = row.get("capacity") != null ? ((Number) row.get("capacity")).intValue() : 0;
             int used = row.get("used") != null ? ((Number) row.get("used")).intValue() : 0;
-            double usageRate = capacity > 0 ? Math.round(used * 1000.0 / capacity) / 10.0 : 0;
-            map.put(oid, usageRate);
+            map.put(oid, new BandwidthInfo(capacity, used));
         }
         return map;
     }
@@ -1142,7 +1153,7 @@ public class InspectionService {
     private void fillPortInfo(LinkInspectionResult result,
                               String portOid, Map<String, OpticalPowerInspection> portIndex, boolean isAEnd,
                               Map<String, String> portNameMap, Map<String, String> neNameMap,
-                              Map<String, String> neTypeNameMap, Map<String, Double> bandwidthMap) {
+                              Map<String, String> neTypeNameMap, Map<String, BandwidthInfo> bandwidthMap) {
         if (portOid == null) return;
 
         String portName = portNameMap.get(portOid);
@@ -1170,7 +1181,10 @@ public class InspectionService {
                 result.setARxHighThreshold(record.getHighThreshold());
             }
             result.setAB1Error("--");
-            result.setABandwidthUsage(bandwidthMap.get(portOid));
+            BandwidthInfo aBw = bandwidthMap.get(portOid);
+            result.setABandwidthUsage(aBw != null ? aBw.usageRate : null);
+            result.setATotalBandwidth(aBw != null ? aBw.capacity : null);
+            result.setAUsedBandwidth(aBw != null ? aBw.used : null);
         } else {
             result.setZNeId(neId);
             result.setZNeName(neName);
@@ -1188,7 +1202,10 @@ public class InspectionService {
                 result.setZRxHighThreshold(record.getHighThreshold());
             }
             result.setZB1Error("--");
-            result.setZBandwidthUsage(bandwidthMap.get(portOid));
+            BandwidthInfo zBw = bandwidthMap.get(portOid);
+            result.setZBandwidthUsage(zBw != null ? zBw.usageRate : null);
+            result.setZTotalBandwidth(zBw != null ? zBw.capacity : null);
+            result.setZUsedBandwidth(zBw != null ? zBw.used : null);
         }
     }
 
