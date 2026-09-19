@@ -105,10 +105,14 @@ tr:hover td { background: #e8f4fd; }
 .stats-tab.active { color: #1a73e8; border-bottom-color: #1a73e8; font-weight: 600; }
 
 /* ===== Query Table Enhancements ===== */
-#queryTableContainer th { text-align: center; }
-#queryTableContainer td { text-align: center; }
+#queryTableContainer { font-size: 12px; }
+#queryTableContainer th { text-align: center; white-space: nowrap; }
+#queryTableContainer td { text-align: left; }
+/* 居中对齐的列：序号、光模块、误码、带宽 */
+#queryTableContainer td.center-cell { text-align: center; }
 .query-th-a { background: #dbeafe !important; border-color: #93c5fd !important; }
 .query-th-z { background: #fef3c7 !important; border-color: #fcd34d !important; }
+.th-unit { font-size: 10px; font-weight: 400; }
 .col-truncate { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .col-truncate[title] { cursor: default; }
 

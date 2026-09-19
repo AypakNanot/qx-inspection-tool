@@ -12,36 +12,42 @@ let allLinkResults = [];
 let filteredLinkResults = [];
 /** 分页状态 */
 let currentPage = 1;
-let pageSize = 20;
+let pageSize = 30;
 let searchText = '';
 
 /** 3 行合并表头结构（与导出 Excel 一致） */
 const HEADER_ROWS = [
     [
-        { text: '序号', rowspan: 3, width: '50px' },
+        { text: '序号', rowspan: 3, width: '50px', center: true },
         { text: '链路名称', rowspan: 3, minWidth: '150px' },
         { text: 'A端', colspan: 12, className: 'query-th-a' },
         { text: 'Z端', colspan: 12, className: 'query-th-z' }
     ],
     [
         { text: '网元', colspan: 3, className: 'query-th-a' },
-        { text: '光模块', colspan: 5, className: 'query-th-a' },
-        { text: '误码', className: 'query-th-a' },
-        { text: '带宽', colspan: 3, className: 'query-th-a' },
+        { text: '光模块', colspan: 5, className: 'query-th-a', center: true },
+        { text: '误码', className: 'query-th-a', center: true },
+        { text: '带宽', colspan: 3, className: 'query-th-a', center: true },
         { text: '网元', colspan: 3, className: 'query-th-z' },
-        { text: '光模块', colspan: 5, className: 'query-th-z' },
-        { text: '误码', className: 'query-th-z' },
-        { text: '带宽', colspan: 3, className: 'query-th-z' }
+        { text: '光模块', colspan: 5, className: 'query-th-z', center: true },
+        { text: '误码', className: 'query-th-z', center: true },
+        { text: '带宽', colspan: 3, className: 'query-th-z', center: true }
     ],
     [
         { text: '名称', className: 'query-th-a' }, { text: '类型', className: 'query-th-a' }, { text: '端口', className: 'query-th-a' },
-        { text: '类型', className: 'query-th-a' }, { text: 'TX\n(dBm)', className: 'query-th-a' }, { text: 'RX\n(dBm)', className: 'query-th-a' },
-        { text: 'TX\n状态', className: 'query-th-a' }, { text: 'RX\n状态', className: 'query-th-a' }, { text: 'RS\n错误秒', className: 'query-th-a' },
-        { text: '总\n(Mbps)', className: 'query-th-a' }, { text: '已用\n(Mbps)', className: 'query-th-a' }, { text: '利用率', className: 'query-th-a' },
+        { text: '类型', className: 'query-th-a', center: true },
+        { text: 'TX', unit: 'dBm', className: 'query-th-a', center: true }, { text: 'RX', unit: 'dBm', className: 'query-th-a', center: true },
+        { text: 'TX\n状态', className: 'query-th-a', center: true }, { text: 'RX\n状态', className: 'query-th-a', center: true },
+        { text: 'RS', unit: '错误秒', className: 'query-th-a', center: true },
+        { text: '总', unit: 'Mbps', className: 'query-th-a', center: true }, { text: '已用', unit: 'Mbps', className: 'query-th-a', center: true },
+        { text: '利用率', className: 'query-th-a', center: true },
         { text: '名称', className: 'query-th-z' }, { text: '类型', className: 'query-th-z' }, { text: '端口', className: 'query-th-z' },
-        { text: '类型', className: 'query-th-z' }, { text: 'TX\n(dBm)', className: 'query-th-z' }, { text: 'RX\n(dBm)', className: 'query-th-z' },
-        { text: 'TX\n状态', className: 'query-th-z' }, { text: 'RX\n状态', className: 'query-th-z' }, { text: 'RS\n错误秒', className: 'query-th-z' },
-        { text: '总\n(Mbps)', className: 'query-th-z' }, { text: '已用\n(Mbps)', className: 'query-th-z' }, { text: '利用率', className: 'query-th-z' }
+        { text: '类型', className: 'query-th-z', center: true },
+        { text: 'TX', unit: 'dBm', className: 'query-th-z', center: true }, { text: 'RX', unit: 'dBm', className: 'query-th-z', center: true },
+        { text: 'TX\n状态', className: 'query-th-z', center: true }, { text: 'RX\n状态', className: 'query-th-z', center: true },
+        { text: 'RS', unit: '错误秒', className: 'query-th-z', center: true },
+        { text: '总', unit: 'Mbps', className: 'query-th-z', center: true }, { text: '已用', unit: 'Mbps', className: 'query-th-z', center: true },
+        { text: '利用率', className: 'query-th-z', center: true }
     ]
 ];
 
@@ -71,6 +77,7 @@ function truncCell(text, className) {
 /** 功率单元格：正常显示一位小数，异常标背景色 */
 function powerCell(value, status) {
     const td = document.createElement('td');
+    td.className = 'center-cell';
     if (value == null) {
         td.textContent = '--';
         td.style.color = '#9ca3af';
@@ -89,39 +96,42 @@ function powerCell(value, status) {
 /** 状态单元格：正常绿色背景，异常红色/灰色背景 */
 function statusCell(text) {
     const td = document.createElement('td');
+    td.className = 'center-cell';
     const value = text || '--';
     td.textContent = value;
-    if (value === '正常') td.className = 'status-normal';
-    else if (value === '无光') td.className = 'status-no-light';
-    else if (value === '过高') td.className = 'status-high';
-    else if (value === '过低') td.className = 'status-low';
-    else if (value !== '--') td.className = 'status-high';
+    if (value === '正常') td.classList.add('status-normal');
+    else if (value === '无光') td.classList.add('status-no-light');
+    else if (value === '过高') td.classList.add('status-high');
+    else if (value === '过低') td.classList.add('status-low');
+    else if (value !== '--') td.classList.add('status-high');
     return td;
 }
 
-/** 数值单元格：整数原样，空值显示 -- */
-function numberCell(value) {
+/** 数值单元格：整数，空值显示 -- */
+function numberCell(value, className) {
     const td = document.createElement('td');
+    if (className) td.className = className;
     if (value == null) {
         td.textContent = '--';
         td.style.color = '#9ca3af';
     } else {
-        td.textContent = String(value);
+        td.textContent = String(Math.round(value));
     }
     return td;
 }
 
-/** 利用率单元格：不带 % 后缀，与导出 Excel 一致 */
+/** 利用率单元格：保留2位小数，带 % 后缀 */
 function usageCell(value) {
     const td = document.createElement('td');
+    td.className = 'center-cell';
     if (value == null) {
         td.textContent = '--';
         td.style.color = '#9ca3af';
         return td;
     }
-    td.textContent = value.toFixed(1);
-    if (value >= 90) td.className = 'status-high';
-    else if (value >= 70) td.className = 'status-warn';
+    td.textContent = value.toFixed(2) + '%';
+    if (value >= 90) td.classList.add('status-high');
+    else if (value >= 70) td.classList.add('status-warn');
     return td;
 }
 
@@ -183,11 +193,14 @@ function updateTableHeader() {
             if (h.width) th.style.width = h.width;
             if (h.minWidth) th.style.minWidth = h.minWidth;
             if (h.className) th.className = h.className;
-            const lines = h.text.split('\n');
-            lines.forEach((line, i) => {
-                if (i > 0) th.appendChild(document.createElement('br'));
-                th.appendChild(document.createTextNode(line));
-            });
+            th.appendChild(document.createTextNode(h.text));
+            if (h.unit) {
+                th.appendChild(document.createElement('br'));
+                const small = document.createElement('small');
+                small.className = 'th-unit';
+                small.textContent = '(' + h.unit + ')';
+                th.appendChild(small);
+            }
             tr.appendChild(th);
         });
         thead.appendChild(tr);
@@ -294,16 +307,16 @@ export function applyFilterAndSort() {
 /** 渲染单端 12 列 */
 function appendSide(row, r, prefix) {
     row.appendChild(truncCell(r[prefix + 'NeName']));
-    row.appendChild(createTextCell(r[prefix + 'NeTypeName'] || '-'));
+    row.appendChild(createTextCell(r[prefix + 'NeTypeName'] || '-', 'center-cell'));
     row.appendChild(truncCell(r[prefix + 'PortName']));
-    row.appendChild(createTextCell(r[prefix + 'ModuleType'] || '--'));
+    row.appendChild(createTextCell(r[prefix + 'ModuleType'] || '--', 'center-cell'));
     row.appendChild(powerCell(r[prefix + 'TxPower'], r[prefix + 'TxStatus']));
     row.appendChild(powerCell(r[prefix + 'RxPower'], r[prefix + 'RxStatus']));
     row.appendChild(statusCell(r[prefix + 'TxStatus']));
     row.appendChild(statusCell(r[prefix + 'RxStatus']));
-    row.appendChild(numberCell(r[prefix + 'RsErrorSec']));
-    row.appendChild(numberCell(r[prefix + 'TotalBandwidth']));
-    row.appendChild(numberCell(r[prefix + 'UsedBandwidth']));
+    row.appendChild(numberCell(r[prefix + 'RsErrorSec'], 'center-cell'));
+    row.appendChild(numberCell(r[prefix + 'TotalBandwidth'], 'center-cell'));
+    row.appendChild(numberCell(r[prefix + 'UsedBandwidth'], 'center-cell'));
     row.appendChild(usageCell(r[prefix + 'BandwidthUsage']));
 }
 
@@ -333,7 +346,7 @@ function renderLinkQueryTable() {
 
     pageData.forEach(r => {
         const tr = document.createElement('tr');
-        tr.appendChild(createTextCell(r.seqNo || ''));
+        tr.appendChild(createTextCell(r.seqNo || '', 'center-cell'));
         const linkTd = truncCell(r.linkName);
         tr.appendChild(linkTd);
         appendSide(tr, r, 'a');
@@ -363,7 +376,7 @@ function renderPagination(total) {
         // 每页条数选择
         const sizeSelect = document.createElement('select');
         sizeSelect.style.cssText = 'padding:4px 8px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;';
-        [10, 20, 50, 100].forEach(size => {
+        [20, 30, 50, 100, 500].forEach(size => {
             const opt = document.createElement('option');
             opt.value = size;
             opt.textContent = size + '条/页';

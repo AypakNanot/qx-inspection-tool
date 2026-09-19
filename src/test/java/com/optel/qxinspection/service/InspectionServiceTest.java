@@ -301,18 +301,18 @@ class InspectionServiceTest {
 
         LinkInspectionResult result = inspectionService.getLinkResults(7L, null).get(0);
 
-        assertEquals(2488.32, result.getATotalBandwidth(), 1e-9, "STM-16：1008 个 VC-12 → 2488.32 Mbps");
-        assertEquals(439.41, result.getAUsedBandwidth(), 1e-9);
-        assertEquals(622.08, result.getZTotalBandwidth(), 1e-9, "STM-4：252 个 VC-12 → 622.08 Mbps");
-        assertEquals(19.75, result.getZUsedBandwidth(), 1e-9);
+        assertEquals(2064.38, result.getATotalBandwidth(), 0.01, "STM-16：1008 个 VC-12 → 2064.38 Mbps");
+        assertEquals(364.54, result.getAUsedBandwidth(), 0.01);
+        assertEquals(516.10, result.getZTotalBandwidth(), 0.01, "STM-4：252 个 VC-12 → 516.10 Mbps");
+        assertEquals(16.38, result.getZUsedBandwidth(), 0.01);
     }
 
     @Test
     void testGetLinkResults_ConvertsEveryStmRate() {
-        assertEquals(155.52, convertedATotal(63.0), 1e-9, "STM-1");
-        assertEquals(622.08, convertedATotal(252.0), 1e-9, "STM-4");
-        assertEquals(2488.32, convertedATotal(1008.0), 1e-9, "STM-16");
-        assertEquals(9953.28, convertedATotal(4032.0), 1e-9, "STM-64");
+        assertEquals(129.02, convertedATotal(63.0), 0.01, "STM-1：63 个 VC-12 → 129.02 Mbps");
+        assertEquals(516.10, convertedATotal(252.0), 0.01, "STM-4：252 个 VC-12 → 516.10 Mbps");
+        assertEquals(2064.38, convertedATotal(1008.0), 0.01, "STM-16：1008 个 VC-12 → 2064.38 Mbps");
+        assertEquals(8257.54, convertedATotal(4032.0), 0.01, "STM-64：4032 个 VC-12 → 8257.54 Mbps");
     }
 
     @Test

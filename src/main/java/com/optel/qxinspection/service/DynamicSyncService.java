@@ -135,8 +135,16 @@ public class DynamicSyncService {
         status.put("networkNames", getConfigValue(KEY_NETWORK_NAMES));
         status.put("syncTime", getConfigValue(KEY_SYNC_TIME));
         status.put("syncStatus", getConfigValue(KEY_SYNC_STATUS));
-        status.put("dmeoCount", countRows("dmeo"));
-        status.put("dmconnectionCount", countRows("dmconnection"));
+        Long neCount = sqliteJdbc.queryForObject(
+                "SELECT COUNT(*) FROM dmeo WHERE cid = 2", Long.class);
+        status.put("neCount", neCount != null ? neCount : 0L);
+        Long linkCount = countRows("dmconnection");
+        status.put("linkCount", linkCount);
+        Long portCount = sqliteJdbc.queryForObject(
+                "SELECT COUNT(DISTINCT port) FROM ("
+                        + "SELECT aEnd AS port FROM dmconnection UNION SELECT zEnd AS port FROM dmconnection"
+                        + ")", Long.class);
+        status.put("portCount", portCount != null ? portCount : 0L);
         return status;
     }
 
@@ -201,12 +209,19 @@ public class DynamicSyncService {
             setConfigValue(KEY_SYNC_STATUS, "SUCCESS");
 
             long elapsed = System.currentTimeMillis() - startTime;
+            long neCount = dmeoRows.stream().filter(r -> toInt(r[1]) == 2).count();
+            Set<String> ports = new HashSet<>();
+            for (Object[] row : connRows) {
+                ports.add(toStr(row[3]));  // aEnd
+                ports.add(toStr(row[4]));  // zEnd
+            }
             result.put("status", "SUCCESS");
-            result.put("dmeoCount", dmeoRows.size());
-            result.put("dmconnectionCount", connRows.size());
+            result.put("neCount", neCount);
+            result.put("linkCount", (long) connRows.size());
+            result.put("portCount", (long) ports.size());
             result.put("elapsed", elapsed + "ms");
             result.put("networks", networkNames);
-            log.info("同步完成: dmeo={}, dmconnection={}, 耗时={}ms", dmeoRows.size(), connRows.size(), elapsed);
+            log.info("同步完成: 网元={}, 链路={}, 端口={}, 耗时={}ms", neCount, connRows.size(), ports.size(), elapsed);
 
         } catch (Exception e) {
             setConfigValue(KEY_SYNC_STATUS, "FAILED");

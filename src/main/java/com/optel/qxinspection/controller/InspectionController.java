@@ -190,7 +190,7 @@ public class InspectionController {
         // 序号 / 链路名称 贯穿 3 行表头
         mergeVertically(sheet, 0, 2);
 
-        // 第 2 行：网元 | 光模块 | 误码 | 带宽
+        // 第 2 行：网元(3) | 光模块(5) | 误码(1) | 带宽(3)
         Row row1 = styledRow(sheet, 1, headStyle);
         row1.getCell(2).setCellValue("网元");
         sheet.addMergedRegion(new CellRangeAddress(1, 1, 2, 4));
@@ -211,10 +211,10 @@ public class InspectionController {
         Row row2 = styledRow(sheet, 2, headStyle);
         String[] labels = {
                 null, null,
-                "名称", "类型", "端口", "类型", "TX\n(dBm)", "RX\n(dBm)", "TX\n状态", "RX\n状态", "RS\n错误秒",
-                "总(Mbps)", "已用(Mbps)", "利用率",
-                "名称", "类型", "端口", "类型", "TX\n(dBm)", "RX\n(dBm)", "TX\n状态", "RX\n状态", "RS\n错误秒",
-                "总(Mbps)", "已用(Mbps)", "利用率"
+                "名称", "类型", "端口", "类型", "TX\n(dBm)", "RX\n(dBm)", "TX\n状态", "RX\n状态", "RS\n(错误秒)",
+                "总\n(Mbps)", "已用\n(Mbps)", "利用率",
+                "名称", "类型", "端口", "类型", "TX\n(dBm)", "RX\n(dBm)", "TX\n状态", "RX\n状态", "RS\n(错误秒)",
+                "总\n(Mbps)", "已用\n(Mbps)", "利用率"
         };
         for (int i = 0; i < labels.length; i++) {
             if (labels[i] != null) {

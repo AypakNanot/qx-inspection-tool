@@ -198,10 +198,11 @@ class DynamicSyncServiceTest {
 
         Map<String, Object> result = dynamicSyncService.syncNetworks(List.of(NET_71));
 
-        // 71 下：网络自身 + NE101/N102 + 两个端口 = 5 行
+        // 71 下：网络自身 + NE101/N102 + 两个端口 = 5 行 dmeo, 其中 2 个 NE
         assertEquals("SUCCESS", result.get("status"));
-        assertEquals(5, result.get("dmeoCount"));
-        assertEquals(2, result.get("dmconnectionCount"));
+        assertEquals(2L, result.get("neCount"));
+        assertEquals(2L, result.get("linkCount"));
+        assertNotNull(result.get("portCount"));
         assertEquals(NET_NAME_71, result.get("networks"));
 
         List<List<Object>> dmeoRows = capturedRows(

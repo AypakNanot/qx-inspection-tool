@@ -113,7 +113,7 @@ export function executeSync() {
         el.style.display = 'block';
 
         if (result.status === 'SUCCESS') {
-            el.textContent = '同步完成: ' + result.networks + ' (dmeo: ' + result.dmeoCount + '条, 链路: ' + result.dmconnectionCount + '条, 耗时: ' + result.elapsed + ')';
+            el.textContent = '同步完成: ' + result.networks + ' (网元: ' + result.neCount + '台, 链路: ' + result.linkCount + '条, 端口: ' + result.portCount + '个, 耗时: ' + result.elapsed + ')';
             el.style.color = '#16a34a';
             showToast('同步完成', 'success');
         } else {
@@ -134,8 +134,9 @@ export async function loadSyncStatus() {
 
         if (status.syncStatus === 'SUCCESS') {
             addStatusLine(el, '已同步网络: ' + (status.networkNames || '-'), '#16a34a');
-            addStatusLine(el, 'dmeo 对象: ' + (status.dmeoCount || 0) + ' 条');
-            addStatusLine(el, '链路数量: ' + (status.dmconnectionCount || 0) + ' 条');
+            addStatusLine(el, '网元: ' + (status.neCount || 0) + ' 台');
+            addStatusLine(el, '链路: ' + (status.linkCount || 0) + ' 条');
+            addStatusLine(el, '端口: ' + (status.portCount || 0) + ' 个');
             addStatusLine(el, '同步时间: ' + (status.syncTime || '-'));
         } else if (status.syncStatus === 'RUNNING') {
             addStatusLine(el, '同步进行中...', '#f59e0b');

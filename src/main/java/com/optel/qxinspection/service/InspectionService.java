@@ -57,8 +57,8 @@ public class InspectionService {
 
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
-    /** 每个 VC-12 折算的 Mbps 数：STM-1 = 155.52 Mbps 含 63 个 VC-12 */
-    private static final double MBPS_PER_VC12 = 155.52 / 63;
+    /** 每个 VC-12 折算的 Mbps 数：VC-12 承载 E1 = 2.048 Mbps */
+    private static final double MBPS_PER_VC12 = 2.048;
     private static final DateTimeFormatter FAILURE_TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
 
     /** 链路基础信息（dmconnection cid=100，冗余字段由同步时写入） */
@@ -772,7 +772,7 @@ public class InspectionService {
 
     /**
      * VC-12 个数 → Mbps（保留 2 位小数），null 透传。
-     * STM-1 = 155.52 Mbps 含 63 个 VC-12，故 63/252/1008/4032 对应 155.52/622.08/2488.32/9953.28 Mbps
+     * VC-12 承载 E1 = 2.048 Mbps，故 63/252/1008/4032 对应 129.02/516.10/2064.38/8257.54 Mbps
      */
     private static Double vc12ToMbps(Double vc12) {
         return vc12 == null ? null : Math.round(vc12 * MBPS_PER_VC12 * 100.0) / 100.0;
