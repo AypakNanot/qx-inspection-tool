@@ -70,8 +70,8 @@ function renderProgress(d) {
     document.getElementById('progNum').textContent = d.done + ' / ' + d.total;
     document.getElementById('progDone').textContent = d.done;
     document.getElementById('progFail').textContent = d.failures;
-    document.getElementById('progCurrentNe').textContent = d.currentNe ? '设备: ' + d.currentNe : '';
-    document.getElementById('progCurrentPort').textContent = d.currentPort ? '端口: ' + d.currentPort : '';
+    document.getElementById('progCurrentNe').textContent = d.currentNe ? '当前网元: ' + d.currentNe : '';
+    document.getElementById('progCurrentPort').textContent = d.currentPort ? '当前端口: ' + d.currentPort : '';
     renderFailList(d.failures_list || []);
 }
 
@@ -133,12 +133,13 @@ async function loadSummary() {
             return;
         }
         document.getElementById('progSummaryPanel').style.display = '';
-        document.getElementById('sumPorts').textContent = d.totalPorts || 0;
-        document.getElementById('sumSupported').textContent = d.supportedPorts || 0;
-        document.getElementById('sumOver').textContent = d.overThresholdPorts || 0;
+        document.getElementById('sumLinks').textContent = d.linkCount || 0;
+        document.getElementById('sumNormal').textContent = d.normalLinks || 0;
+        document.getElementById('sumAbnormal').textContent = d.abnormalLinks || 0;
+        document.getElementById('sumNoLight').textContent = d.noLightLinks || 0;
         document.getElementById('sumDuration').textContent = formatDurationSec(d.durationSec);
         renderModuleSummary(d.byModuleType || {});
-        renderDeviceTypeSummary(d.byDeviceType || {});
+        renderNeTypeSummary(d.byNeType || {});
         renderTopAnomalies(d.topAnomalies || []);
     } catch (e) { console.error('loadSummary', e); }
 }
@@ -151,11 +152,11 @@ function showCompleteBanner(roundId) {
     // 从摘要数据中读取概要
     get('/inspection/summary').then(d => {
         if (d.hasData) {
-            const over = d.overThresholdPorts || 0;
-            const total = d.totalPorts || 0;
+            const total = d.linkCount || 0;
+            const abnormal = d.abnormalLinks || 0;
             const dur = formatDurationSec(d.durationSec);
-            let text = '共采集 ' + total + ' 个端口';
-            if (over > 0) text += '，' + over + ' 个越限';
+            let text = '共巡检 ' + total + ' 条链路';
+            if (abnormal > 0) text += '，' + abnormal + ' 条异常';
             if (dur !== '-') text += '，耗时 ' + dur;
             document.getElementById('bannerSummary').textContent = text;
         }
@@ -173,27 +174,26 @@ function formatDurationSec(sec) {
     return s + '秒';
 }
 
-/** 渲染按设备类型统计 */
-function renderDeviceTypeSummary(byDeviceType) {
-    const section = document.getElementById('sumDeviceTypeSection');
-    const tbody = document.getElementById('sumDeviceTypeTable');
-    const entries = Object.entries(byDeviceType);
+/** 渲染按网元类型统计 */
+function renderNeTypeSummary(byNeType) {
+    const section = document.getElementById('sumNeTypeSection');
+    const tbody = document.getElementById('sumNeTypeTable');
+    const entries = Object.entries(byNeType);
     if (entries.length === 0) { section.style.display = 'none'; return; }
     section.style.display = '';
     tbody.textContent = '';
     entries.forEach(([type, stats]) => {
         const tr = document.createElement('tr');
         tr.appendChild(createTextCell(type));
-        tr.appendChild(createTextCell(String(stats.totalPorts || 0)));
-        tr.appendChild(createTextCell(String(stats.supportedPorts || 0)));
-        const overTd = createTextCell(String(stats.overThreshold || 0));
-        if (stats.overThreshold > 0) overTd.style.color = '#dc2626';
-        tr.appendChild(overTd);
+        tr.appendChild(createTextCell(String(stats.count || 0)));
+        const abnTd = createTextCell(String(stats.abnormal || 0));
+        if (stats.abnormal > 0) abnTd.style.color = '#dc2626';
+        tr.appendChild(abnTd);
         tbody.appendChild(tr);
     });
 }
 
-/** 渲染越限端口TOP10 */
+/** 渲染异常明细 TOP10 */
 function renderTopAnomalies(anomalies) {
     const section = document.getElementById('sumTopAnomalySection');
     const tbody = document.getElementById('sumTopAnomalyTable');
@@ -202,16 +202,15 @@ function renderTopAnomalies(anomalies) {
     tbody.textContent = '';
     anomalies.forEach(a => {
         const tr = document.createElement('tr');
+        tr.appendChild(createTextCell(a.side || ''));
+        tr.appendChild(createTextCell(a.linkName || ''));
         tr.appendChild(createTextCell(a.neName || ''));
-        tr.appendChild(createTextCell(String(a.slotNo || '')));
-        tr.appendChild(createTextCell(String(a.portNo || '')));
         tr.appendChild(createTextCell(a.portName || ''));
-        tr.appendChild(createTextCell(a.txPower != null ? a.txPower.toFixed(1) + ' dBm' : '--'));
-        tr.appendChild(createTextCell(a.rxPower != null ? a.rxPower.toFixed(1) + ' dBm' : '--'));
-        const statusText = [];
-        if (a.txStatus > 0) statusText.push('发送' + (a.txStatus === 1 ? '越下限' : '越上限'));
-        if (a.rxStatus > 0) statusText.push('接收' + (a.rxStatus === 1 ? '越下限' : '越上限'));
-        const stTd = createTextCell(statusText.join('，') || '正常');
+        tr.appendChild(createTextCell(a.moduleType || '--'));
+        tr.appendChild(createTextCell(a.txPower != null ? a.txPower.toFixed(1) : '--'));
+        tr.appendChild(createTextCell(a.rxPower != null ? a.rxPower.toFixed(1) : '--'));
+        const statusText = [a.txStatus, a.rxStatus].filter(s => s && s !== '正常');
+        const stTd = createTextCell(statusText.length > 0 ? statusText.join('，') : '正常');
         if (statusText.length > 0) stTd.style.color = '#dc2626';
         tr.appendChild(stTd);
         tbody.appendChild(tr);
@@ -234,8 +233,8 @@ function renderModuleSummary(byModuleType) {
         const tr = document.createElement('tr');
         tr.appendChild(createTextCell(e[0]));
         tr.appendChild(createTextCell(String(e[1].count || 0)));
-        const overTd = createTextCell(String(e[1].overThreshold || 0));
-        if (e[1].overThreshold > 0) overTd.style.color = '#dc2626';
+        const overTd = createTextCell(String(e[1].abnormal || 0));
+        if (e[1].abnormal > 0) overTd.style.color = '#dc2626';
         tr.appendChild(overTd);
         tbody.appendChild(tr);
     });

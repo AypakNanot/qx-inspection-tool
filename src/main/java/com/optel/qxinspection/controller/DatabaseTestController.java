@@ -2,6 +2,7 @@ package com.optel.qxinspection.controller;
 
 import com.optel.qxinspection.entity.sqlite.DeviceAccessConfig;
 import com.optel.qxinspection.service.DeviceAccessService;
+import com.optel.qxinspection.service.InventoryStatsService;
 import com.optel.qxinspection.service.MysqlConnectionManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -22,6 +23,7 @@ import java.util.Map;
 public class DatabaseTestController {
 
     private final DeviceAccessService deviceAccessService;
+    private final InventoryStatsService inventoryStatsService;
     private final MysqlConnectionManager mysqlConnectionManager;
 
     /**
@@ -52,8 +54,7 @@ public class DatabaseTestController {
      *   "inspectionRecords": true,
      *   "inspectionRounds": true,
      *   "deviceConfigs": true,
-     *   "connectionProfiles": "all",       // 或 ["网络A","网络B"]
-     *   "thresholdRules": true
+     *   "connectionProfiles": "all"        // 或 ["网络A","网络B"]
      * }
      */
     @PostMapping("/clear-selected")
@@ -73,17 +74,14 @@ public class DatabaseTestController {
     }
 
     /**
-     * 从SQLite同步设备信息
-     * @param network 可选，按网络名称筛选，为空则同步全部
+     * 从SQLite dmeo表同步设备信息（无需选择网络，已按同步范围过滤）
      */
     @PostMapping("/sync-devices")
-    public ResponseEntity<Map<String, Object>> syncDevices(
-            @RequestBody(required = false) Map<String, Object> body) {
+    public ResponseEntity<Map<String, Object>> syncDevices() {
         Map<String, Object> result = new HashMap<>();
-        String network = body != null ? (String) body.get("network") : null;
 
         try {
-            deviceAccessService.syncDevicesFromSQLite(network);
+            deviceAccessService.syncDevicesFromSQLite();
             result.put("status", "SUCCESS");
             result.put("message", "设备信息同步成功");
         } catch (Exception e) {
@@ -119,6 +117,6 @@ public class DatabaseTestController {
      */
     @GetMapping("/networks")
     public ResponseEntity<List<String>> getAvailableNetworks() {
-        return ResponseEntity.ok(deviceAccessService.getAvailableNetworkNames());
+        return ResponseEntity.ok(inventoryStatsService.getNetworkNames());
     }
 }

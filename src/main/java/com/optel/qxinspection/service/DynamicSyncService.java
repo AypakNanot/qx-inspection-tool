@@ -1,454 +1,451 @@
 package com.optel.qxinspection.service;
 
-import com.optel.qxinspection.config.SyncConfig;
+import com.optel.qxinspection.util.OidUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.BatchPreparedStatementSetter;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import javax.sql.DataSource;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Types;
-import java.util.*;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
+/**
+ * 业务同步服务 —— 从 MySQL 按网络过滤，构建冗余字段写入 SQLite 的 dmeo / dmconnection 表。
+ */
 @Slf4j
 @Service
 public class DynamicSyncService {
 
+    private static final DateTimeFormatter SYNC_TIME_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
+    private static final int BATCH_SIZE = 5000;
+
+    /** dmconnection cid：链路（其余 cid 为交叉连接/路径/路径段/以太路径，巡检不使用） */
+    private static final int CID_LINK = 100;
+
+    private static final String KEY_NETWORK_IDS = "sync.networkIds";
+    private static final String KEY_NETWORK_NAMES = "sync.networkNames";
+    private static final String KEY_SYNC_TIME = "sync.time";
+    private static final String KEY_SYNC_STATUS = "sync.status";
+
+    private static final String INSERT_DMEO_SQL =
+            "INSERT INTO dmeo (oid, cid, type, name, defName, networkOid, networkName, neName, neTypeName, ipAddr) "
+                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+
+    private static final String INSERT_DMCONNECTION_SQL =
+            "INSERT INTO dmconnection (oid, cid, name, aEnd, zEnd, createTime, creator, additionInfo, "
+                    + "aNeName, aNeTypeName, aNetworkName, aPortName, aCapacity, aUsed, "
+                    + "zNeName, zNeTypeName, zNetworkName, zPortName, zCapacity, zUsed) "
+                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+
     private final JdbcTemplate sqliteJdbc;
     private final MysqlConnectionManager mysqlConnectionManager;
-    private final SyncConfig syncConfig;
     private final TransactionTemplate sqliteTransactionTemplate;
 
-    private static final Map<String, String> TYPE_MAP = Map.ofEntries(
-            Map.entry("varchar", "TEXT"),
-            Map.entry("char", "TEXT"),
-            Map.entry("text", "TEXT"),
-            Map.entry("longtext", "TEXT"),
-            Map.entry("mediumtext", "TEXT"),
-            Map.entry("tinytext", "TEXT"),
-            Map.entry("blob", "BLOB"),
-            Map.entry("longblob", "BLOB"),
-            Map.entry("mediumblob", "BLOB"),
-            Map.entry("tinyblob", "BLOB"),
-            Map.entry("int", "INTEGER"),
-            Map.entry("integer", "INTEGER"),
-            Map.entry("bigint", "INTEGER"),
-            Map.entry("smallint", "INTEGER"),
-            Map.entry("tinyint", "INTEGER"),
-            Map.entry("mediumint", "INTEGER"),
-            Map.entry("float", "REAL"),
-            Map.entry("double", "REAL"),
-            Map.entry("decimal", "REAL"),
-            Map.entry("numeric", "REAL"),
-            Map.entry("date", "TEXT"),
-            Map.entry("datetime", "TEXT"),
-            Map.entry("timestamp", "TEXT"),
-            Map.entry("time", "TEXT"),
-            Map.entry("year", "INTEGER"),
-            Map.entry("bit", "INTEGER"),
-            Map.entry("boolean", "INTEGER"),
-            Map.entry("enum", "TEXT"),
-            Map.entry("set", "TEXT"),
-            Map.entry("json", "TEXT")
-    );
-
-    public DynamicSyncService(@Qualifier("sqliteDataSource") DataSource sqliteDs,
-                               MysqlConnectionManager mysqlConnectionManager,
-                               SyncConfig syncConfig,
-                               @Qualifier("sqliteTransactionManager") org.springframework.transaction.PlatformTransactionManager sqliteTxManager) {
-        this.sqliteJdbc = new JdbcTemplate(sqliteDs);
+    public DynamicSyncService(@Qualifier("sqliteJdbc") JdbcTemplate sqliteJdbc,
+                              MysqlConnectionManager mysqlConnectionManager,
+                              @Qualifier("sqliteTransactionManager") PlatformTransactionManager sqliteTxManager) {
+        this.sqliteJdbc = sqliteJdbc;
         this.mysqlConnectionManager = mysqlConnectionManager;
-        this.syncConfig = syncConfig;
         this.sqliteTransactionTemplate = new TransactionTemplate(sqliteTxManager);
     }
 
-    /**
-     * 获取 MySQL 中所有用户表
-     */
-    public List<String> getAllTables() {
-        JdbcTemplate mysqlJdbc = mysqlConnectionManager.getJdbcTemplate();
-        return mysqlJdbc.queryForList(
-                "SELECT TABLE_NAME FROM information_schema.TABLES " +
-                "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE' " +
-                "ORDER BY TABLE_NAME",
-                String.class
-        );
+    // ==================== 同步元数据 ====================
+
+    /** 从 sys_config 读取已同步的网络 ID 列表 */
+    public List<String> getSyncedNetworkIds() {
+        return splitConfig(KEY_NETWORK_IDS);
     }
 
-    /**
-     * 获取同步状态摘要
-     */
-    public Map<String, Object> getSyncStatus() {
-        Map<String, Object> status = new LinkedHashMap<>();
-        List<String> allTables;
+    /** 从 sys_config 读取已同步的网络名称列表 */
+    public List<String> getSyncedNetworkNames() {
+        return splitConfig(KEY_NETWORK_NAMES);
+    }
+
+    /** 从 sys_config 读取同步时间 */
+    public String getSyncTime() {
+        return getConfigValue(KEY_SYNC_TIME);
+    }
+
+    /** 从 sys_config 读取同步状态 */
+    public String getSyncStatus() {
+        return getConfigValue(KEY_SYNC_STATUS);
+    }
+
+    private List<String> splitConfig(String key) {
+        String val = getConfigValue(key);
+        if (val == null || val.isBlank()) {
+            return List.of();
+        }
+        return Arrays.asList(val.split(","));
+    }
+
+    private String getConfigValue(String key) {
         try {
-            allTables = getAllTables();
-        } catch (Exception e) {
-            status.put("error", "MySQL 未连接: " + e.getMessage());
-            status.put("totalTables", 0);
-            status.put("essentialTables", syncConfig.getEssential());
-            status.put("syncedCount", 0);
-            status.put("notSyncedCount", 0);
-            status.put("synced", List.of());
-            status.put("notSynced", List.of());
-            return status;
+            return sqliteJdbc.queryForObject(
+                    "SELECT config_value FROM sys_config WHERE config_key = ?",
+                    String.class, key);
+        } catch (EmptyResultDataAccessException e) {
+            return null;
         }
-        List<String> essential = syncConfig.getEssential();
-        List<String> exclude = syncConfig.getExclude();
+    }
 
-        List<String> synced = new ArrayList<>();
-        List<String> notSynced = new ArrayList<>();
+    private void setConfigValue(String key, String value) {
+        sqliteJdbc.update(
+                "INSERT OR REPLACE INTO sys_config (config_key, config_value) VALUES (?, ?)",
+                key, value);
+    }
 
-        for (String table : allTables) {
-            if (exclude.contains(table)) continue;
-            if (isTableExistsSqlite(table)) {
-                long count = sqliteJdbc.queryForObject(
-                        "SELECT COUNT(*) FROM \"" + table + "\"", Long.class);
-                synced.add(table + " (" + count + ")");
-            } else {
-                notSynced.add(table);
-            }
+    // ==================== 获取可同步的网络列表 ====================
+
+    /**
+     * 从 MySQL 获取所有网络（dmeo cid=1），返回 [{oid, name}]。
+     */
+    public List<Map<String, Object>> getAvailableNetworks() {
+        JdbcTemplate mysqlJdbc = mysqlConnectionManager.getJdbcTemplate();
+        try {
+            return mysqlJdbc.queryForList(
+                    "SELECT oid, name FROM dmeo WHERE cid = 1 ORDER BY name");
+        } finally {
+            mysqlConnectionManager.close();
         }
+    }
 
-        status.put("totalTables", allTables.size());
-        status.put("essentialTables", essential);
-        status.put("syncedCount", synced.size());
-        status.put("notSyncedCount", notSynced.size());
-        status.put("synced", synced);
-        status.put("notSynced", notSynced);
+    // ==================== 同步状态摘要 ====================
+
+    public Map<String, Object> getSyncStatusSummary() {
+        Map<String, Object> status = new LinkedHashMap<>();
+        status.put("networkIds", getConfigValue(KEY_NETWORK_IDS));
+        status.put("networkNames", getConfigValue(KEY_NETWORK_NAMES));
+        status.put("syncTime", getConfigValue(KEY_SYNC_TIME));
+        status.put("syncStatus", getConfigValue(KEY_SYNC_STATUS));
+        status.put("dmeoCount", countRows("dmeo"));
+        status.put("dmconnectionCount", countRows("dmconnection"));
         return status;
     }
 
-    /**
-     * 同步全部表
-     */
-    public Map<String, Object> syncAll() {
-        List<String> tables = getAllTables();
-        tables.removeAll(syncConfig.getExclude());
-        return syncTables(tables);
+    private long countRows(String table) {
+        Long count = sqliteJdbc.queryForObject("SELECT COUNT(*) FROM " + table, Long.class);
+        return count != null ? count : 0L;
     }
 
-    /**
-     * 同步必要表
-     */
-    public Map<String, Object> syncEssential() {
-        return syncTables(syncConfig.getEssential());
-    }
+    // ==================== 核心同步 ====================
 
     /**
-     * 同步指定表
+     * 按指定网络 OID 列表执行同步。
+     * 1. 从 MySQL 读取基础数据
+     * 2. 构建内存索引
+     * 3. 过滤并写入 dmeo（含冗余字段）
+     * 4. 过滤并写入 dmconnection（含冗余字段）
+     * 5. 更新 sys_config
      */
-    public Map<String, Object> syncTables(List<String> tables) {
-        JdbcTemplate mysqlJdbc = mysqlConnectionManager.getJdbcTemplate();
-        Map<String, Object> result = new LinkedHashMap<>();
-        long totalRows = 0;
+    public Map<String, Object> syncNetworks(List<String> networkOids) {
+        if (networkOids == null || networkOids.isEmpty()) {
+            throw new IllegalArgumentException("网络列表不能为空");
+        }
+
         long startTime = System.currentTimeMillis();
+        Map<String, Object> result = new LinkedHashMap<>();
 
         try {
-            for (String table : tables) {
-                try {
-                    long rows = syncSingleTable(mysqlJdbc, table);
-                    result.put(table, rows);
-                    totalRows += rows;
-                } catch (Exception e) {
-                    log.error("同步表 {} 失败", table, e);
-                    result.put(table, "ERROR: " + e.getMessage());
-                }
-            }
+            setConfigValue(KEY_SYNC_STATUS, "RUNNING");
+
+            JdbcTemplate mysqlJdbc = mysqlConnectionManager.getJdbcTemplate();
+            log.info("开始从 MySQL 读取基础数据...");
+            List<Map<String, Object>> allDmeo = mysqlJdbc.queryForList("SELECT * FROM dmeo");
+            List<Map<String, Object>> allDmconnection =
+                    mysqlJdbc.queryForList("SELECT * FROM dmconnection WHERE cid = ?", CID_LINK);
+            SyncIndex index = buildIndex(allDmeo,
+                    mysqlJdbc.queryForList("SELECT * FROM dmrelation"),
+                    mysqlJdbc.queryForList("SELECT * FROM defdmne"),
+                    mysqlJdbc.queryForList("SELECT * FROM emnecomm"),
+                    mysqlJdbc.queryForList("SELECT * FROM portbandwidth"));
+
+            Set<String> targetNetworks = new HashSet<>(networkOids);
+            Set<String> targetNeOids = index.neOidsIn(targetNetworks);
+            List<Object[]> dmeoRows = buildDmeoRows(allDmeo, targetNetworks, index);
+            List<Object[]> connRows = buildConnectionRows(allDmconnection, targetNeOids, index);
+
+            log.info("同步过滤: dmeo {}→{}, dmconnection {}→{}",
+                    allDmeo.size(), dmeoRows.size(), allDmconnection.size(), connRows.size());
+
+            sqliteTransactionTemplate.executeWithoutResult(status -> {
+                sqliteJdbc.execute("DELETE FROM dmeo");
+                sqliteJdbc.execute("DELETE FROM dmconnection");
+                insertRows(INSERT_DMEO_SQL, dmeoRows);
+                insertRows(INSERT_DMCONNECTION_SQL, connRows);
+            });
+
+            String networkNames = networkOids.stream()
+                    .map(oid -> index.networkNameMap.getOrDefault(oid, oid))
+                    .collect(Collectors.joining(","));
+            setConfigValue(KEY_NETWORK_IDS, String.join(",", networkOids));
+            setConfigValue(KEY_NETWORK_NAMES, networkNames);
+            setConfigValue(KEY_SYNC_TIME, LocalDateTime.now().format(SYNC_TIME_FMT));
+            setConfigValue(KEY_SYNC_STATUS, "SUCCESS");
+
+            long elapsed = System.currentTimeMillis() - startTime;
+            result.put("status", "SUCCESS");
+            result.put("dmeoCount", dmeoRows.size());
+            result.put("dmconnectionCount", connRows.size());
+            result.put("elapsed", elapsed + "ms");
+            result.put("networks", networkNames);
+            log.info("同步完成: dmeo={}, dmconnection={}, 耗时={}ms", dmeoRows.size(), connRows.size(), elapsed);
+
+        } catch (Exception e) {
+            setConfigValue(KEY_SYNC_STATUS, "FAILED");
+            result.put("status", "FAILED");
+            result.put("error", e.getMessage());
+            log.error("同步失败", e);
+            throw e;
         } finally {
             mysqlConnectionManager.close();
         }
 
-        long elapsed = System.currentTimeMillis() - startTime;
-        result.put("_summary", String.format("同步完成: %d 张表, %d 行, 耗时 %d ms",
-                tables.size(), totalRows, elapsed));
         return result;
     }
 
+    // ==================== 索引构建 ====================
+
     /**
-     * 同步单张表
+     * 一次性构建同步过程中需要的全部查找索引。
      */
-    private long syncSingleTable(JdbcTemplate mysqlJdbc, String table) {
-        log.info("开始同步表: {}", table);
+    private SyncIndex buildIndex(List<Map<String, Object>> allDmeo,
+                                 List<Map<String, Object>> allDmrelation,
+                                 List<Map<String, Object>> allDefdmne,
+                                 List<Map<String, Object>> allEmnecomm,
+                                 List<Map<String, Object>> allPortbandwidth) {
+        SyncIndex index = new SyncIndex();
 
-        // 1. 获取 MySQL 表结构
-        List<Map<String, String>> columns = getMysqlColumns(mysqlJdbc, table);
-        if (columns.isEmpty()) {
-            throw new RuntimeException("同步表结构获取失败，请检查 MySQL 连接是否正常");
-        }
-
-        // 2. 获取主键列
-        List<String> primaryKeys = getMysqlPrimaryKeys(mysqlJdbc, table);
-
-        // 3. 从 MySQL 读取所有数据（不在事务中）
-        String mysqlSql = "SELECT * FROM `" + table + "`";
-        String[] colNames = columns.stream()
-                .map(c -> c.get("COLUMN_NAME"))
-                .toArray(String[]::new);
-        String placeholders = Arrays.stream(colNames)
-                .map(c -> "?")
-                .collect(Collectors.joining(","));
-        String sqliteSql = "INSERT INTO \"" + table + "\" (" +
-                Arrays.stream(colNames).map(c -> "\"" + c + "\"").collect(Collectors.joining(","))
-                + ") VALUES (" + placeholders + ")";
-
-        int batchSize = syncConfig.getBatchSize();
-        List<Object[]> allData = new ArrayList<>();
-        int offset = 0;
-        while (true) {
-            String pagedSql = mysqlSql + " LIMIT " + batchSize + " OFFSET " + offset;
-            List<Map<String, Object>> rows = mysqlJdbc.queryForList(pagedSql);
-            if (rows.isEmpty()) break;
-
-            for (Map<String, Object> row : rows) {
-                Object[] values = new Object[colNames.length];
-                for (int i = 0; i < colNames.length; i++) {
-                    values[i] = row.get(colNames[i]);
-                }
-                allData.add(values);
+        for (Map<String, Object> row : allDmeo) {
+            int cid = toInt(row.get("cid"));
+            String oid = toStr(row.get("oid"));
+            if (cid == 1) {
+                index.networkNameMap.put(oid, toStr(row.get("name")));
+            } else if (cid == 2) {
+                index.neNameMap.put(oid, toStr(row.get("name")));
+                index.neTypeCache.put(oid, toStr(row.get("type")));
             }
-            offset += batchSize;
-            if (rows.size() < batchSize) break;
+            index.portNameMap.put(oid, toStr(row.get("name")));
         }
-        log.info("表 {} 从 MySQL 读取 {} 行", table, allData.size());
 
-        // 4. 在事务中写入 SQLite（建表 + 清空 + 批量插入）
-        final long[] rowCount = {0};
-        sqliteTransactionTemplate.execute(status -> {
-            createSqliteTable(table, columns, primaryKeys);
-            sqliteJdbc.execute("DELETE FROM \"" + table + "\"");
-
-            // 分批写入
-            for (int i = 0; i < allData.size(); i += batchSize) {
-                List<Object[]> batch = allData.subList(i, Math.min(i + batchSize, allData.size()));
-                batchInsert(sqliteSql, batch);
-                rowCount[0] += batch.size();
+        // neOid(oid) → networkOid(reo) (dmrelation type=1)
+        for (Map<String, Object> row : allDmrelation) {
+            if (toInt(row.get("type")) == 1) {
+                index.neNetworkMap.put(toStr(row.get("oid")), toStr(row.get("reo")));
             }
-            return null;
-        });
-
-        log.info("表 {} 同步完成, 共 {} 行", table, rowCount[0]);
-
-        return rowCount[0];
-    }
-
-    /**
-     * 获取 MySQL 表的列信息
-     */
-    private List<Map<String, String>> getMysqlColumns(JdbcTemplate mysqlJdbc, String table) {
-        return mysqlJdbc.queryForList(
-                "SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT, " +
-                "CHARACTER_MAXIMUM_LENGTH, NUMERIC_PRECISION, NUMERIC_SCALE " +
-                "FROM information_schema.COLUMNS " +
-                "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? " +
-                "ORDER BY ORDINAL_POSITION",
-                table
-        ).stream().map(row -> {
-            Map<String, String> col = new LinkedHashMap<>();
-            col.put("COLUMN_NAME", (String) row.get("COLUMN_NAME"));
-            col.put("DATA_TYPE", (String) row.get("DATA_TYPE"));
-            col.put("IS_NULLABLE", (String) row.get("IS_NULLABLE"));
-            col.put("COLUMN_DEFAULT", row.get("COLUMN_DEFAULT") != null ?
-                    row.get("COLUMN_DEFAULT").toString() : null);
-            col.put("CHARACTER_MAXIMUM_LENGTH", row.get("CHARACTER_MAXIMUM_LENGTH") != null ?
-                    row.get("CHARACTER_MAXIMUM_LENGTH").toString() : null);
-            return col;
-        }).collect(Collectors.toList());
-    }
-
-    /**
-     * 获取 MySQL 表的主键列
-     */
-    private List<String> getMysqlPrimaryKeys(JdbcTemplate mysqlJdbc, String table) {
-        return mysqlJdbc.queryForList(
-                "SELECT COLUMN_NAME FROM information_schema.KEY_COLUMN_USAGE " +
-                "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND CONSTRAINT_NAME = 'PRIMARY' " +
-                "ORDER BY ORDINAL_POSITION",
-                table
-        ).stream().map(row -> (String) row.get("COLUMN_NAME")).collect(Collectors.toList());
-    }
-
-    /**
-     * 在 SQLite 中动态建表
-     */
-    private void createSqliteTable(String table, List<Map<String, String>> columns,
-                                    List<String> primaryKeys) {
-        sqliteJdbc.execute("DROP TABLE IF EXISTS \"" + table + "\"");
-
-        StringBuilder sql = new StringBuilder();
-        sql.append("CREATE TABLE \"").append(table).append("\" (\n");
-
-        List<String> colDefs = new ArrayList<>();
-        for (Map<String, String> col : columns) {
-            String colName = col.get("COLUMN_NAME");
-            String sqliteType = mapType(col.get("DATA_TYPE"));
-            String nullable = "YES".equals(col.get("IS_NULLABLE")) ? "" : " NOT NULL";
-            colDefs.add("  \"" + colName + "\" " + sqliteType + nullable);
         }
 
-        if (!primaryKeys.isEmpty()) {
-            String pkCols = primaryKeys.stream()
-                    .map(pk -> "\"" + pk + "\"")
-                    .collect(Collectors.joining(","));
-            colDefs.add("  PRIMARY KEY (" + pkCols + ")");
+        // neType → neTypeName (defdmne)
+        for (Map<String, Object> row : allDefdmne) {
+            index.neTypeNameMap.put(toStr(row.get("neType")), toStr(row.get("cName")));
         }
 
-        sql.append(String.join(",\n", colDefs));
-        sql.append("\n)");
+        // neOid(oid) → ipAddr (emnecomm state=1)
+        for (Map<String, Object> row : allEmnecomm) {
+            if (toInt(row.get("state")) == 1) {
+                index.ipAddrMap.put(toStr(row.get("oid")), toStr(row.get("ipAddr")));
+            }
+        }
 
-        log.debug("建表 SQL: {}", sql);
-        sqliteJdbc.execute(sql.toString());
+        // portOid → bandwidth info (portbandwidth；每端口含 dir=1/2/3 三行，固定取 dir=1)
+        for (Map<String, Object> row : allPortbandwidth) {
+            if (toInt(row.get("dir")) == 1) {
+                index.bandwidthMap.put(toStr(row.get("oid")), row);
+            }
+        }
+
+        return index;
     }
 
-    private String mapType(String mysqlType) {
-        if (mysqlType == null) return "TEXT";
-        String lower = mysqlType.toLowerCase();
-        String base = lower.contains("(") ? lower.substring(0, lower.indexOf("(")) : lower;
-        return TYPE_MAP.getOrDefault(base, "TEXT");
+    /**
+     * 过滤 dmeo：仅保留目标网络内的对象，并把冗余字段一次性算好。
+     */
+    private List<Object[]> buildDmeoRows(List<Map<String, Object>> allDmeo,
+                                         Set<String> targetNetworks,
+                                         SyncIndex index) {
+        List<Object[]> rows = new ArrayList<>();
+        for (Map<String, Object> row : allDmeo) {
+            int cid = toInt(row.get("cid"));
+            String oid = toStr(row.get("oid"));
+            String networkOid = index.networkOidOf(oid, cid);
+            if (networkOid == null || !targetNetworks.contains(networkOid)) {
+                continue;
+            }
+            String neOid = cid == 1 ? null : OidUtil.getNeOid(oid);
+            rows.add(new Object[]{
+                    oid, cid, row.get("type"), toStr(row.get("name")), toStr(row.get("defName")),
+                    networkOid, index.networkNameOf(networkOid),
+                    neOid == null ? null : index.neNameMap.get(neOid),
+                    index.neTypeNameOf(neOid),
+                    neOid == null ? null : index.ipAddrMap.get(neOid)
+            });
+        }
+        return rows;
     }
 
-    private void batchInsert(String sql, List<Object[]> batch) {
-        sqliteJdbc.batchUpdate(sql, new BatchPreparedStatementSetter() {
-            @Override
-            public void setValues(PreparedStatement ps, int i) throws SQLException {
-                Object[] row = batch.get(i);
-                for (int j = 0; j < row.length; j++) {
-                    Object val = row[j];
-                    if (val == null) {
-                        ps.setNull(j + 1, Types.NULL);
-                    } else if (val instanceof Number) {
-                        ps.setObject(j + 1, val);
-                    } else if (val instanceof java.util.Date) {
-                        ps.setString(j + 1, val.toString());
-                    } else if (val instanceof java.sql.Timestamp) {
-                        ps.setString(j + 1, val.toString());
-                    } else if (val instanceof java.sql.Date) {
-                        ps.setString(j + 1, val.toString());
-                    } else if (val instanceof byte[]) {
-                        ps.setBytes(j + 1, (byte[]) val);
-                    } else {
-                        ps.setString(j + 1, val.toString());
+    /**
+     * 过滤 dmconnection：A/Z 任一端 NE 属于目标网络即保留（跨网络链路保留），冗余字段一次性算好。
+     */
+    private List<Object[]> buildConnectionRows(List<Map<String, Object>> allDmconnection,
+                                               Set<String> targetNeOids,
+                                               SyncIndex index) {
+        List<Object[]> rows = new ArrayList<>();
+        for (Map<String, Object> row : allDmconnection) {
+            String aEnd = toStr(row.get("aEnd"));
+            String zEnd = toStr(row.get("zEnd"));
+            String aNeOid = OidUtil.getNeOid(aEnd);
+            String zNeOid = OidUtil.getNeOid(zEnd);
+            if (!targetNeOids.contains(aNeOid) && !targetNeOids.contains(zNeOid)) {
+                continue;
+            }
+            rows.add(new Object[]{
+                    toStr(row.get("oid")), toInt(row.get("cid")), toStr(row.get("name")), aEnd, zEnd,
+                    row.get("createTime"), toStr(row.get("creator")), toStr(row.get("additionInfo")),
+                    index.neNameMap.get(aNeOid), index.neTypeNameOf(aNeOid),
+                    index.networkNameOf(index.neNetworkMap.get(aNeOid)), index.portNameOf(aEnd),
+                    index.bandwidthOf(aEnd, "capacity"), index.bandwidthOf(aEnd, "used"),
+                    index.neNameMap.get(zNeOid), index.neTypeNameOf(zNeOid),
+                    index.networkNameOf(index.neNetworkMap.get(zNeOid)), index.portNameOf(zEnd),
+                    index.bandwidthOf(zEnd, "capacity"), index.bandwidthOf(zEnd, "used")
+            });
+        }
+        return rows;
+    }
+
+    private void insertRows(String sql, List<Object[]> rows) {
+        for (int i = 0; i < rows.size(); i += BATCH_SIZE) {
+            List<Object[]> batch = rows.subList(i, Math.min(i + BATCH_SIZE, rows.size()));
+            sqliteJdbc.batchUpdate(sql, new BatchPreparedStatementSetter() {
+                @Override
+                public void setValues(PreparedStatement ps, int idx) throws SQLException {
+                    Object[] row = batch.get(idx);
+                    for (int col = 0; col < row.length; col++) {
+                        if (row[col] == null) {
+                            ps.setNull(col + 1, Types.NULL);
+                        } else {
+                            ps.setObject(col + 1, row[col]);
+                        }
                     }
                 }
-            }
 
-            @Override
-            public int getBatchSize() {
-                return batch.size();
-            }
-        });
-    }
-
-    private boolean isTableExistsSqlite(String table) {
-        Long count = sqliteJdbc.queryForObject(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?",
-                Long.class, table);
-        return count != null && count > 0;
-    }
-
-    /**
-     * 清除所有动态同步的表
-     */
-    public Map<String, Long> clearSyncData() {
-        Map<String, Long> result = new LinkedHashMap<>();
-        List<String> allTables = getSyncedTableNames();
-        log.info("clearSyncData: 发现 {} 张同步表待清除", allTables.size());
-        sqliteTransactionTemplate.executeWithoutResult(status -> {
-            for (String table : allTables) {
-                if (isTableExistsSqlite(table)) {
-                    long count = sqliteJdbc.queryForObject(
-                            "SELECT COUNT(*) FROM \"" + table + "\"", Long.class);
-                    sqliteJdbc.execute("DROP TABLE \"" + table + "\"");
-                    result.put(table, count);
+                @Override
+                public int getBatchSize() {
+                    return batch.size();
                 }
-            }
-        });
-        log.info("clearSyncData: 已清除 {} 张表", result.size());
+            });
+        }
+    }
 
+    // ==================== 清除同步数据 ====================
+
+    public Map<String, Object> clearSyncData() {
+        Map<String, Object> result = new LinkedHashMap<>();
+        sqliteTransactionTemplate.executeWithoutResult(status -> {
+            sqliteJdbc.execute("DELETE FROM dmeo");
+            sqliteJdbc.execute("DELETE FROM dmconnection");
+        });
+        setConfigValue(KEY_NETWORK_IDS, "");
+        setConfigValue(KEY_NETWORK_NAMES, "");
+        setConfigValue(KEY_SYNC_TIME, "");
+        setConfigValue(KEY_SYNC_STATUS, "");
+        result.put("status", "SUCCESS");
+        log.info("同步数据已清除");
         return result;
     }
 
-    /**
-     * 获取 SQLite 中已同步的表名（不依赖 MySQL 连接）
-     */
-    private List<String> getSyncedTableNames() {
-        return sqliteJdbc.queryForList(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' " +
-                "AND name NOT IN ('device_access_config','conn_profile','inspection_round'," +
-                "'optical_power_inspection','threshold_rule','sys_config')",
-                String.class
-        );
+    // ==================== 辅助方法 ====================
+
+    private static String toStr(Object val) {
+        return val != null ? val.toString() : null;
+    }
+
+    private static int toInt(Object val) {
+        if (val == null) return 0;
+        if (val instanceof Number number) return number.intValue();
+        try {
+            return Integer.parseInt(val.toString());
+        } catch (NumberFormatException e) {
+            return 0;
+        }
     }
 
     /**
-     * 从 SQLite 动态查询
+     * 同步过程中使用的只读索引表，避免逐行重复解析 OID。
      */
-    public List<Map<String, Object>> query(String table, List<String> fields,
-                                            Map<String, Object> conditions, String orderBy,
-                                            Integer limit) {
-        validateIdentifier(table, "table");
+    private static final class SyncIndex {
 
-        StringBuilder sql = new StringBuilder("SELECT ");
+        private final Map<String, String> networkNameMap = new HashMap<>();
+        private final Map<String, String> neNameMap = new HashMap<>();
+        private final Map<String, String> neNetworkMap = new HashMap<>();
+        private final Map<String, String> neTypeNameMap = new HashMap<>();
+        private final Map<String, String> neTypeCache = new HashMap<>();
+        private final Map<String, String> ipAddrMap = new HashMap<>();
+        private final Map<String, String> portNameMap = new HashMap<>();
+        private final Map<String, Map<String, Object>> bandwidthMap = new HashMap<>();
 
-        if (fields == null || fields.isEmpty()) {
-            sql.append("*");
-        } else {
-            sql.append(fields.stream()
-                    .peek(f -> validateIdentifier(f, "field"))
-                    .map(f -> "\"" + f + "\"")
-                    .collect(Collectors.joining(", ")));
+        /** cid=1 自身即网络，其余通过 dmrelation 反查所属网络 */
+        String networkOidOf(String oid, int cid) {
+            if (cid == 1) return oid;
+            return neNetworkMap.get(OidUtil.getNeOid(oid));
         }
 
-        sql.append(" FROM \"").append(table).append("\"");
-
-        List<Object> params = new ArrayList<>();
-        if (conditions != null && !conditions.isEmpty()) {
-            String where = conditions.entrySet().stream()
-                    .map(e -> {
-                        validateIdentifier(e.getKey(), "condition field");
-                        params.add(e.getValue());
-                        return "\"" + e.getKey() + "\" = ?";
-                    })
-                    .collect(Collectors.joining(" AND "));
-            sql.append(" WHERE ").append(where);
+        String networkNameOf(String networkOid) {
+            return networkOid == null ? null : networkNameMap.get(networkOid);
         }
 
-        if (orderBy != null && !orderBy.isEmpty()) {
-            sql.append(" ORDER BY ").append(sanitizeOrderBy(orderBy));
+        /** neOid → 网元类型中文名 */
+        String neTypeNameOf(String neOid) {
+            if (neOid == null) return null;
+            String type = neTypeCache.get(neOid);
+            return type == null ? null : neTypeNameMap.get(type);
         }
 
-        if (limit != null && limit > 0) {
-            sql.append(" LIMIT ").append(limit);
-        }
+        /**
+         * 拼接端口名称：dmeo.name + (子架/槽位/端口)
+         * 例: "地调1-5.1" + "(1/11/1)" → "地调1-5.1(1/11/1)"
+         */
+        String portNameOf(String portOid) {
+            if (portOid == null || portOid.isEmpty()) return null;
+            String baseName = portNameMap.get(portOid);
+            if (baseName == null || baseName.isEmpty()) return portOid;
 
-        return sqliteJdbc.queryForList(sql.toString(), params.toArray());
-    }
-
-    private static final java.util.regex.Pattern IDENTIFIER_PATTERN =
-            java.util.regex.Pattern.compile("^[a-zA-Z_][a-zA-Z0-9_]*$");
-
-    private static void validateIdentifier(String value, String label) {
-        if (value == null || !IDENTIFIER_PATTERN.matcher(value).matches()) {
-            throw new IllegalArgumentException("Invalid " + label + ": " + value);
-        }
-    }
-
-    private static String sanitizeOrderBy(String orderBy) {
-        // 允许 "column" 或 "column ASC" / "column DESC"
-        String[] parts = orderBy.trim().split("\\s+");
-        validateIdentifier(parts[0], "orderBy column");
-        if (parts.length > 1) {
-            String dir = parts[1].toUpperCase(Locale.ROOT);
-            if (!dir.equals("ASC") && !dir.equals("DESC")) {
-                throw new IllegalArgumentException("Invalid orderBy direction: " + parts[1]);
+            int[] seg = OidUtil.parseSegments(portOid);
+            if (seg.length >= 4) {
+                return baseName + "(" + seg[1] + "/" + seg[2] + "/" + seg[3] + ")";
             }
-            return "\"" + parts[0] + "\" " + dir;
+            return baseName;
         }
-        return "\"" + parts[0] + "\"";
+
+        int bandwidthOf(String portOid, String field) {
+            Map<String, Object> bandwidth = bandwidthMap.get(portOid);
+            return bandwidth == null ? 0 : toInt(bandwidth.get(field));
+        }
+
+        Set<String> neOidsIn(Set<String> networkOids) {
+            Set<String> neOids = new HashSet<>();
+            for (Map.Entry<String, String> entry : neNetworkMap.entrySet()) {
+                if (networkOids.contains(entry.getValue())) {
+                    neOids.add(entry.getKey());
+                }
+            }
+            return neOids;
+        }
     }
 }

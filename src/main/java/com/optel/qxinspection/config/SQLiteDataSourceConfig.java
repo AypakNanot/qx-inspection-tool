@@ -8,6 +8,7 @@ import org.springframework.boot.orm.jpa.EntityManagerFactoryBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.orm.jpa.JpaTransactionManager;
 import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -64,6 +65,16 @@ public class SQLiteDataSourceConfig {
         dataSource.setMinimumIdle(1);
 
         return dataSource;
+    }
+
+    /**
+     * SQLite JdbcTemplate（与 JPA 共用同一数据源）。
+     * <p>显式声明后，Boot 自动配置的 jdbcTemplate 会因已有 JdbcOperations 而退出，
+     * 因此容器内仅此一个 JdbcTemplate，注入时无需再区分数据源。</p>
+     */
+    @Bean
+    public JdbcTemplate sqliteJdbc(@Qualifier("sqliteDataSource") DataSource dataSource) {
+        return new JdbcTemplate(dataSource);
     }
 
     /**

@@ -68,9 +68,20 @@ public class QxReconnectManager {
             return;
         }
 
+        // 已有尝试在跑或已排期时不重复调度，否则同一网元会并发登录两次
+        if (st.inFlight.get() || isPending(st)) {
+            log.debug("Skip duplicate reconnect schedule, attempt already pending neOid={}", neOid);
+            return;
+        }
+
         // 重置失败计数，从 0 开始调度
         st.failures = 0;
         scheduleAttempt(st, neOid, channelId, channelProp, 0);
+    }
+
+    private static boolean isPending(BackoffState st) {
+        ScheduledFuture<?> future = st.future;
+        return future != null && !future.isDone() && !future.isCancelled();
     }
 
     /**
@@ -96,15 +107,21 @@ public class QxReconnectManager {
         long exp = Math.min(attempt, 20);
         long delaySec = Math.min(maxSec, baseSec * (1L << exp));
         long jitter = baseSec > 0 ? ThreadLocalRandom.current().nextLong(baseSec) : 0;
-        long actualDelay = delaySec + jitter;
+        scheduleAttempt(st, neOid, channelId, channelProp, attempt, delaySec + jitter);
+    }
 
+    /** 按指定延迟调度一次探测（延迟由调用方决定，如熔断冷却时长） */
+    private void scheduleAttempt(BackoffState st, String neOid, ChannelID channelId,
+                                  ChannelProp channelProp, int attempt, double delaySec) {
+        long actualDelay = Math.max(1, (long) Math.ceil(delaySec));
         log.debug("调度重连 neOid={}, attempt={}, delay={}s", neOid, attempt, actualDelay);
 
         // 先检查 st 是否仍是活跃的
         if (states.get(neOid) != st) return;
 
+        // 计时交给单线程 scheduler，阻塞的连接尝试丢到 workerPool，避免占住 scheduler 线程
         st.future = scheduler.schedule(
-                () -> attemptConnect(st, neOid, channelId, channelProp, attempt),
+                () -> workerPool.submit(() -> attemptConnect(st, neOid, channelId, channelProp, attempt)),
                 actualDelay, TimeUnit.SECONDS);
     }
 
@@ -122,9 +139,7 @@ public class QxReconnectManager {
 
         if (!acquired) {
             log.debug("重连信号量忙，1s后重试 neOid={}", neOid);
-            st.future = scheduler.schedule(
-                    () -> attemptConnect(st, neOid, channelId, channelProp, attempt),
-                    1, TimeUnit.SECONDS);
+            scheduleAttempt(st, neOid, channelId, channelProp, attempt, 1);
             return;
         }
 
@@ -133,7 +148,8 @@ public class QxReconnectManager {
             log.info("尝试重连 neOid={}, attempt={}", neOid, attempt);
             qxDeviceService.getManager().connect(channelId, channelProp).get(connectTimeoutSec(), TimeUnit.SECONDS);
             log.info("重连成功 neOid={}", neOid);
-            states.remove(neOid);
+            // 仅移除自己那一个 state：期间若又产生过新的 state，不能连带清掉它的待重试
+            states.remove(neOid, st);
         } catch (Exception e) {
             log.warn("重连失败 neOid={}, attempt={}, reason={}", neOid, attempt, e.getMessage());
             handleFailure(st, neOid, channelId, channelProp, attempt);
@@ -148,11 +164,11 @@ public class QxReconnectManager {
         st.failures++;
 
         if (st.failures >= circuitThreshold) {
-            // 熔断
+            // 熔断：冷却期内不再发起连接，冷却结束后重新给满次数探测
             st.circuitUntil = System.currentTimeMillis() + circuitCooldownSec * 1000L;
-            log.warn("设备 neOid={} 连续{}次失败，熔断{}秒", neOid, st.failures, circuitCooldownSec);
-            // 冷却后探测
-            scheduleAttempt(st, neOid, channelId, channelProp, 0);
+            st.failures = 0;
+            log.warn("设备 neOid={} 连续{}次失败，熔断{}秒", neOid, circuitThreshold, circuitCooldownSec);
+            scheduleAttempt(st, neOid, channelId, channelProp, 0, circuitCooldownSec);
         } else {
             scheduleAttempt(st, neOid, channelId, channelProp, attempt + 1);
         }

@@ -1,160 +1,202 @@
 package com.optel.qxinspection.service;
 
-import com.optel.qxinspection.entity.sqlite.OpticalPowerInspection;
 import com.optel.qxinspection.entity.sqlite.ThresholdRule;
 import com.optel.qxinspection.repository.sqlite.ThresholdRuleRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
-import java.util.*;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
- * 门限判定服务
- * 匹配优先级: MODULE > GLOBAL
- * 门限在查询时实时计算，不持久化到记录中
+ * 门限判定服务。
+ * <p>
+ * 每个模块类型预置标准默认门限值，用户只能修改，不能添加或删除。
+ * 门限在查询时实时计算，不持久化到巡检记录中。
+ * </p>
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class ThresholdService {
 
-    private static final String LEVEL_GLOBAL = "GLOBAL";
+    /** 光功率状态：正常 */
+    public static final String STATUS_NORMAL = "正常";
+    /** 光功率状态：过高（过载） */
+    public static final String STATUS_HIGH = "过高";
+    /** 光功率状态：过低（劣化） */
+    public static final String STATUS_LOW = "过低";
+    /** 光功率状态：无光 */
+    public static final String STATUS_NO_LIGHT = "无光";
 
-    private final ThresholdRuleRepository thresholdRuleRepository;
-
-    // 默认门限值
+    /** 模块类型未匹配到任何门限时使用的兜底区间 */
     private static final double DEFAULT_TX_LOW = -27.0;
     private static final double DEFAULT_TX_HIGH = 3.0;
     private static final double DEFAULT_RX_LOW = -27.0;
     private static final double DEFAULT_RX_HIGH = 3.0;
 
+    private static final Range DEFAULT_RANGE =
+            new Range(DEFAULT_TX_LOW, DEFAULT_TX_HIGH, DEFAULT_RX_LOW, DEFAULT_RX_HIGH);
+
     /**
-     * 为记录列表批量应用门限判定（查询时调用）
+     * 预置门限配置 —— 唯一的预置数据来源。
+     * 用户只能修改数值，不能新增或删除模块类型。
      */
-    public List<OpticalPowerInspection> applyThresholds(List<OpticalPowerInspection> records) {
-        List<ThresholdRule> allRules = thresholdRuleRepository.findAll();
-        Map<String, ThresholdRule> ruleMap = new HashMap<>();
-        for (ThresholdRule rule : allRules) {
-            String key = rule.getLevelType() + ":" + rule.getMatchKey();
-            ThresholdRule prev = ruleMap.put(key, rule);
-            if (prev != null) {
-                log.warn("重复门限规则: {}:{}, 使用id={}", rule.getLevelType(), rule.getMatchKey(), rule.getId());
+    private static final String RATE_STM1 = "STM-1";
+    private static final String RATE_STM4 = "STM-4";
+    private static final String RATE_STM16 = "STM-16";
+    private static final String RATE_STM64 = "STM-64";
+    private static final String RATE_GE = "GE";
+
+    private static final List<Preset> PRESETS = List.of(
+            new Preset(RATE_STM1, "I1.1", "155M+I档(短距)", -10.0, 0.0, -28.0, -8.0),
+            new Preset(RATE_STM1, "S1.1", "155M+S档(中距)", -15.0, -1.0, -28.0, -8.0),
+            new Preset(RATE_STM1, "L1.1", "155M+L档(长距)", -15.0, -1.0, -28.0, -8.0),
+            new Preset(RATE_STM4, "I4.1", "622M+I档(短距)", -10.0, 0.0, -28.0, -8.0),
+            new Preset(RATE_STM4, "S4.1", "622M+S档(中距)", -15.0, -1.0, -28.0, -8.0),
+            new Preset(RATE_STM4, "L4.1", "622M+L档(长距)", -15.0, -1.0, -28.0, -8.0),
+            new Preset(RATE_STM16, "I16.1", "2.5G+I档(短距)", -10.0, 0.0, -28.0, -8.0),
+            new Preset(RATE_STM16, "S16.1", "2.5G+S档(中距)", -15.0, -1.0, -28.0, -8.0),
+            new Preset(RATE_STM16, "L16.1", "2.5G+L档(长距)", -15.0, -1.0, -28.0, -8.0),
+            new Preset(RATE_STM16, "V16.1", "2.5G+V档(超长距)", -15.0, -1.0, -28.0, -8.0),
+            new Preset(RATE_STM64, "S64.2b", "10G+S档(中距)", -10.0, 0.0, -18.0, -1.0),
+            new Preset(RATE_STM64, "L64.2", "10G+L档(长距)", -10.0, 0.0, -18.0, -1.0),
+            new Preset(RATE_STM64, "V64.2", "10G+V档(超长距)", -10.0, 0.0, -18.0, -1.0),
+            new Preset(RATE_GE, "1000BASE-SX", "GE+SX(多模)", -10.0, 0.0, -17.0, -3.0),
+            new Preset(RATE_GE, "1000BASE-LX", "GE+LX(单模)", -10.0, 0.0, -17.0, -3.0)
+    );
+
+    private final ThresholdRuleRepository thresholdRuleRepository;
+
+    /**
+     * 初始化预置默认门限规则（仅插入数据库中不存在的）
+     */
+    @Transactional
+    public void initPresetThresholds() {
+        int inserted = 0;
+        for (Preset preset : PRESETS) {
+            if (thresholdRuleRepository.findByMatchKey(preset.matchKey()).isEmpty()) {
+                ThresholdRule rule = new ThresholdRule();
+                rule.setMatchKey(preset.matchKey());
+                rule.setTxLow(preset.txLow());
+                rule.setTxHigh(preset.txHigh());
+                rule.setRxLow(preset.rxLow());
+                rule.setRxHigh(preset.rxHigh());
+                rule.setDescription(preset.description());
+                thresholdRuleRepository.save(rule);
+                inserted++;
             }
         }
+        if (inserted > 0) {
+            log.info("已初始化 {} 条预置门限规则", inserted);
+        }
+    }
 
-        ThresholdRule globalRule = ruleMap.get("GLOBAL:GLOBAL");
+    /** 查询全部门限规则 */
+    public List<ThresholdRule> listRules() {
+        return thresholdRuleRepository.findAll();
+    }
 
-        for (OpticalPowerInspection r : records) {
-            if (!Boolean.TRUE.equals(r.getSupported())) {
-                continue;
+    /**
+     * 加载 matchKey → 门限区间 映射：预置值打底，数据库中的用户修改覆盖之。
+     * <p>巡检过程中只查一次，避免逐条记录访问数据库。</p>
+     */
+    public Map<String, Range> loadRangeMap() {
+        Map<String, Range> ranges = new HashMap<>();
+        for (Preset preset : PRESETS) {
+            ranges.put(preset.matchKey(), preset.range());
+        }
+        for (ThresholdRule rule : thresholdRuleRepository.findAll()) {
+            Range preset = ranges.get(rule.getMatchKey());
+            if (preset == null) {
+                preset = DEFAULT_RANGE;
             }
-            ThresholdRule matched = matchRule(ruleMap, globalRule, r);
-            evaluateRecord(r, matched);
+            ranges.put(rule.getMatchKey(), new Range(
+                    coalesce(rule.getTxLow(), preset.txLow()),
+                    coalesce(rule.getTxHigh(), preset.txHigh()),
+                    coalesce(rule.getRxLow(), preset.rxLow()),
+                    coalesce(rule.getRxHigh(), preset.rxHigh())));
         }
-        return records;
+        return ranges;
     }
 
     /**
-     * 匹配门限规则: MODULE > GLOBAL
+     * 按模块类型取门限区间，未匹配时使用默认区间。
      */
-    private ThresholdRule matchRule(Map<String, ThresholdRule> ruleMap,
-                                     ThresholdRule globalRule,
-                                     OpticalPowerInspection record) {
-        // MODULE级: 按moduleTypeKey匹配
-        if (record.getModuleTypeKey() != null && !record.getModuleTypeKey().isEmpty()) {
-            ThresholdRule moduleRule = ruleMap.get("MODULE:" + record.getModuleTypeKey());
-            if (moduleRule != null) return moduleRule;
-        }
-        // GLOBAL级
-        return globalRule;
+    public static Range rangeFor(Map<String, Range> ranges, String moduleTypeKey) {
+        Range range = moduleTypeKey != null ? ranges.get(moduleTypeKey) : null;
+        return range != null ? range : DEFAULT_RANGE;
     }
 
     /**
-     * 对单条记录应用门限判定
+     * 光功率状态判定：功率为空视为无光。
      */
-    private void evaluateRecord(OpticalPowerInspection r, ThresholdRule rule) {
-        double txLow = (rule != null && rule.getTxLow() != null) ? rule.getTxLow() : DEFAULT_TX_LOW;
-        double txHigh = (rule != null && rule.getTxHigh() != null) ? rule.getTxHigh() : DEFAULT_TX_HIGH;
-        double rxLow = (rule != null && rule.getRxLow() != null) ? rule.getRxLow() : DEFAULT_RX_LOW;
-        double rxHigh = (rule != null && rule.getRxHigh() != null) ? rule.getRxHigh() : DEFAULT_RX_HIGH;
-
-        r.setLowThreshold(rxLow);
-        r.setHighThreshold(rxHigh);
-        r.setTxLowThreshold(txLow);
-        r.setTxHighThreshold(txHigh);
-
-        if (r.getTxPower() != null) {
-            if (r.getTxPower() < txLow) r.setTxPowerStatus(1);
-            else if (r.getTxPower() > txHigh) r.setTxPowerStatus(2);
-            else r.setTxPowerStatus(0);
-        }
-        if (r.getRxPower() != null) {
-            if (r.getRxPower() < rxLow) r.setRxPowerStatus(1);
-            else if (r.getRxPower() > rxHigh) r.setRxPowerStatus(2);
-            else r.setRxPowerStatus(0);
-        }
+    public static String evaluateStatus(Double power, double low, double high) {
+        if (power == null) return STATUS_NO_LIGHT;
+        if (power > high) return STATUS_HIGH;
+        if (power < low) return STATUS_LOW;
+        return STATUS_NORMAL;
     }
 
     /**
-     * 获取当前门限快照（用于导出）
+     * 修改门限规则数值（不允许新增模块类型）。
      */
-    public Map<String, Object> getThresholdSnapshot() {
-        Map<String, Object> snapshot = new LinkedHashMap<>();
-        List<ThresholdRule> allRules = thresholdRuleRepository.findAll();
+    @Transactional
+    public ThresholdRule updateRule(String matchKey, ThresholdRule changes) {
+        ThresholdRule rule = thresholdRuleRepository.findByMatchKey(matchKey)
+                .orElseThrow(() -> new IllegalArgumentException("门限规则不存在，不允许新增: " + matchKey));
+        validateRange("发送", changes.getTxLow(), changes.getTxHigh());
+        validateRange("接收", changes.getRxLow(), changes.getRxHigh());
 
-        ThresholdRule global = allRules.stream()
-                .filter(r -> LEVEL_GLOBAL.equals(r.getLevelType()))
-                .findFirst().orElse(null);
+        rule.setTxLow(changes.getTxLow());
+        rule.setTxHigh(changes.getTxHigh());
+        rule.setRxLow(changes.getRxLow());
+        rule.setRxHigh(changes.getRxHigh());
+        if (changes.getDescription() != null && !changes.getDescription().isBlank()) {
+            rule.setDescription(changes.getDescription().trim());
+        }
+        return thresholdRuleRepository.save(rule);
+    }
 
-        snapshot.put("global", global != null ? ruleToMap(global) : getDefaultRuleMap());
+    private static void validateRange(String label, Double low, Double high) {
+        if (low == null || high == null) {
+            throw new IllegalArgumentException(label + "门限不能为空");
+        }
+        if (low >= high) {
+            throw new IllegalArgumentException(label + "低门限必须小于高门限");
+        }
+    }
 
-        List<Map<String, Object>> moduleRules = allRules.stream()
-                .filter(r -> "MODULE".equals(r.getLevelType()))
-                .map(this::ruleToMap)
+    private static double coalesce(Double value, double fallback) {
+        return value != null ? value : fallback;
+    }
+
+    /** 发送/接收门限区间 */
+    public record Range(double txLow, double txHigh, double rxLow, double rxHigh) {
+    }
+
+    /** 门限规则视图：速率分组 + 模块类型 + 当前生效区间（用于导出说明表） */
+    public record RuleView(String rate, String matchKey, String description, Range range) {
+    }
+
+    /**
+     * 按预置顺序返回全部门限规则视图，数值以数据库中的用户修改为准。
+     */
+    public List<RuleView> listRuleViews() {
+        Map<String, Range> ranges = loadRangeMap();
+        return PRESETS.stream()
+                .map(p -> new RuleView(p.rate(), p.matchKey(), p.description(), ranges.get(p.matchKey())))
                 .toList();
-        snapshot.put("module", moduleRules);
-
-        return snapshot;
     }
 
-    private Map<String, Object> ruleToMap(ThresholdRule r) {
-        Map<String, Object> m = new LinkedHashMap<>();
-        m.put("matchKey", r.getMatchKey());
-        m.put("txLow", r.getTxLow());
-        m.put("txHigh", r.getTxHigh());
-        m.put("rxLow", r.getRxLow());
-        m.put("rxHigh", r.getRxHigh());
-        m.put("description", r.getDescription());
-        return m;
-    }
-
-    private Map<String, Object> getDefaultRuleMap() {
-        Map<String, Object> m = new LinkedHashMap<>();
-        m.put("matchKey", LEVEL_GLOBAL);
-        m.put("txLow", DEFAULT_TX_LOW);
-        m.put("txHigh", DEFAULT_TX_HIGH);
-        m.put("rxLow", DEFAULT_RX_LOW);
-        m.put("rxHigh", DEFAULT_RX_HIGH);
-        m.put("description", "默认门限");
-        return m;
-    }
-
-    /**
-     * 初始化默认GLOBAL规则
-     */
-    public void initDefaultGlobalRule() {
-        if (thresholdRuleRepository.findByLevelTypeAndMatchKey(LEVEL_GLOBAL, LEVEL_GLOBAL).isEmpty()) {
-            ThresholdRule global = new ThresholdRule();
-            global.setLevelType(LEVEL_GLOBAL);
-            global.setMatchKey(LEVEL_GLOBAL);
-            global.setTxLow(DEFAULT_TX_LOW);
-            global.setTxHigh(DEFAULT_TX_HIGH);
-            global.setRxLow(DEFAULT_RX_LOW);
-            global.setRxHigh(DEFAULT_RX_HIGH);
-            global.setDescription("默认全局门限");
-            thresholdRuleRepository.save(global);
-            log.info("已初始化默认GLOBAL门限规则");
+    /** 预置门限定义 */
+    private record Preset(String rate, String matchKey, String description,
+                          double txLow, double txHigh, double rxLow, double rxHigh) {
+        Range range() {
+            return new Range(txLow, txHigh, rxLow, rxHigh);
         }
     }
 }

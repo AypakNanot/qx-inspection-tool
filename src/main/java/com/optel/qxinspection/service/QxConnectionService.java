@@ -19,6 +19,7 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 
 @Slf4j
@@ -94,7 +95,8 @@ public class QxConnectionService {
         }
         AtomicInteger success = new AtomicInteger();
         AtomicInteger fail = new AtomicInteger();
-        List<String> failedDevices = new ArrayList<>();
+        // 完成回调跑在 QX I/O 线程上，且 60s 超时后仍可能继续写入，故用 COW 列表保证追加与遍历都安全
+        List<String> failedDevices = new CopyOnWriteArrayList<>();
 
         ConnProfile globalProfile = connProfileRepository.findByScopeAndNeOid(SCOPE_GLOBAL, "")
                 .orElse(null);
@@ -135,7 +137,8 @@ public class QxConnectionService {
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
                     .get(60, java.util.concurrent.TimeUnit.SECONDS);
         } catch (Exception e) {
-            log.warn("Batch connect timed out");
+            long pending = futures.stream().filter(f -> !f.isDone()).count();
+            log.warn("Batch connect incomplete within 60s, {} of {} still pending", pending, futures.size(), e);
         }
 
         Map<String, Object> result = new LinkedHashMap<>();
@@ -270,6 +273,14 @@ public class QxConnectionService {
      */
     public List<Map<String, Object>> getConnectionStatus() {
         List<DeviceAccessConfig> devices = deviceAccessConfigRepository.findAll();
+        // 一次性取出全局与单设备用户名，避免在设备循环里逐台查库
+        String globalUsername = connProfileRepository.findByScopeAndNeOid(SCOPE_GLOBAL, "")
+                .map(ConnProfile::getUsername).orElse(null);
+        Map<String, String> deviceUsernames = connProfileRepository.findByScope("NE").stream()
+                .filter(p -> p.getNeOid() != null)
+                .collect(Collectors.toMap(ConnProfile::getNeOid,
+                        p -> p.getUsername() != null ? p.getUsername() : "",
+                        (existing, ignored) -> existing));
         List<Map<String, Object>> result = new ArrayList<>();
 
         for (DeviceAccessConfig device : devices) {
@@ -280,6 +291,9 @@ public class QxConnectionService {
             item.put("networkName", device.getNetworkName());
             item.put("ipAddr", device.getIpAddr());
             item.put("connectionStatus", device.getConnectionStatus());
+            // 实际登录用户：单设备配置优先，否则回退全局配置（与 buildChannelProp 的取值链一致）
+            String username = deviceUsernames.getOrDefault(device.getNeId(), globalUsername);
+            item.put("username", username != null ? username : "");
 
             ChannelID channelId = channelIdMap.get(device.getNeId());
             if (channelId != null) {

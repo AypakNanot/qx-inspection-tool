@@ -1,5 +1,5 @@
 /**
- * MySQL → SQLite 动态同步模块
+ * MySQL → SQLite 按网络同步模块
  */
 
 import { get, post, put, API } from './api.js';
@@ -11,7 +11,6 @@ export async function loadMysqlConfig() {
         const cfg = await get('/sync/mysql-config');
         document.getElementById('mysqlHost').value = cfg.host || '';
         document.getElementById('mysqlUsername').value = cfg.username || '';
-        // 密码不回显，只标记是否已配置
         if (cfg.password) {
             document.getElementById('mysqlPassword').placeholder = '已配置（留空保持不变）';
         }
@@ -40,7 +39,7 @@ export function saveMysqlConfig() {
     });
 }
 
-/** 测试 MySQL 连接（测试已保存的配置） */
+/** 测试 MySQL 连接 */
 export function testMysqlConnection() {
     var btn = event.target;
     var resultEl = document.getElementById('mysqlTestResult');
@@ -58,25 +57,93 @@ export function testMysqlConnection() {
     });
 }
 
+/** 加载可同步的网络列表 */
+export async function loadNetworkList() {
+    const container = document.getElementById('syncNetworkList');
+    try {
+        container.textContent = '加载中...';
+        const networks = await get('/sync/networks');
+        container.textContent = '';
+
+        if (!networks || networks.length === 0) {
+            container.textContent = '未发现网络数据，请先检查 MySQL 连接';
+            return;
+        }
+
+        networks.forEach(function(net) {
+            const label = document.createElement('label');
+            label.style.cssText = 'display:flex;align-items:center;gap:6px;padding:3px 0;cursor:pointer;font-size:13px;';
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.className = 'sync-network-cb';
+            cb.value = net.oid;
+            cb.dataset.name = net.name || net.oid;
+            label.appendChild(cb);
+            label.appendChild(document.createTextNode(net.name || net.oid));
+            container.appendChild(label);
+        });
+    } catch (e) {
+        container.textContent = '加载失败: ' + e.message;
+    }
+}
+
+/** 全选/取消网络 */
+export function toggleAllNetworks() {
+    const cbs = document.querySelectorAll('.sync-network-cb');
+    const allChecked = Array.from(cbs).every(function(cb) { return cb.checked; });
+    cbs.forEach(function(cb) { cb.checked = !allChecked; });
+}
+
+/** 执行按网络同步 */
+export function executeSync() {
+    const btn = event.target;
+    const checked = document.querySelectorAll('.sync-network-cb:checked');
+    const networkOids = Array.from(checked).map(function(cb) { return cb.value; });
+
+    if (networkOids.length === 0) {
+        showToast('请至少选择一个网络', 'error');
+        return;
+    }
+
+    const networkNames = Array.from(checked).map(function(cb) { return cb.dataset.name; });
+
+    withLoading(btn, async function() {
+        const result = await post('/sync/execute', networkOids);
+        const el = document.getElementById('syncResult');
+        el.style.display = 'block';
+
+        if (result.status === 'SUCCESS') {
+            el.textContent = '同步完成: ' + result.networks + ' (dmeo: ' + result.dmeoCount + '条, 链路: ' + result.dmconnectionCount + '条, 耗时: ' + result.elapsed + ')';
+            el.style.color = '#16a34a';
+            showToast('同步完成', 'success');
+        } else {
+            el.textContent = '同步失败: ' + (result.error || '未知错误');
+            el.style.color = '#dc2626';
+            showToast('同步失败', 'error');
+        }
+        loadSyncStatus();
+    });
+}
+
 /** 加载同步状态 */
 export async function loadSyncStatus() {
     try {
         const status = await get('/sync/status');
         const el = document.getElementById('syncStatus');
-        const total = status.totalTables || 0;
-        const synced = status.syncedCount || 0;
-        const notSynced = status.notSyncedCount || 0;
-        const essential = status.essentialTables || [];
-
         el.textContent = '';
-        if (status.error) {
-            addStatusLine(el, status.error, '#dc2626');
+
+        if (status.syncStatus === 'SUCCESS') {
+            addStatusLine(el, '已同步网络: ' + (status.networkNames || '-'), '#16a34a');
+            addStatusLine(el, 'dmeo 对象: ' + (status.dmeoCount || 0) + ' 条');
+            addStatusLine(el, '链路数量: ' + (status.dmconnectionCount || 0) + ' 条');
+            addStatusLine(el, '同步时间: ' + (status.syncTime || '-'));
+        } else if (status.syncStatus === 'RUNNING') {
+            addStatusLine(el, '同步进行中...', '#f59e0b');
+        } else if (status.syncStatus === 'FAILED') {
+            addStatusLine(el, '上次同步失败', '#dc2626');
         } else {
-            addStatusLine(el, 'MySQL 总表数：' + total);
-            addStatusLine(el, '已同步：' + synced + '  ', '#16a34a');
-            addStatusLine(el, '未同步：' + notSynced + '  ', notSynced > 0 ? '#dc2626' : '#16a34a');
+            addStatusLine(el, '尚未同步数据，请选择网络后执行同步', '#6b7280');
         }
-        addStatusLine(el, '必要表：' + essential.length + ' 张 (' + essential.join(', ') + ')');
     } catch (e) {
         document.getElementById('syncStatus').textContent = '加载失败: ' + e.message;
     }
@@ -89,57 +156,13 @@ function addStatusLine(el, text, color) {
     el.appendChild(div);
 }
 
-/** 同步必要表 */
-export function syncEssential() {
-    const btn = event.target;
-    withLoading(btn, async function() {
-        const result = await post('/sync/essential');
-        showSyncResult(result);
-        loadSyncStatus();
-    });
-}
-
-/** 同步全部表 */
-export function syncAll() {
-    const btn = event.target;
-    withLoading(btn, async function() {
-        const result = await post('/sync/all');
-        showSyncResult(result);
-        loadSyncStatus();
-    });
-}
-
-/** 同步选中表 */
-export function syncSelectedTables() {
-    const checked = document.querySelectorAll('.sync-table-cb:checked');
-    const tables = Array.from(checked).map(function(cb) { return cb.value; });
-    if (tables.length === 0) {
-        showToast('请至少选择一张表', 'error');
-        return;
-    }
-    withLoading(event.target, async function() {
-        const result = await post('/sync/tables', tables);
-        showSyncResult(result);
-        loadSyncStatus();
-    });
-}
-
-function showSyncResult(result) {
-    const el = document.getElementById('syncResult');
-    el.style.display = 'block';
-    el.textContent = result._summary || JSON.stringify(result);
-    showToast(result._summary || '同步完成', 'success');
-}
-
-/** 清除所有同步数据 */
+/** 清除同步数据 */
 export function clearSyncData() {
     const btn = event.target;
     withLoading(btn, async function() {
         if (!confirm('确认清除所有同步到 SQLite 的数据？\n\n此操作不可恢复！')) return;
         const result = await post('/sync/clear');
-        const counts = result.deletedCounts || {};
-        const lines = Object.entries(counts).map(function(entry) { return entry[0] + ': ' + entry[1] + '条'; });
-        showToast('同步数据清除完成：' + (lines.length > 0 ? lines.join(', ') : '无数据被删除'), 'success');
+        showToast('同步数据已清除', 'success');
         loadSyncStatus();
     });
 }

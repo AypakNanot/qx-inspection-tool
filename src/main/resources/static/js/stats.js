@@ -12,6 +12,12 @@ let statsChart = null;
 let statsChartData = [];
 /** 当前图表类型: bar/pie/line */
 let statsChartType = 'bar';
+/** 当前统计类型: ne/slot/port */
+let statsType = 'ne';
+/** 统计类型 → 接口路径 */
+const STATS_URLS = { ne: '/inventory/ne-stats', slot: '/inventory/slot-stats', port: '/inventory/port-stats' };
+/** 统计类型 → 响应中的列表字段 */
+const STATS_KEYS = { ne: 'byNeTypeName', slot: 'byTypeName', port: 'byTypeName' };
 /** 图表配色方案 */
 const STATS_COLORS = ['#1a73e8','#34a853','#ea580c','#7c3aed','#dc2626','#0891b2','#ca8a04','#be185d','#4f46e5','#059669'];
 
@@ -22,14 +28,15 @@ function createTextCell(text) {
     return td;
 }
 
-/** 加载统计概览（网元/盘/端口/网络数量） */
+/** 加载统计概览（网络/网元/盘/端口/链路数量） */
 export async function loadStatsOverview() {
     try {
         const d = await get('/inventory/overview');
+        document.getElementById('stNetwork').textContent = d.networkCount || 0;
         document.getElementById('stNe').textContent = d.neCount || 0;
         document.getElementById('stSlot').textContent = d.slotCount || 0;
         document.getElementById('stPort').textContent = d.portCount || 0;
-        document.getElementById('stNetwork').textContent = d.networkCount || 0;
+        document.getElementById('stLink').textContent = d.linkCount || 0;
     } catch (e) { console.error('loadStatsOverview', e); document.getElementById('stNe').textContent = '-'; }
 }
 
@@ -50,14 +57,22 @@ export async function loadStatsNetworks() {
 /** 加载类型统计数据 */
 export async function loadStats() {
     const network = document.getElementById('statsNetwork').value.trim();
-    const scope = document.getElementById('statsScope').value;
-    let url = scope === 'online' ? '/stats/type/online' : '/stats/type';
+    let url = STATS_URLS[statsType];
     if (network) url += '?network=' + encodeURIComponent(network);
     try {
-        statsChartData = await get(url);
+        const data = await get(url);
+        statsChartData = data[STATS_KEYS[statsType]] || [];
         renderStatsChart();
         renderStatsTable(statsChartData);
     } catch (e) { console.error('loadStats', e); showToast('加载统计数据失败: ' + e.message, 'error'); }
+}
+
+/** 切换统计类型（网元类型/盘类型/端口类型） */
+export function switchStatsType(type, btn) {
+    statsType = type;
+    btn.parentElement.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    loadStats();
 }
 
 /** 切换图表类型（柱状图/饼图/折线图） */
@@ -83,7 +98,7 @@ function renderStatsChart() {
         return;
     }
     const top20 = statsChartData.slice(0, 20);
-    const names = top20.map(d => d.typeName);
+    const names = top20.map(d => d.name);
     const values = top20.map(d => d.count);
 
     if (statsChartType === 'pie') {
@@ -94,7 +109,7 @@ function renderStatsChart() {
             series: [{ type: 'pie', radius: ['35%', '70%'], center: ['40%', '50%'],
                 label: { show: false },
                 emphasis: { label: { show: true, fontSize: 14, fontWeight: 'bold' } },
-                data: top20.map(d => ({ name: d.typeName, value: d.count }))
+                data: top20.map(d => ({ name: d.name, value: d.count }))
             }]
         }, true);
     } else if (statsChartType === 'line') {
@@ -137,7 +152,7 @@ function renderStatsTable(data) {
     }
     data.forEach(d => {
         const tr = document.createElement('tr');
-        tr.appendChild(createTextCell(d.typeName));
+        tr.appendChild(createTextCell(d.name));
         tr.appendChild(createTextCell(String(d.count)));
         tr.appendChild(createTextCell(d.percent + '%'));
         tbody.appendChild(tr);

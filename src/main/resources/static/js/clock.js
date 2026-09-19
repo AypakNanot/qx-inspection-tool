@@ -104,7 +104,7 @@ function renderClockTopology() {
                 show: true,
                 position: 'bottom',
                 fontSize: 11,
-                formatter: '{b}\n' + node.getClockStateText
+                formatter: '{b}\n' + node.clockStateText
             },
             data: node // 存储完整数据供点击使用
         });
@@ -148,11 +148,11 @@ function renderClockTopology() {
                 if (params.dataType === 'node') {
                     const node = params.data.data;
                     if (!node) return params.name;
-                    return '<b>' + node.neName + '</b><br/>' +
-                           '网元ID: ' + node.neId + '<br/>' +
-                           'IP: ' + (node.ipAddr || '-') + '<br/>' +
-                           '网络: ' + (node.networkName || '-') + '<br/>' +
-                           '时钟状态: ' + node.getClockStateText() + '<br/>' +
+                    return '<b>' + escapeHtml(node.neName) + '</b><br/>' +
+                           '网元ID: ' + escapeHtml(node.neId) + '<br/>' +
+                           'IP: ' + escapeHtml(node.ipAddr || '-') + '<br/>' +
+                           '网络: ' + escapeHtml(node.networkName || '-') + '<br/>' +
+                           '时钟状态: ' + escapeHtml(node.clockStateText) + '<br/>' +
                            '时钟源数: ' + (node.sources ? node.sources.length : 0);
                 }
                 return '';
@@ -197,44 +197,86 @@ function renderClockTopology() {
 }
 
 /** 显示网元时钟详情 */
+/** 详情表格单元格样式 */
+const CELL_STYLE = 'padding:6px;border:1px solid #e5e7eb;';
+const HEAD_STYLE = 'padding:6px;text-align:left;border:1px solid #e5e7eb;';
+
+/** 创建元素，style 为内联样式，text 存在时以 textContent 赋值（天然免疫注入） */
+function el(tag, style, text) {
+    const node = document.createElement(tag);
+    if (style) node.style.cssText = style;
+    if (text !== undefined && text !== null) node.textContent = text;
+    return node;
+}
+
+/** 渲染节点详情面板 */
 function showClockDetail(node) {
     const panel = document.getElementById('clockDetail');
     if (!panel) return;
 
-    let html = '<div style="padding:16px;">';
-    html += '<h3 style="margin:0 0 12px 0;font-size:16px;">' + node.neName + '</h3>';
-    html += '<div style="font-size:13px;color:#6b7280;line-height:2;">';
-    html += '<div>网元ID: ' + node.neId + '</div>';
-    html += '<div>IP: ' + (node.ipAddr || '-') + '</div>';
-    html += '<div>网络: ' + (node.networkName || '-') + '</div>';
-    html += '<div>时钟状态: <span style="color:' + (CLOCK_COLORS[node.clockState] || '#999') + ';font-weight:600;">' + node.getClockStateText() + '</span></div>';
-    html += '</div>';
+    panel.textContent = '';
+    panel.appendChild(buildDetailContent(node));
+    panel.style.display = 'block';
+}
+
+/** 节点详情内容（网元名等来自 NMS，全部走 textContent 输出） */
+function buildDetailContent(node) {
+    const wrap = el('div', 'padding:16px;');
+    wrap.appendChild(el('h3', 'margin:0 0 12px 0;font-size:16px;', node.neName));
+
+    const meta = el('div', 'font-size:13px;color:#6b7280;line-height:2;');
+    meta.appendChild(el('div', null, '网元ID: ' + (node.neId || '-')));
+    meta.appendChild(el('div', null, 'IP: ' + (node.ipAddr || '-')));
+    meta.appendChild(el('div', null, '网络: ' + (node.networkName || '-')));
+    const stateRow = el('div', null, '时钟状态: ');
+    stateRow.appendChild(el('span',
+        'color:' + (CLOCK_COLORS[node.clockState] || '#999') + ';font-weight:600;',
+        node.clockStateText || '未知'));
+    meta.appendChild(stateRow);
+    wrap.appendChild(meta);
 
     if (node.sources && node.sources.length > 0) {
-        html += '<div style="margin-top:12px;font-size:13px;font-weight:600;">时钟源列表</div>';
-        html += '<table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:8px;">';
-        html += '<tr style="background:#f9fafb;"><th style="padding:6px;text-align:left;border:1px solid #e5e7eb;">类型</th><th style="padding:6px;text-align:left;border:1px solid #e5e7eb;">优先级</th><th style="padding:6px;text-align:left;border:1px solid #e5e7eb;">状态</th><th style="padding:6px;text-align:left;border:1px solid #e5e7eb;">SSM</th><th style="padding:6px;text-align:left;border:1px solid #e5e7eb;">选择原因</th></tr>';
-
-        node.sources.forEach(src => {
-            const typeText = src.systemClock ? '系统时钟' : '导出时钟';
-            const stateText = src.clockSourceState === 1 ? '可用' : '不可用';
-            const stateColor = src.current ? '#16a34a' : (src.clockSourceState === 1 ? '#6b7280' : '#dc2626');
-            html += '<tr>';
-            html += '<td style="padding:6px;border:1px solid #e5e7eb;">' + typeText + (src.current ? ' ★' : '') + '</td>';
-            html += '<td style="padding:6px;border:1px solid #e5e7eb;">' + src.priority + '</td>';
-            html += '<td style="padding:6px;border:1px solid #e5e7eb;color:' + stateColor + ';">' + stateText + '</td>';
-            html += '<td style="padding:6px;border:1px solid #e5e7eb;">' + formatSSM(src.realSSM) + '</td>';
-            html += '<td style="padding:6px;border:1px solid #e5e7eb;">' + src.selReason + '</td>';
-            html += '</tr>';
-        });
-        html += '</table>';
+        wrap.appendChild(el('div', 'margin-top:12px;font-size:13px;font-weight:600;', '时钟源列表'));
+        wrap.appendChild(buildSourceTable(node.sources));
     } else {
-        html += '<div style="margin-top:12px;color:#9ca3af;font-size:13px;">无时钟源数据</div>';
+        wrap.appendChild(el('div', 'margin-top:12px;color:#9ca3af;font-size:13px;', '无时钟源数据'));
     }
+    return wrap;
+}
 
-    html += '</div>';
-    panel.innerHTML = html;
-    panel.style.display = 'block';
+/** 时钟源明细表格 */
+function buildSourceTable(sources) {
+    const table = el('table', 'width:100%;border-collapse:collapse;font-size:12px;margin-top:8px;');
+    const head = el('tr', 'background:#f9fafb;');
+    ['类型', '优先级', '状态', 'SSM', '选择原因'].forEach(h => head.appendChild(el('th', HEAD_STYLE, h)));
+    table.appendChild(head);
+
+    sources.forEach(src => {
+        const tr = el('tr');
+        tr.appendChild(el('td', CELL_STYLE, (src.systemClock ? '系统时钟' : '导出时钟') + (src.current ? ' ★' : '')));
+        tr.appendChild(el('td', CELL_STYLE, src.priority));
+
+        const stateTd = el('td', CELL_STYLE, src.clockSourceState === 1 ? '可用' : '不可用');
+        // 状态色：当前使用的时钟源绿色高亮，可用灰色，不可用红色
+        stateTd.style.color = src.current ? '#16a34a' : (src.clockSourceState === 1 ? '#6b7280' : '#dc2626');
+        tr.appendChild(stateTd);
+
+        tr.appendChild(el('td', CELL_STYLE, formatSSM(src.realSSM)));
+        tr.appendChild(el('td', CELL_STYLE, src.selReason));
+        table.appendChild(tr);
+    });
+    return table;
+}
+
+/** HTML 转义表 */
+const ESCAPE_MAP = {
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+};
+
+/** 转义 HTML 特殊字符（ECharts tooltip 以 HTML 渲染，值来自 NMS 不可信） */
+function escapeHtml(value) {
+    if (value === undefined || value === null) return '';
+    return String(value).replace(/[&<>"']/g, c => ESCAPE_MAP[c]);
 }
 
 /** 格式化 SSM 值 */

@@ -1,57 +1,108 @@
 package com.optel.qxinspection.service;
 
-import com.optel.qxinspection.entity.sqlite.DeviceAccessConfig;
 import com.optel.qxinspection.entity.sqlite.InspectionRound;
 import com.optel.qxinspection.entity.sqlite.LinkInspectionResult;
-import com.optel.qxinspection.entity.sqlite.OpticalPowerInspection;
 import com.optel.qxinspection.laser.LaserAttributeAckData;
 import com.optel.qxinspection.laser.LaserAttributeGetData;
 import com.optel.qxinspection.laser.service.ILaserService;
-import com.optel.qxinspection.util.OidUtil;
-import com.optel.qxinspection.repository.sqlite.DeviceAccessConfigRepository;
 import com.optel.qxinspection.repository.sqlite.InspectionRoundRepository;
-import com.optel.qxinspection.repository.sqlite.OpticalPowerInspectionRepository;
+import com.optel.qxinspection.repository.sqlite.LinkInspectionResultRepository;
+import com.optel.qxinspection.util.OidUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.*;
-import java.util.concurrent.*;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
+/**
+ * 链路巡检服务。
+ * <p>巡检对象为 dmconnection 中的物理链路：按网元分组，每台网元连接一次，
+ * 采集链路两端端口的光功率与带宽，按链路组装结果写入 link_inspection_result。</p>
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class InspectionService {
-
-    private final ILaserService laserService;
-    private final QxConnectionService qxConnectionService;
-    private final DeviceAccessConfigRepository deviceAccessConfigRepository;
-    private final InspectionRoundRepository inspectionRoundRepository;
-    private final OpticalPowerInspectionRepository powerRecordRepository;
-    @Qualifier("sqliteJdbc")
-    private final JdbcTemplate sqliteJdbc;
-    private final ThresholdService thresholdService;
-    private final SysConfigService sysConfigService;
 
     private static final String KEY_CONCURRENCY = "collect.concurrency";
     private static final String KEY_MAX_ROUNDS = "collect.maxRounds";
     private static final String KEY_AUTO_CONNECT = "inspect.autoConnect";
     private static final String KEY_AUTO_DISCONNECT = "inspect.autoDisconnect";
     private static final String KEY_SAVE_INVALID = "inspect.saveInvalid";
+
+    private static final int DEFAULT_PORT_TYPE = 0xFF;
+    private static final int DEFAULT_PORT_SUB_TYPE = 0xFF;
+    private static final int LASER_SUPPORT_BIT = 0x01;
+    private static final int TOP_ANOMALY_LIMIT = 20;
+
+    private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
+    /** 每个 VC-12 折算的 Mbps 数：STM-1 = 155.52 Mbps 含 63 个 VC-12 */
+    private static final double MBPS_PER_VC12 = 155.52 / 63;
+    private static final DateTimeFormatter FAILURE_TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
+
+    /** 链路基础信息（dmconnection cid=100，冗余字段由同步时写入） */
+    private static final String LINK_SELECT_SQL = """
+            SELECT "oid", "name", "aEnd", "zEnd",
+                   "aNetworkName", "aNeName", "aNeTypeName", "aPortName", "aCapacity", "aUsed",
+                   "zNetworkName", "zNeName", "zNeTypeName", "zPortName", "zCapacity", "zUsed"
+            FROM "dmconnection" WHERE "cid" = 100 ORDER BY "name"
+            """;
+
+    private final ILaserService laserService;
+    private final QxConnectionService qxConnectionService;
+    private final InspectionRoundRepository inspectionRoundRepository;
+    private final LinkInspectionResultRepository linkResultRepository;
+    private final JdbcTemplate sqliteJdbc;
+    private final ThresholdService thresholdService;
+    private final SysConfigService sysConfigService;
+
     @Value("${app.inspection.concurrency:10}")
     private int concurrency;
 
     @Value("${app.inspection.max-rounds:10}")
     private int maxRounds;
 
+    /** 是否巡检时自动连接未在线设备 */
+    private volatile boolean autoConnect = true;
+    /** 是否巡检完成后自动断开所有连接 */
+    private volatile boolean autoDisconnect = true;
+    /** 是否保存未采集到任何数据的链路 */
+    private volatile boolean saveInvalid = true;
+
+    /** 当前运行中的轮次（用于进度查询） */
+    private volatile InspectionRound currentRound;
+    private final AtomicInteger progressCurrent = new AtomicInteger(0);
+    private final List<Map<String, String>> progressFailures = new CopyOnWriteArrayList<>();
+    /** 本轮巡检涉及的 OID → 名称，进度条上显示名称而不是 OID（触发巡检时重建） */
+    private final Map<String, String> roundNeNames = new ConcurrentHashMap<>();
+    private final Map<String, String> roundPortNames = new ConcurrentHashMap<>();
+    private volatile String progressCurrentNe = "";
+    private volatile String progressCurrentPort = "";
+
     @jakarta.annotation.PostConstruct
     public void init() {
-        thresholdService.initDefaultGlobalRule();
+        thresholdService.initPresetThresholds();
         // 从数据库加载采集参数（覆盖@Value默认值）
         concurrency = Integer.parseInt(sysConfigService.get(KEY_CONCURRENCY, String.valueOf(concurrency)));
         maxRounds = Integer.parseInt(sysConfigService.get(KEY_MAX_ROUNDS, String.valueOf(maxRounds)));
@@ -62,51 +113,29 @@ public class InspectionService {
                 concurrency, maxRounds, autoConnect, autoDisconnect, saveInvalid);
     }
 
-    /** 是否巡检时自动连接未在线设备 */
-    private volatile boolean autoConnect = true;
-    /** 是否巡检完成后自动断开所有连接 */
-    private volatile boolean autoDisconnect = true;
-    /** 是否保存无效记录到数据库 */
-    private volatile boolean saveInvalid = true;
+    // ========== 触发巡检 ==========
 
-    /** 当前运行中的轮次（用于进度查询） */
-    private volatile InspectionRound currentRound;
-    private final AtomicInteger progressCurrent = new AtomicInteger(0);
-    private final List<Map<String, String>> progressFailures = new CopyOnWriteArrayList<>();
-    private volatile String progressCurrentNe = "";
-    private volatile String progressCurrentPort = "";
-
-    /**
-     * 手动触发巡检（全网）
-     */
+    /** 手动触发巡检（全网链路） */
     public InspectionRound triggerInspectionAll() {
         return triggerInspection("ALL", null, "MANUAL");
     }
 
-    /**
-     * 按网络触发巡检
-     */
+    /** 按网络触发巡检 */
     public InspectionRound triggerInspectionByNetwork(String networkName) {
         return triggerInspection("NETWORK", networkName, "MANUAL");
     }
 
-    /**
-     * 按单个网元触发巡检
-     */
+    /** 按单个网元触发巡检 */
     public InspectionRound triggerInspectionByNe(String neId) {
         return triggerInspection("SINGLE", neId, "MANUAL");
     }
 
-    /**
-     * 定时触发巡检（内部用）
-     */
+    /** 定时触发巡检（内部用） */
     public InspectionRound triggerScheduledInspection(String scopeType, String scopeParam) {
         return triggerInspection(scopeType, scopeParam, "SCHEDULED");
     }
 
-    /**
-     * 获取当前巡检进度
-     */
+    /** 获取当前巡检进度（按链路数统计） */
     public synchronized Map<String, Object> getProgress() {
         Map<String, Object> progress = new LinkedHashMap<>();
         InspectionRound round = currentRound;
@@ -125,341 +154,60 @@ public class InspectionService {
         return progress;
     }
 
-    /**
-     * 查询最新轮次的巡检结果
-     */
-    public List<OpticalPowerInspection> getLatestResults(String network) {
-        List<OpticalPowerInspection> results = inspectionRoundRepository.findFirstByOrderByStartTimeDesc()
-                .map(r -> {
-                    if (network != null && !network.isEmpty()) {
-                        return powerRecordRepository.findByRoundIdAndNetworkName(r.getId(), network);
-                    }
-                    return powerRecordRepository.findByRoundId(r.getId());
-                })
-                .orElse(Collections.emptyList());
-        return thresholdService.applyThresholds(results);
-    }
-
-    /**
-     * 查询指定轮次的巡检结果
-     */
-    public List<OpticalPowerInspection> getResultsByRound(Long roundId, String network) {
-        List<OpticalPowerInspection> results;
-        if (network != null && !network.isEmpty()) {
-            results = powerRecordRepository.findByRoundIdAndNetworkName(roundId, network);
-        } else {
-            results = powerRecordRepository.findByRoundId(roundId);
-        }
-        return thresholdService.applyThresholds(results);
-    }
-
-    /**
-     * 查询指定网元的巡检结果（最新轮次）
-     */
-    public List<OpticalPowerInspection> getResultsByNe(String neId) {
-        List<OpticalPowerInspection> results = inspectionRoundRepository.findFirstByOrderByStartTimeDesc()
-                .map(r -> powerRecordRepository.findByRoundIdAndNeId(r.getId(), neId))
-                .orElse(Collections.emptyList());
-        return thresholdService.applyThresholds(results);
-    }
-
-    /**
-     * 对比两次巡检结果，返回变化的端口列表
-     */
-    public Map<String, Object> compareRounds(Long roundA, Long roundB) {
-        Map<String, Object> result = new LinkedHashMap<>();
-        List<OpticalPowerInspection> dataA = thresholdService.applyThresholds(
-                powerRecordRepository.findByRoundId(roundA));
-        List<OpticalPowerInspection> dataB = thresholdService.applyThresholds(
-                powerRecordRepository.findByRoundId(roundB));
-
-        Map<String, OpticalPowerInspection> mapA = new LinkedHashMap<>();
-        for (OpticalPowerInspection r : dataA) {
-            mapA.put(r.getNeId() + ":" + r.getSlotNo() + ":" + r.getPortNo(), r);
-        }
-        Map<String, OpticalPowerInspection> mapB = new LinkedHashMap<>();
-        for (OpticalPowerInspection r : dataB) {
-            mapB.put(r.getNeId() + ":" + r.getSlotNo() + ":" + r.getPortNo(), r);
-        }
-
-        List<Map<String, Object>> changes = new ArrayList<>();
-
-        for (Map.Entry<String, OpticalPowerInspection> entry : mapB.entrySet()) {
-            String key = entry.getKey();
-            OpticalPowerInspection rb = entry.getValue();
-            OpticalPowerInspection ra = mapA.get(key);
-
-            if (ra == null) {
-                Map<String, Object> change = new LinkedHashMap<>();
-                change.put("type", "new");
-                change.put("neName", rb.getNeName());
-                change.put("portName", rb.getPortName());
-                change.put("txPower", rb.getTxPower());
-                change.put("rxPower", rb.getRxPower());
-                change.put("status", getPortStatusText(rb));
-                changes.add(change);
-                continue;
-            }
-
-            double txDelta = safeDelta(rb.getTxPower(), ra.getTxPower());
-            double rxDelta = safeDelta(rb.getRxPower(), ra.getRxPower());
-            boolean statusChanged = !Objects.equals(getPortStatusText(ra), getPortStatusText(rb));
-
-            if (Math.abs(txDelta) > 0.5 || Math.abs(rxDelta) > 0.5 || statusChanged) {
-                Map<String, Object> change = new LinkedHashMap<>();
-                change.put("type", statusChanged ? "status_change" : "power_change");
-                change.put("neName", rb.getNeName());
-                change.put("portName", rb.getPortName());
-                change.put("txPowerA", ra.getTxPower());
-                change.put("txPowerB", rb.getTxPower());
-                change.put("txDelta", Math.round(txDelta * 10.0) / 10.0);
-                change.put("rxPowerA", ra.getRxPower());
-                change.put("rxPowerB", rb.getRxPower());
-                change.put("rxDelta", Math.round(rxDelta * 10.0) / 10.0);
-                change.put("statusA", getPortStatusText(ra));
-                change.put("statusB", getPortStatusText(rb));
-                changes.add(change);
-            }
-        }
-
-        changes.sort((a, b) -> {
-            boolean aDegrade = "status_change".equals(a.get("type"));
-            boolean bDegrade = "status_change".equals(b.get("type"));
-            if (aDegrade != bDegrade) return aDegrade ? -1 : 1;
-            double aDelta = Math.abs((double) a.getOrDefault("rxDelta", 0.0));
-            double bDelta = Math.abs((double) b.getOrDefault("rxDelta", 0.0));
-            return Double.compare(bDelta, aDelta);
-        });
-
-        result.put("roundA", roundA);
-        result.put("roundB", roundB);
-        result.put("totalA", dataA.size());
-        result.put("totalB", dataB.size());
-        result.put("changes", changes);
-        return result;
-    }
-
-    private double safeDelta(Double b, Double a) {
-        if (b == null || a == null) return 0;
-        return b - a;
-    }
-
-    private String getPortStatusText(OpticalPowerInspection r) {
-        if (!Boolean.TRUE.equals(r.getSupported())) return "无效";
-        if ((r.getTxPowerStatus() != null && r.getTxPowerStatus() > 0)
-                || (r.getRxPowerStatus() != null && r.getRxPowerStatus() > 0)) {
-            boolean over = (r.getTxPowerStatus() != null && r.getTxPowerStatus() == 2)
-                    || (r.getRxPowerStatus() != null && r.getRxPowerStatus() == 2);
-            return over ? "过载" : "劣化";
-        }
-        return "正常";
-    }
-
-    /**
-     * 获取巡检轮次列表
-     */
+    /** 获取巡检轮次列表 */
     public List<InspectionRound> listRounds() {
         return inspectionRoundRepository.findAll();
     }
 
-    /**
-     * 获取单端口历史趋势
-     */
-    public List<OpticalPowerInspection> getPortTrend(String neId, int slotNo, int portNo) {
-        return powerRecordRepository.findTrendByPort(neId, slotNo, portNo);
-    }
+    // ========== 链路巡检结果查询 ==========
 
     /**
-     * 获取网元历史趋势（所有端口）
+     * 获取链路巡检结果（A端+Z端合并显示）
      */
-    public List<OpticalPowerInspection> getNeTrend(String neId) {
-        return powerRecordRepository.findTrendByNe(neId);
-    }
-
-    /**
-     * 获取最新轮次中去重的端口列表（neId + portName）
-     */
-    public List<Map<String, String>> getPortNames() {
-        List<Object[]> rows = powerRecordRepository.findDistinctPortsInLatestRound();
-        List<Map<String, String>> result = new ArrayList<>();
-        for (Object[] row : rows) {
-            Map<String, String> m = new LinkedHashMap<>();
-            m.put("neId", (String) row[0]);
-            m.put("portName", (String) row[1]);
-            result.add(m);
-        }
-        return result;
-    }
-
-    /**
-     * 多轮次趋势数据：按端口分组，每个端口包含各轮次的功率值
-     */
-    public Map<String, Object> getTrendData(List<Long> roundIds, String network, String neId, String portName) {
-        Map<String, Object> result = new LinkedHashMap<>();
-
-        // 查询轮次元数据并按时间排序
-        List<InspectionRound> rounds = inspectionRoundRepository.findAllById(roundIds);
-        rounds.sort(Comparator.comparing(r -> r.getStartTime() != null ? r.getStartTime() : LocalDateTime.MIN));
-
-        // 轮次时间轴
-        List<Map<String, Object>> timeline = new ArrayList<>();
-        for (InspectionRound r : rounds) {
-            Map<String, Object> t = new LinkedHashMap<>();
-            t.put("roundId", r.getId());
-            t.put("time", r.getStartTime());
-            timeline.add(t);
-        }
-        result.put("timeline", timeline);
-
-        // 批量查询所有轮次数据，避免 N+1
-        List<Long> validRoundIds = rounds.stream().map(InspectionRound::getId).toList();
-        List<OpticalPowerInspection> allRecords = thresholdService.applyThresholds(
-                powerRecordRepository.findByRoundIdIn(validRoundIds));
-        // 按 roundId 分组
-        Map<Long, List<OpticalPowerInspection>> recordsByRound = allRecords.stream()
-                .collect(java.util.stream.Collectors.groupingBy(OpticalPowerInspection::getRoundId));
-
-        // 收集所有端口数据：key = neId:slotNo:portNo
-        Map<String, Map<String, Object>> portMap = new LinkedHashMap<>();
-
-        for (InspectionRound round : rounds) {
-            List<OpticalPowerInspection> records = recordsByRound.getOrDefault(round.getId(), List.of());
-
-            for (OpticalPowerInspection r : records) {
-                // 筛选
-                if (network != null && !network.isEmpty() && !network.equals(r.getNetworkName())) continue;
-                if (neId != null && !neId.isEmpty() && !neId.equals(r.getNeId())) continue;
-                if (portName != null && !portName.isEmpty() && !portName.equals(r.getPortName())) continue;
-
-                String key = r.getNeId() + ":" + r.getSlotNo() + ":" + r.getPortNo();
-                portMap.computeIfAbsent(key, k -> {
-                    Map<String, Object> port = new LinkedHashMap<>();
-                    port.put("neId", r.getNeId());
-                    port.put("neName", r.getNeName());
-                    port.put("slotNo", r.getSlotNo());
-                    port.put("portNo", r.getPortNo());
-                    port.put("portName", r.getPortName());
-                    port.put("moduleTypeKey", r.getModuleTypeKey());
-                    port.put("rounds", new LinkedHashMap<Long, Object>());
-                    return port;
-                });
-
-                Map<String, Object> port = portMap.get(key);
-                @SuppressWarnings("unchecked")
-                Map<Long, Object> roundsData = (Map<Long, Object>) port.get("rounds");
-
-                Map<String, Object> rd = new LinkedHashMap<>();
-                rd.put("txPower", r.getTxPower());
-                rd.put("rxPower", r.getRxPower());
-                rd.put("txStatus", r.getTxPowerStatus());
-                rd.put("rxStatus", r.getRxPowerStatus());
-                rd.put("rxLow", r.getLowThreshold());
-                rd.put("rxHigh", r.getHighThreshold());
-                rd.put("txLow", r.getTxLowThreshold());
-                rd.put("txHigh", r.getTxHighThreshold());
-                roundsData.put(round.getId(), rd);
-            }
-        }
-
-        // 将 rounds map 转为有序列表
-        List<Map<String, Object>> ports = new ArrayList<>();
-        for (Map<String, Object> port : portMap.values()) {
-            @SuppressWarnings("unchecked")
-            Map<Long, Object> roundsData = (Map<Long, Object>) port.get("rounds");
-            List<Map<String, Object>> roundList = new ArrayList<>();
-            for (InspectionRound round : rounds) {
-                Object rd = roundsData.get(round.getId());
-                if (rd != null) {
-                    roundList.add((Map<String, Object>) rd);
-                } else {
-                    roundList.add(null);
-                }
-            }
-            port.put("roundData", roundList);
-            port.remove("rounds");
-            ports.add(port);
-        }
-
-        // 按网元名+槽位+端口号排序（使用 Number 拆箱避免 ClassCastException）
-        ports.sort((a, b) -> {
-            String na = (String) a.get("neName");
-            String nb = (String) b.get("neName");
-            int cmp = (na != null ? na : "").compareTo(nb != null ? nb : "");
-            if (cmp != 0) return cmp;
-            int sa = a.get("slotNo") != null ? ((Number) a.get("slotNo")).intValue() : 0;
-            int sb = b.get("slotNo") != null ? ((Number) b.get("slotNo")).intValue() : 0;
-            if (sa != sb) return sa - sb;
-            int pa = a.get("portNo") != null ? ((Number) a.get("portNo")).intValue() : 0;
-            int pb = b.get("portNo") != null ? ((Number) b.get("portNo")).intValue() : 0;
-            return pa - pb;
-        });
-
-        result.put("ports", ports);
-        return result;
-    }
-
-    /**
-     * 获取越限异常汇总（按网元分组）- 门限实时计算
-     */
-    public List<Map<String, Object>> getAnomalySummary(Long roundId) {
-        InspectionRound round;
+    public List<LinkInspectionResult> getLinkResults(Long roundId, String network) {
+        List<LinkInspectionResult> results;
         if (roundId != null) {
-            round = inspectionRoundRepository.findById(roundId).orElse(null);
+            results = linkResultRepository.findByRoundId(roundId);
         } else {
-            round = inspectionRoundRepository.findFirstByOrderByStartTimeDesc().orElse(null);
-        }
-        if (round == null) return Collections.emptyList();
-
-        List<OpticalPowerInspection> all = thresholdService.applyThresholds(
-                powerRecordRepository.findByRoundId(round.getId()));
-
-        // 按网元分组统计越限
-        Map<String, Map<String, Object>> grouped = new LinkedHashMap<>();
-        for (OpticalPowerInspection r : all) {
-            boolean over = (r.getTxPowerStatus() != null && r.getTxPowerStatus() > 0)
-                    || (r.getRxPowerStatus() != null && r.getRxPowerStatus() > 0);
-            if (!over) continue;
-
-            String key = r.getNeId();
-            grouped.computeIfAbsent(key, k -> {
-                Map<String, Object> m = new LinkedHashMap<>();
-                m.put("neId", r.getNeId());
-                m.put("neName", r.getNeName());
-                m.put("overThresholdCount", 0L);
-                return m;
-            });
-            Map<String, Object> m = grouped.get(key);
-            m.put("overThresholdCount", (long) m.get("overThresholdCount") + 1);
+            results = inspectionRoundRepository.findFirstByOrderByStartTimeDesc()
+                    .map(r -> linkResultRepository.findByRoundId(r.getId()))
+                    .orElseGet(Collections::emptyList);
         }
 
-        List<Map<String, Object>> result = new ArrayList<>(grouped.values());
-        result.sort((a, b) -> Long.compare(
-                (long) b.get("overThresholdCount"), (long) a.get("overThresholdCount")));
-        return result;
+        if (network != null && !network.isEmpty()) {
+            Map<String, String> neNetworkMap = loadNeNetworkMap();
+            results = results.stream()
+                    .filter(r -> network.equals(neNetworkMap.get(r.getANeId()))
+                            || network.equals(neNetworkMap.get(r.getZNeId())))
+                    .toList();
+        }
+
+        int seq = 1;
+        for (LinkInspectionResult result : results) {
+            result.setSeqNo(seq++);
+            // 库中存 VC-12 个数，对外统一按 Mbps 呈现。本方法是接口与 Excel 导出的唯一出口。
+            // 这里实体是 detached（方法无 @Transactional），原地换算不会被回写；
+            // 若将来给本方法加 @Transactional 或从事务内调用，会把 Mbps 写回库，必须改走 DTO。
+            result.setATotalBandwidth(vc12ToMbps(result.getATotalBandwidth()));
+            result.setAUsedBandwidth(vc12ToMbps(result.getAUsedBandwidth()));
+            result.setZTotalBandwidth(vc12ToMbps(result.getZTotalBandwidth()));
+            result.setZUsedBandwidth(vc12ToMbps(result.getZUsedBandwidth()));
+        }
+        return results;
+    }
+
+    /** 网元 OID → 所属网络名称 */
+    private Map<String, String> loadNeNetworkMap() {
+        Map<String, String> map = new HashMap<>();
+        for (Map<String, Object> row : sqliteJdbc.queryForList(
+                "SELECT \"oid\", \"networkName\" FROM \"dmeo\" WHERE \"cid\" = 2 AND \"networkName\" IS NOT NULL")) {
+            map.put((String) row.get("oid"), (String) row.get("networkName"));
+        }
+        return map;
     }
 
     /**
-     * 获取越限详细记录 - 门限实时计算
-     */
-    public List<OpticalPowerInspection> getOverThresholdRecords(Long roundId) {
-        InspectionRound round;
-        if (roundId != null) {
-            round = inspectionRoundRepository.findById(roundId).orElse(null);
-        } else {
-            round = inspectionRoundRepository.findFirstByOrderByStartTimeDesc().orElse(null);
-        }
-        if (round == null) return Collections.emptyList();
-
-        List<OpticalPowerInspection> all = thresholdService.applyThresholds(
-                powerRecordRepository.findByRoundId(round.getId()));
-        return all.stream()
-                .filter(r -> (r.getTxPowerStatus() != null && r.getTxPowerStatus() > 0)
-                        || (r.getRxPowerStatus() != null && r.getRxPowerStatus() > 0))
-                .toList();
-    }
-
-    /**
-     * 获取巡检摘要统计（含劣化/过载按类型分组）
+     * 获取巡检摘要统计（链路口径）
      */
     public Map<String, Object> getSummary() {
         Map<String, Object> summary = new LinkedHashMap<>();
@@ -473,510 +221,154 @@ public class InspectionService {
         summary.put("startTime", latest.getStartTime());
         summary.put("endTime", latest.getEndTime());
         summary.put("status", latest.getStatus());
-        summary.put("totalDevices", latest.getTotalCount());
-        summary.put("doneDevices", latest.getDoneCount());
-        summary.put("failDevices", latest.getFailCount());
+        summary.put("totalLinks", latest.getTotalCount());
+        summary.put("doneLinks", latest.getDoneCount());
+        summary.put("failNes", latest.getFailCount());
 
-        List<OpticalPowerInspection> records = thresholdService.applyThresholds(
-                powerRecordRepository.findByRoundId(latest.getId()));
-        List<OpticalPowerInspection> supported = records.stream()
-                .filter(r -> Boolean.TRUE.equals(r.getSupported())).toList();
+        List<LinkInspectionResult> links = linkResultRepository.findByRoundId(latest.getId());
+        long abnormal = links.stream().filter(this::isAbnormal).count();
+        long noLight = links.stream().filter(this::hasNoLight).count();
+        summary.put("linkCount", links.size());
+        summary.put("normalLinks", links.size() - abnormal);
+        summary.put("abnormalLinks", abnormal);
+        summary.put("noLightLinks", noLight);
+        summary.put("byModuleType", groupByModuleType(links));
+        summary.put("byNeType", groupByNeType(links));
+        summary.put("topAnomalies", topAnomalies(links));
 
-        long overThreshold = supported.stream()
-                .filter(r -> (r.getTxPowerStatus() != null && r.getTxPowerStatus() > 0)
-                        || (r.getRxPowerStatus() != null && r.getRxPowerStatus() > 0))
-                .count();
-
-        summary.put("totalPorts", records.size());
-        summary.put("supportedPorts", supported.size());
-        summary.put("overThresholdPorts", overThreshold);
-
-        // 按模块类型分组统计
-        Map<String, Map<String, Object>> byModuleType = new LinkedHashMap<>();
-        for (OpticalPowerInspection r : supported) {
-            String key = r.getModuleTypeKey() != null ? r.getModuleTypeKey() : "Unknown";
-            byModuleType.computeIfAbsent(key, k -> {
-                Map<String, Object> m = new LinkedHashMap<>();
-                m.put("count", 0L);
-                m.put("overThreshold", 0L);
-                return m;
-            });
-            Map<String, Object> m = byModuleType.get(key);
-            m.put("count", (long) m.get("count") + 1);
-            if ((r.getTxPowerStatus() != null && r.getTxPowerStatus() > 0)
-                    || (r.getRxPowerStatus() != null && r.getRxPowerStatus() > 0)) {
-                m.put("overThreshold", (long) m.get("overThreshold") + 1);
-            }
-        }
-        summary.put("byModuleType", byModuleType);
-
-        // 按设备类型分组统计（使用 neId 查询 MySQL 获取设备类型）
-        Map<String, Map<String, Object>> byDeviceType = new LinkedHashMap<>();
-        for (OpticalPowerInspection r : records) {
-            String neName = r.getNeName() != null ? r.getNeName() : "Unknown";
-            // 从 neName 提取设备类型（括号前的部分）
-            String deviceType = neName.contains("(") ? neName.substring(0, neName.indexOf("(")) : neName;
-            if (deviceType.isEmpty()) deviceType = "Unknown";
-            byDeviceType.computeIfAbsent(deviceType, k -> {
-                Map<String, Object> m = new LinkedHashMap<>();
-                m.put("totalPorts", 0L);
-                m.put("supportedPorts", 0L);
-                m.put("overThreshold", 0L);
-                return m;
-            });
-            Map<String, Object> m = byDeviceType.get(deviceType);
-            m.put("totalPorts", (long) m.get("totalPorts") + 1);
-            if (Boolean.TRUE.equals(r.getSupported())) {
-                m.put("supportedPorts", (long) m.get("supportedPorts") + 1);
-                if ((r.getTxPowerStatus() != null && r.getTxPowerStatus() > 0)
-                        || (r.getRxPowerStatus() != null && r.getRxPowerStatus() > 0)) {
-                    m.put("overThreshold", (long) m.get("overThreshold") + 1);
-                }
-            }
-        }
-        summary.put("byDeviceType", byDeviceType);
-
-        // 异常端口Top10
-        List<Map<String, Object>> topAnomalies = supported.stream()
-                .filter(r -> (r.getTxPowerStatus() != null && r.getTxPowerStatus() > 0)
-                        || (r.getRxPowerStatus() != null && r.getRxPowerStatus() > 0))
-                .sorted((a, b) -> {
-                    int sa = Math.max(a.getTxPowerStatus() != null ? a.getTxPowerStatus() : 0,
-                            a.getRxPowerStatus() != null ? a.getRxPowerStatus() : 0);
-                    int sb = Math.max(b.getTxPowerStatus() != null ? b.getTxPowerStatus() : 0,
-                            b.getRxPowerStatus() != null ? b.getRxPowerStatus() : 0);
-                    return sb - sa;
-                })
-                .limit(10)
-                .map(r -> {
-                    Map<String, Object> m = new LinkedHashMap<>();
-                    m.put("neName", r.getNeName());
-                    m.put("slotNo", r.getSlotNo());
-                    m.put("portNo", r.getPortNo());
-                    m.put("portName", r.getPortName());
-                    m.put("txPower", r.getTxPower());
-                    m.put("rxPower", r.getRxPower());
-                    m.put("txStatus", r.getTxPowerStatus());
-                    m.put("rxStatus", r.getRxPowerStatus());
-                    return m;
-                }).toList();
-        summary.put("topAnomalies", topAnomalies);
-
-        // 耗时（秒）
         if (latest.getStartTime() != null && latest.getEndTime() != null) {
-            long durSec = java.time.Duration.between(latest.getStartTime(), latest.getEndTime()).getSeconds();
-            summary.put("durationSec", durSec);
+            summary.put("durationSec", Duration.between(latest.getStartTime(), latest.getEndTime()).getSeconds());
         }
-
         return summary;
     }
 
-    // ========== 内部实现 ==========
-
-    private synchronized InspectionRound triggerInspection(String scopeType, String scopeParam, String triggerType) {
-        // 检查是否有正在运行的巡检
-        if (currentRound != null && InspectionRound.STATUS_RUNNING.equals(currentRound.getStatus())) {
-            throw new IllegalStateException("已有巡检任务正在运行，请等待完成后再触发");
+    /** 按光模块类型统计：count=采集到的端数，abnormal=其中异常端数 */
+    private Map<String, Map<String, Object>> groupByModuleType(List<LinkInspectionResult> links) {
+        Map<String, long[]> counters = new LinkedHashMap<>();
+        for (LinkInspectionResult r : links) {
+            countModuleType(counters, r.getAModuleType(), sideAbnormal(r.getATxStatus(), r.getARxStatus(), r.getAErrorInfo()));
+            countModuleType(counters, r.getZModuleType(), sideAbnormal(r.getZTxStatus(), r.getZRxStatus(), r.getZErrorInfo()));
         }
-
-        // 创建轮次
-        InspectionRound round = new InspectionRound();
-        round.setTriggerType(triggerType);
-        round.setScopeType(scopeType);
-        round.setScopeParam(scopeParam);
-        InspectionRound saved = inspectionRoundRepository.save(round);
-
-        // 解析目标设备列表
-        List<DeviceAccessConfig> targets = resolveTargets(scopeType, scopeParam);
-        saved.setTotalCount(targets.size());
-        inspectionRoundRepository.save(saved);
-
-        // 重置进度
-        currentRound = saved;
-        progressCurrent.set(0);
-        progressFailures.clear();
-        progressCurrentNe = "";
-        progressCurrentPort = "";
-
-        // 异步执行巡检（使用专用线程池，捕获异常防止轮次卡在RUNNING）
-        final InspectionRound finalRound = saved;
-        ExecutorService inspectionPool = Executors.newSingleThreadExecutor(r -> {
-            Thread t = new Thread(r, "inspection-main");
-            t.setDaemon(true);
-            return t;
+        Map<String, Map<String, Object>> result = new LinkedHashMap<>();
+        counters.forEach((key, value) -> {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("count", value[0]);
+            item.put("abnormal", value[1]);
+            result.put(key, item);
         });
-        CompletableFuture.runAsync(() -> executeInspection(finalRound, targets), inspectionPool)
-                .exceptionally(ex -> {
-                    log.error("巡检执行异常: roundId={}, {}", finalRound.getId(), ex.getMessage(), ex);
-                    finalRound.setStatus(InspectionRound.STATUS_FAILED);
-                    finalRound.setEndTime(LocalDateTime.now());
-                    inspectionRoundRepository.save(finalRound);
-                    return null;
-                })
-                .thenRun(inspectionPool::shutdown);
-
-        return saved;
+        return result;
     }
 
-    private List<DeviceAccessConfig> resolveTargets(String scopeType, String scopeParam) {
-        List<DeviceAccessConfig> all = deviceAccessConfigRepository.findAll();
-        return switch (scopeType) {
-            case "NETWORK" -> all.stream()
-                    .filter(d -> scopeParam != null && scopeParam.equals(d.getNetworkName()))
-                    .toList();
-            case "SINGLE" -> all.stream()
-                    .filter(d -> scopeParam != null && scopeParam.equals(d.getNeId()))
-                    .toList();
-            default -> all; // ALL
-        };
-    }
-
-    private void executeInspection(InspectionRound round, List<DeviceAccessConfig> targets) {
-        ExecutorService pool = Executors.newFixedThreadPool(concurrency);
-        try {
-            List<CompletableFuture<Void>> futures = new ArrayList<>();
-            AtomicInteger doneCount = new AtomicInteger(0);
-            AtomicInteger failCount = new AtomicInteger(0);
-
-            for (DeviceAccessConfig device : targets) {
-                CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
-                    try {
-                        progressCurrentNe = device.getNeName() + "(" + device.getIpAddr() + ")";
-                        inspectDevice(round, device);
-                        doneCount.incrementAndGet();
-                    } catch (Exception e) {
-                        log.error("巡检设备失败: {}({}), {}", device.getNeName(), device.getIpAddr(), e.getMessage());
-                        failCount.incrementAndGet();
-                        Map<String, String> failInfo = new LinkedHashMap<>();
-                        failInfo.put("device", device.getNeName() + "(" + device.getIpAddr() + ")");
-                        failInfo.put("reason", e.getMessage());
-                        failInfo.put("time", java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss").format(LocalDateTime.now()));
-                        progressFailures.add(failInfo);
-                    } finally {
-                        progressCurrent.incrementAndGet();
-                    }
-                }, pool);
-                futures.add(future);
-            }
-
-            // 等待全部完成
-            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
-
-        // 巡检完成后自动断开连接（在保存轮次状态之前，确保进度查询不会提前返回COMPLETED）
-        if (autoDisconnect) {
-            int disconnected = 0;
-            for (DeviceAccessConfig device : targets) {
-                if (qxConnectionService.isConnected(device.getNeId())) {
-                    try {
-                        qxConnectionService.disconnectSingle(device.getNeId());
-                        disconnected++;
-                    } catch (Exception e) {
-                        log.debug("断开连接失败: {}", device.getNeName());
-                    }
-                }
-            }
-            log.info("巡检完成，已断开 {} 台设备连接", disconnected);
-        }
-
-        // 更新轮次状态
-        round.setDoneCount(doneCount.get());
-        round.setFailCount(failCount.get());
-        round.setStatus(InspectionRound.STATUS_COMPLETED);
-        round.setEndTime(LocalDateTime.now());
-        inspectionRoundRepository.save(round);
-
-        // 清理超龄轮次
-        cleanupOldRounds();
-
-        log.info("巡检完成: roundId={}, 总设备={}, 成功={}, 失败={}",
-                round.getId(), round.getTotalCount(), round.getDoneCount(), round.getFailCount());
-        } finally {
-            pool.shutdown();
-        }
-    }
-
-    private void inspectDevice(InspectionRound round, DeviceAccessConfig device) {
-        List<OpticalPowerInspection> records = new ArrayList<>();
-
-        // 确保设备已连接（未连接则先建立连接）
-        if (!qxConnectionService.isConnected(device.getNeId())) {
-            if (!autoConnect) {
-                log.debug("设备未连接且自动连接已关闭，跳过: {}", device.getNeName());
-                records.add(buildDeviceFailRecord(round, device, "设备未连接"));
-                powerRecordRepository.saveAll(records);
-                return;
-            }
-            log.debug("设备未连接，尝试建立连接: {}", device.getNeName());
-            Map<String, Object> connResult = qxConnectionService.connectSingle(device.getNeId());
-            if (!Boolean.TRUE.equals(connResult.get("success"))) {
-                String reason = (String) connResult.getOrDefault("message", "设备连接失败");
-                records.add(buildDeviceFailRecord(round, device, reason));
-                powerRecordRepository.saveAll(records);
-                throw new RuntimeException(reason);
-            }
-        }
-
-        // 从 dmeo 表查询该网元下的光口端口（替代 0x2406）
-        List<Map<String, Object>> opticalPorts = queryOpticalPorts(device.getNeId());
-        if (opticalPorts.isEmpty()) {
-            log.debug("设备无光口端口: {}", device.getNeName());
+    private static void countModuleType(Map<String, long[]> counters, String moduleType, boolean abnormal) {
+        if (moduleType == null || moduleType.isEmpty()) {
             return;
         }
+        long[] counter = counters.computeIfAbsent(moduleType, k -> new long[2]);
+        counter[0]++;
+        if (abnormal) {
+            counter[1]++;
+        }
+    }
 
-        String neId = device.getNeId();
-        int failPorts = 0;
-
-        for (Map<String, Object> port : opticalPorts) {
-            String oid = (String) port.get("oid");
-            int subrackId = OidUtil.getSubrackId(oid);
-            int slotId = OidUtil.getSlotId(oid);
-            int portId = OidUtil.getPortId(oid);
-            int portType = port.get("type") instanceof Number n ? n.intValue() : 0xFF;
-            String portName = (String) port.get("name");
-            progressCurrentPort = "槽位" + slotId + " 端口" + portId + (portName != null ? " (" + portName + ")" : "");
-
-            try {
-                LaserAttributeGetData req = LaserAttributeGetData.builder()
-                        .subcaseNo(subrackId)
-                        .slotId(slotId)
-                        .portType(portType)
-                        .portSubType(0xFF)
-                        .portId(portId)
-                        .backup(0)
-                        .build();
-
-                LaserAttributeAckData laser = laserService.attributeGet(neId, req);
-                records.add(buildRecord(round, device, oid, slotId, portType, 0xFF, portId, portName, laser));
-            } catch (Exception e) {
-                failPorts++;
-                records.add(buildFailRecord(round, device, oid, slotId, portType, 0xFF, portId, portName, e.getMessage()));
-                log.debug("端口查询失败: {} oid={}, {}",
-                        device.getNeName(), oid, e.getMessage());
+    /** 按网元类型统计：count=涉及链路数，abnormal=其中异常链路数 */
+    private Map<String, Map<String, Object>> groupByNeType(List<LinkInspectionResult> links) {
+        Map<String, long[]> counters = new LinkedHashMap<>();
+        for (LinkInspectionResult r : links) {
+            boolean abnormal = isAbnormal(r);
+            countNeType(counters, r.getANeTypeName(), abnormal);
+            if (!Objects.equals(r.getANeId(), r.getZNeId())) {
+                countNeType(counters, r.getZNeTypeName(), abnormal);
             }
         }
-        progressCurrentPort = "";
+        Map<String, Map<String, Object>> result = new LinkedHashMap<>();
+        counters.forEach((key, value) -> {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("count", value[0]);
+            item.put("abnormal", value[1]);
+            result.put(key, item);
+        });
+        return result;
+    }
 
-        // 批量保存（可选过滤无效记录）
-        if (!records.isEmpty()) {
-            List<OpticalPowerInspection> toSave = saveInvalid ? records : records.stream()
-                    .filter(r -> Boolean.TRUE.equals(r.getSupported()))
-                    .toList();
-            if (!toSave.isEmpty()) {
-                powerRecordRepository.saveAll(toSave);
-            }
+    private static void countNeType(Map<String, long[]> counters, String neTypeName, boolean abnormal) {
+        if (neTypeName == null || neTypeName.isEmpty()) {
+            return;
         }
-
-        log.debug("设备巡检完成: {}, 光口数={}, 失败={}", device.getNeName(), opticalPorts.size(), failPorts);
-    }
-
-    /**
-     * 基于链路的端口查询：从 dmconnection（cid=100）获取链路端口，再从 dmeo 获取端口详情。
-     */
-    private List<Map<String, Object>> queryOpticalPorts(String neId) {
-        String nePrefix = neId + ":";
-        List<String> portOids = new ArrayList<>();
-
-        List<Map<String, Object>> connections = sqliteJdbc.queryForList(
-                "SELECT \"aEnd\", \"zEnd\" FROM \"dmconnection\" WHERE \"cid\" = 100 AND (\"aEnd\" LIKE ? OR \"zEnd\" LIKE ?)",
-                nePrefix + "%", nePrefix + "%");
-        for (Map<String, Object> conn : connections) {
-            String aEnd = (String) conn.get("aEnd");
-            String zEnd = (String) conn.get("zEnd");
-            if (aEnd != null && aEnd.startsWith(nePrefix)) portOids.add(aEnd);
-            if (zEnd != null && zEnd.startsWith(nePrefix)) portOids.add(zEnd);
-        }
-
-        if (portOids.isEmpty()) {
-            return List.of();
-        }
-
-        List<String> uniqueOids = new ArrayList<>(new LinkedHashSet<>(portOids));
-        String placeholders = String.join(",", Collections.nCopies(uniqueOids.size(), "?"));
-        return sqliteJdbc.queryForList(
-                "SELECT \"oid\", \"type\", \"name\" FROM \"dmeo\" WHERE \"oid\" IN (" + placeholders + ")",
-                uniqueOids.toArray());
-    }
-
-    private OpticalPowerInspection buildRecord(InspectionRound round, DeviceAccessConfig device,
-                                                String portOid, int slotId, int portType, int portSubType, int portId,
-                                                String portName, LaserAttributeAckData laser) {
-        OpticalPowerInspection r = new OpticalPowerInspection();
-        r.setRoundId(round.getId());
-        r.setNeId(device.getNeId());
-        r.setNeName(device.getNeName());
-        r.setNetworkName(device.getNetworkName());
-        r.setNeTypeName(device.getNeTypeName());
-        r.setPortOid(portOid);
-        r.setSlotNo(slotId);
-        r.setPortNo(portId);
-        r.setPortName(portName);
-        r.setPortType(portType);
-        r.setPortSubType(portSubType);
-        r.setInspectionTime(LocalDateTime.now());
-
-        if (laser == null) {
-            r.setSupported(false);
-            r.setFailReason("激光器查询无响应");
-            return r;
-        }
-
-        boolean supported = (laser.getSupportFlag() & 0x01) == 1;
-        r.setSupported(supported);
-        if (!supported) {
-            return r;
-        }
-
-        r.setLaserType(toLaserTypeName(laser.getLaserType()));
-        r.setLaserDistance(toDistanceName(laser.getLaserType(), laser.getDistance()));
-        r.setModuleTypeKey(toModuleTypeName(laser.getLaserType(), laser.getDistance()));
-        r.setPartNumber(laser.getPartNumber());
-        r.setVendorName(laser.getVendorName());
-        r.setLaserWave(toLaserWaveName(laser.getLaserWave()));
-        r.setLaserState(laser.getLaserState());
-        r.setTxPower(toOpticalPower(laser.getTranLaserPower(), laser.getLaserState()));
-        r.setRxPower(toOpticalPower(laser.getRecvLaserPower(), laser.getLaserState()));
-
-        return r;
-    }
-
-    private OpticalPowerInspection buildFailRecord(InspectionRound round, DeviceAccessConfig device,
-                                                    String portOid, int slotId, int portType, int portSubType, int portId,
-                                                    String portName, String reason) {
-        OpticalPowerInspection r = new OpticalPowerInspection();
-        r.setRoundId(round.getId());
-        r.setNeId(device.getNeId());
-        r.setNeName(device.getNeName());
-        r.setNetworkName(device.getNetworkName());
-        r.setNeTypeName(device.getNeTypeName());
-        r.setPortOid(portOid);
-        r.setSlotNo(slotId);
-        r.setPortNo(portId);
-        r.setPortName(portName);
-        r.setPortType(portType);
-        r.setPortSubType(portSubType);
-        r.setSupported(false);
-        r.setFailReason(reason);
-        r.setInspectionTime(LocalDateTime.now());
-        return r;
-    }
-
-    private OpticalPowerInspection buildDeviceFailRecord(InspectionRound round, DeviceAccessConfig device,
-                                                          String reason) {
-        OpticalPowerInspection r = new OpticalPowerInspection();
-        r.setRoundId(round.getId());
-        r.setNeId(device.getNeId());
-        r.setNeName(device.getNeName());
-        r.setNetworkName(device.getNetworkName());
-        r.setNeTypeName(device.getNeTypeName());
-        r.setSupported(false);
-        r.setFailReason(reason);
-        r.setInspectionTime(LocalDateTime.now());
-        return r;
-    }
-
-    /**
-     * 将速率+距离档组合为标准光模块型号名（与老网管一致）
-     * 例: 2.5G+L档 → "L16.1", 155M+I档 → "I1.1", GE+SX → "1000BASE-SX"
-     */
-    private static String toModuleTypeName(int laserType, int distance) {
-        if (laserType == 0x10) {
-            return switch (distance) {
-                case 0x10 -> "1000BASE-SX";
-                case 0x11 -> "1000BASE-LX";
-                default -> "GE-Unknown(" + distance + ")";
-            };
-        }
-        // STM 速率代号: 2.5G→16, 622M→4, 155M→1, 10G→64
-        String speedCode = switch (laserType) {
-            case 1 -> "16";   // 2.5G = STM-16
-            case 2 -> "4";    // 622M = STM-4
-            case 3 -> "1";    // 155M = STM-1
-            case 4 -> "64";   // 10G = STM-64 (850nm)
-            default -> "?";
-        };
-        // 距离档模板: 850nm 用 .2/.2b 后缀，其他用 .1
-        String template = switch (distance) {
-            case 1 -> "I{0}.1";
-            case 2 -> (laserType == 4) ? "S{0}.2b" : "S{0}.1";
-            case 3 -> (laserType == 4) ? "L{0}.2" : "L{0}.1";
-            case 4 -> (laserType == 4) ? "V{0}.2" : "L{0}.2";
-            default -> "Unknown(" + distance + ")";
-        };
-        return java.text.MessageFormat.format(template, speedCode);
-    }
-
-    private static String toLaserTypeName(int laserType) {
-        return switch (laserType) {
-            case 1 -> "2.5G";
-            case 2 -> "622M";
-            case 3 -> "155M";
-            case 4 -> "10G";
-            case 0x10 -> "GE";
-            default -> "Unknown(" + laserType + ")";
-        };
-    }
-
-    private static String toDistanceName(int laserType, int distance) {
-        if (laserType == 0x10) {
-            return switch (distance) {
-                case 0x10 -> "SX";
-                case 0x11 -> "LX";
-                default -> "Unknown(" + distance + ")";
-            };
-        }
-        return switch (distance) {
-            case 1 -> "I";
-            case 2 -> "S";
-            case 3 -> "L";
-            case 4 -> "V";
-            default -> "Unknown(" + distance + ")";
-        };
-    }
-
-    private static String toLaserWaveName(int laserWave) {
-        return switch (laserWave) {
-            case 1 -> "1310nm";
-            case 2 -> "1550nm";
-            case 3 -> "850nm";
-            default -> "Unknown(" + laserWave + ")";
-        };
-    }
-
-    /**
-     * 将浮点光功率转换为 dBm 值。
-     * 设备返回 NaN 表示无光功率读数（原始字节 0xFFFFFFFF）。
-     */
-    private static Double toOpticalPower(float rawPower, int laserState) {
-        if (Float.isNaN(rawPower)) {
-            return null; // 无光功率
-        }
-        return (double) rawPower;
-    }
-
-
-    private void cleanupOldRounds() {
-        try {
-            List<InspectionRound> all = inspectionRoundRepository.findAll();
-            if (all.size() > maxRounds) {
-                all.sort(Comparator.comparing(InspectionRound::getStartTime,
-                    Comparator.nullsLast(Comparator.naturalOrder())).reversed());
-                for (int i = maxRounds; i < all.size(); i++) {
-                    InspectionRound old = all.get(i);
-                    List<OpticalPowerInspection> oldRecords = powerRecordRepository.findByRoundId(old.getId());
-                    if (!oldRecords.isEmpty()) {
-                        powerRecordRepository.deleteAll(oldRecords);
-                    }
-                    inspectionRoundRepository.delete(old);
-                }
-            }
-        } catch (Exception e) {
-            log.warn("清理超龄轮次失败: {}", e.getMessage());
+        long[] counter = counters.computeIfAbsent(neTypeName, k -> new long[2]);
+        counter[0]++;
+        if (abnormal) {
+            counter[1]++;
         }
     }
 
-    /**
-     * 获取采集参数
-     */
+    /** 异常明细（按严重程度排序，最多 TOP_ANOMALY_LIMIT 条） */
+    private List<Map<String, Object>> topAnomalies(List<LinkInspectionResult> links) {
+        List<Map<String, Object>> anomalies = new ArrayList<>();
+        for (LinkInspectionResult r : links) {
+            collectAnomalies(r, true, anomalies);
+            collectAnomalies(r, false, anomalies);
+        }
+        anomalies.sort(Comparator.comparingInt((Map<String, Object> m) -> (int) m.get("severity")).reversed());
+        return anomalies.size() > TOP_ANOMALY_LIMIT ? anomalies.subList(0, TOP_ANOMALY_LIMIT) : anomalies;
+    }
+
+    private void collectAnomalies(LinkInspectionResult r, boolean aEnd, List<Map<String, Object>> sink) {
+        String txStatus = aEnd ? r.getATxStatus() : r.getZTxStatus();
+        String rxStatus = aEnd ? r.getARxStatus() : r.getZRxStatus();
+        String errorInfo = aEnd ? r.getAErrorInfo() : r.getZErrorInfo();
+        if (!sideAbnormal(txStatus, rxStatus, errorInfo)) {
+            return;
+        }
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("side", aEnd ? "A" : "Z");
+        item.put("linkName", r.getLinkName());
+        item.put("neName", aEnd ? r.getANeName() : r.getZNeName());
+        item.put("portName", aEnd ? r.getAPortName() : r.getZPortName());
+        item.put("moduleType", aEnd ? r.getAModuleType() : r.getZModuleType());
+        item.put("txPower", aEnd ? r.getATxPower() : r.getZTxPower());
+        item.put("rxPower", aEnd ? r.getARxPower() : r.getZRxPower());
+        item.put("txStatus", txStatus);
+        item.put("rxStatus", rxStatus);
+        item.put("errorInfo", errorInfo);
+        item.put("severity", Math.max(severity(txStatus), severity(rxStatus)));
+        sink.add(item);
+    }
+
+    private static int severity(String status) {
+        if (ThresholdService.STATUS_NO_LIGHT.equals(status)) return 3;
+        if (ThresholdService.STATUS_HIGH.equals(status)) return 2;
+        if (ThresholdService.STATUS_LOW.equals(status)) return 1;
+        return 0;
+    }
+
+    private boolean isAbnormal(LinkInspectionResult r) {
+        return sideAbnormal(r.getATxStatus(), r.getARxStatus(), r.getAErrorInfo())
+                || sideAbnormal(r.getZTxStatus(), r.getZRxStatus(), r.getZErrorInfo());
+    }
+
+    private boolean hasNoLight(LinkInspectionResult r) {
+        return ThresholdService.STATUS_NO_LIGHT.equals(r.getATxStatus())
+                || ThresholdService.STATUS_NO_LIGHT.equals(r.getARxStatus())
+                || ThresholdService.STATUS_NO_LIGHT.equals(r.getZTxStatus())
+                || ThresholdService.STATUS_NO_LIGHT.equals(r.getZRxStatus());
+    }
+
+    /** 采集失败，或门限判定为过高/过低/无光，均视为异常 */
+    private static boolean sideAbnormal(String txStatus, String rxStatus, String errorInfo) {
+        if (errorInfo != null && !errorInfo.isEmpty()) {
+            return true;
+        }
+        return isBadStatus(txStatus) || isBadStatus(rxStatus);
+    }
+
+    private static boolean isBadStatus(String status) {
+        return ThresholdService.STATUS_HIGH.equals(status)
+                || ThresholdService.STATUS_LOW.equals(status)
+                || ThresholdService.STATUS_NO_LIGHT.equals(status);
+    }
+
+    // ========== 采集参数 ==========
+
     public Map<String, Object> getCollectParams() {
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("concurrency", concurrency);
@@ -987,10 +379,8 @@ public class InspectionService {
         return params;
     }
 
-    /**
-     * 更新采集参数
-     */
-    public void updateCollectParams(int concurrency, int maxRounds, boolean autoConnect, boolean autoDisconnect, boolean saveInvalid) {
+    public void updateCollectParams(int concurrency, int maxRounds, boolean autoConnect,
+                                    boolean autoDisconnect, boolean saveInvalid) {
         this.concurrency = Math.max(1, Math.min(50, concurrency));
         this.maxRounds = Math.max(5, Math.min(200, maxRounds));
         this.autoConnect = autoConnect;
@@ -1009,241 +399,507 @@ public class InspectionService {
                 concurrency, maxRounds, autoConnect, autoDisconnect, saveInvalid);
     }
 
-    // ========== 链路巡检结果查询 ==========
+    // ========== 内部实现 ==========
+
+    private synchronized InspectionRound triggerInspection(String scopeType, String scopeParam, String triggerType) {
+        if (currentRound != null && InspectionRound.STATUS_RUNNING.equals(currentRound.getStatus())) {
+            throw new IllegalStateException("已有巡检任务正在运行，请等待完成后再触发");
+        }
+
+        List<Map<String, Object>> links = loadLinks(scopeType, scopeParam);
+        if (links.isEmpty()) {
+            throw new IllegalStateException("未找到可巡检的链路，请先在「数据维护」页面同步业务数据");
+        }
+
+        InspectionRound round = new InspectionRound();
+        round.setTriggerType(triggerType);
+        round.setScopeType(scopeType);
+        round.setScopeParam(scopeParam);
+        round.setTotalCount(links.size());
+        InspectionRound saved = inspectionRoundRepository.save(round);
+
+        currentRound = saved;
+        progressCurrent.set(0);
+        progressFailures.clear();
+        roundNeNames.clear();
+        roundPortNames.clear();
+        progressCurrentNe = "";
+        progressCurrentPort = "";
+
+        ExecutorService inspectionPool = Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r, "inspection-main");
+            t.setDaemon(true);
+            return t;
+        });
+        CompletableFuture.runAsync(() -> executeInspection(saved, links), inspectionPool)
+                .exceptionally(ex -> {
+                    log.error("巡检执行异常: roundId={}, {}", saved.getId(), ex.getMessage(), ex);
+                    saved.setStatus(InspectionRound.STATUS_FAILED);
+                    saved.setEndTime(LocalDateTime.now());
+                    inspectionRoundRepository.save(saved);
+                    return null;
+                })
+                .thenRun(inspectionPool::shutdown);
+
+        return saved;
+    }
 
     /**
-     * 获取链路巡检结果（A端+Z端合并显示）
+     * 按范围加载链路：网络名匹配任一端，或网元匹配任一端。
      */
-    public List<LinkInspectionResult> getLinkResults(Long roundId, String network) {
-        // 获取所有巡检记录
-        List<OpticalPowerInspection> allRecords;
-        if (roundId != null) {
-            allRecords = powerRecordRepository.findByRoundId(roundId);
-        } else {
-            allRecords = inspectionRoundRepository.findFirstByOrderByStartTimeDesc()
-                    .map(r -> powerRecordRepository.findByRoundId(r.getId()))
-                    .orElse(Collections.emptyList());
+    private List<Map<String, Object>> loadLinks(String scopeType, String scopeParam) {
+        List<Map<String, Object>> all = sqliteJdbc.queryForList(LINK_SELECT_SQL);
+        if (scopeParam == null || scopeParam.isEmpty()) {
+            return all;
         }
+        return all.stream().filter(link -> matchesScope(link, scopeType, scopeParam)).toList();
+    }
 
-        // 应用门限
-        allRecords = thresholdService.applyThresholds(allRecords);
+    private boolean matchesScope(Map<String, Object> link, String scopeType, String scopeParam) {
+        return switch (scopeType) {
+            case "NETWORK" -> scopeParam.equals(str(link, "aNetworkName")) || scopeParam.equals(str(link, "zNetworkName"));
+            case "SINGLE" -> scopeParam.equals(neIdOf(str(link, "aEnd"))) || scopeParam.equals(neIdOf(str(link, "zEnd")));
+            default -> true;
+        };
+    }
 
-        // 按端口完整oid构建索引：portOid -> OpticalPowerInspection
-        Map<String, OpticalPowerInspection> portIndex = new LinkedHashMap<>();
-        for (OpticalPowerInspection r : allRecords) {
-            if (r.getPortOid() != null) {
-                portIndex.put(r.getPortOid(), r);
+    private void executeInspection(InspectionRound round, List<Map<String, Object>> links) {
+        ExecutorService pool = Executors.newFixedThreadPool(concurrency);
+        try {
+            // 网元 → 需要采集的端口；链路 → 未完成端数（用于按链路统计进度）
+            Map<String, Set<String>> nePorts = new LinkedHashMap<>();
+            Map<String, List<String>> neLinks = new HashMap<>();
+            Map<String, AtomicInteger> linkPending = new HashMap<>();
+            for (Map<String, Object> link : links) {
+                String linkOid = str(link, "oid");
+                String aNeId = neIdOf(str(link, "aEnd"));
+                String zNeId = neIdOf(str(link, "zEnd"));
+                addPort(nePorts, aNeId, str(link, "aEnd"));
+                addPort(nePorts, zNeId, str(link, "zEnd"));
+                recordNames(link);
+                Set<String> distinctNes = new LinkedHashSet<>();
+                distinctNes.add(aNeId);
+                distinctNes.add(zNeId);
+                distinctNes.remove(null);
+                linkPending.put(linkOid, new AtomicInteger(distinctNes.size()));
+                for (String neId : distinctNes) {
+                    neLinks.computeIfAbsent(neId, k -> new ArrayList<>()).add(linkOid);
+                }
+            }
+
+            Map<String, Integer> portTypes = loadPortTypes();
+            Map<String, LaserSample> samples = new ConcurrentHashMap<>();
+            AtomicInteger failCount = new AtomicInteger();
+
+            List<CompletableFuture<Void>> futures = new ArrayList<>();
+            for (Map.Entry<String, Set<String>> entry : nePorts.entrySet()) {
+                String neId = entry.getKey();
+                Set<String> ports = entry.getValue();
+                futures.add(CompletableFuture.runAsync(
+                        () -> collectNe(neId, ports, portTypes, samples, failCount, neLinks, linkPending), pool));
+            }
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+
+            List<LinkInspectionResult> results = assembleLinks(round, links, samples);
+            List<LinkInspectionResult> toSave = saveInvalid
+                    ? results
+                    : results.stream().filter(this::isCollected).toList();
+            if (!toSave.isEmpty()) {
+                linkResultRepository.saveAll(toSave);
+            }
+
+            if (autoDisconnect) {
+                disconnectTargets(nePorts.keySet());
+            }
+
+            round.setDoneCount(toSave.size());
+            round.setFailCount(failCount.get());
+            round.setStatus(InspectionRound.STATUS_COMPLETED);
+            round.setEndTime(LocalDateTime.now());
+            inspectionRoundRepository.save(round);
+            progressCurrentNe = "";
+            progressCurrentPort = "";
+
+            cleanupOldRounds();
+
+            log.info("巡检完成: roundId={}, 链路={}, 保存={}, 网元失败={}",
+                    round.getId(), links.size(), toSave.size(), failCount.get());
+        } catch (Exception e) {
+            round.setStatus(InspectionRound.STATUS_FAILED);
+            round.setEndTime(LocalDateTime.now());
+            inspectionRoundRepository.save(round);
+            throw e;
+        } finally {
+            pool.shutdown();
+        }
+    }
+
+    private static void addPort(Map<String, Set<String>> nePorts, String neId, String portOid) {
+        if (neId == null || portOid == null) {
+            return;
+        }
+        nePorts.computeIfAbsent(neId, k -> new LinkedHashSet<>()).add(portOid);
+    }
+
+    /** 记录链路两端的网元名/端口名：进度条显示名称，没采集成功也能看出正在处理哪台设备 */
+    private void recordNames(Map<String, Object> link) {
+        putName(roundNeNames, neIdOf(str(link, "aEnd")), str(link, "aNeName"));
+        putName(roundNeNames, neIdOf(str(link, "zEnd")), str(link, "zNeName"));
+        putName(roundPortNames, str(link, "aEnd"), str(link, "aPortName"));
+        putName(roundPortNames, str(link, "zEnd"), str(link, "zPortName"));
+    }
+
+    private static void putName(Map<String, String> names, String oid, String name) {
+        if (oid != null && name != null && !name.isEmpty()) {
+            names.put(oid, name);
+        }
+    }
+
+    /** 名称缺失时回退显示 OID，避免进度条出现空白 */
+    private static String nameOr(Map<String, String> names, String oid) {
+        String name = names.get(oid);
+        return name != null ? name : oid;
+    }
+
+    /** 采集单台网元：连接一次，逐个端口采集光功率 */
+    private void collectNe(String neId, Set<String> ports, Map<String, Integer> portTypes,
+                           Map<String, LaserSample> samples, AtomicInteger failCount,
+                           Map<String, List<String>> neLinks, Map<String, AtomicInteger> linkPending) {
+        progressCurrentNe = nameOr(roundNeNames, neId);
+        try {
+            ensureConnected(neId);
+            for (String portOid : ports) {
+                progressCurrentPort = nameOr(roundPortNames, portOid);
+                samples.put(portOid, collectPort(neId, portOid, portTypes));
+            }
+        } catch (Exception e) {
+            failCount.incrementAndGet();
+            Map<String, String> failInfo = new LinkedHashMap<>();
+            failInfo.put("device", nameOr(roundNeNames, neId));
+            failInfo.put("reason", e.getMessage());
+            failInfo.put("time", LocalDateTime.now().format(FAILURE_TIME_FORMATTER));
+            progressFailures.add(failInfo);
+            log.error("网元采集失败: {}, {}", neId, e.getMessage());
+            String reason = "网元采集失败: " + e.getMessage();
+            for (String portOid : ports) {
+                samples.putIfAbsent(portOid, LaserSample.error(reason));
+            }
+        } finally {
+            markLinksDone(neLinks.get(neId), linkPending);
+        }
+    }
+
+    /** 该网元采集结束后，把已完成的链路计入进度 */
+    private void markLinksDone(List<String> linkOids, Map<String, AtomicInteger> linkPending) {
+        if (linkOids == null) {
+            return;
+        }
+        for (String linkOid : linkOids) {
+            AtomicInteger pending = linkPending.get(linkOid);
+            if (pending != null && pending.decrementAndGet() <= 0) {
+                progressCurrent.incrementAndGet();
             }
         }
+    }
 
-        // 查询所有链路（cid=100）
-        List<Map<String, Object>> links = sqliteJdbc.queryForList(
-                "SELECT \"oid\", \"name\", \"aEnd\", \"zEnd\" FROM \"dmconnection\" WHERE \"cid\" = 100");
+    private void ensureConnected(String neId) {
+        if (qxConnectionService.isConnected(neId)) {
+            return;
+        }
+        if (!autoConnect) {
+            throw new IllegalStateException("设备未连接");
+        }
+        Map<String, Object> connResult = qxConnectionService.connectSingle(neId);
+        if (!Boolean.TRUE.equals(connResult.get("success"))) {
+            throw new IllegalStateException(String.valueOf(connResult.getOrDefault("message", "设备连接失败")));
+        }
+    }
 
-        // 批量加载参考数据（避免循环内逐条查询）
-        Map<String, String> portNameMap = loadDmeoNameMap();
-        Map<String, String> neNameMap = loadNeNameMap();
-        Map<String, String> neTypeNameMap = loadNeTypeNameMap();
-        Map<String, List<String>> networkMap = loadNetworkMap();
-        Map<String, BandwidthInfo> bandwidthMap = loadBandwidthMap();
+    /** 采集单个端口的光功率，失败只记录该端口的 error_info */
+    private LaserSample collectPort(String neId, String portOid, Map<String, Integer> portTypes) {
+        try {
+            LaserAttributeGetData req = LaserAttributeGetData.builder()
+                    .subcaseNo(OidUtil.getSubrackId(portOid))
+                    .slotId(OidUtil.getSlotId(portOid))
+                    .portType(portTypes.getOrDefault(portOid, DEFAULT_PORT_TYPE))
+                    .portSubType(DEFAULT_PORT_SUB_TYPE)
+                    .portId(OidUtil.getPortId(portOid))
+                    .backup(0)
+                    .build();
+            return LaserSample.of(laserService.attributeGet(neId, req));
+        } catch (Exception e) {
+            log.debug("端口采集失败: ne={}, port={}, {}", neId, portOid, e.getMessage());
+            return LaserSample.error("采集失败: " + e.getMessage());
+        }
+    }
 
+    private void disconnectTargets(Set<String> neIds) {
+        int disconnected = 0;
+        for (String neId : neIds) {
+            if (qxConnectionService.isConnected(neId)) {
+                try {
+                    qxConnectionService.disconnectSingle(neId);
+                    disconnected++;
+                } catch (Exception e) {
+                    log.debug("断开连接失败: {}", neId);
+                }
+            }
+        }
+        log.info("巡检完成，已断开 {} 台设备连接", disconnected);
+    }
+
+    /** 端口 OID → dmeo.type（采集报文需要） */
+    private Map<String, Integer> loadPortTypes() {
+        Map<String, Integer> map = new HashMap<>();
+        for (Map<String, Object> row : sqliteJdbc.queryForList(
+                "SELECT \"oid\", \"type\" FROM \"dmeo\" WHERE \"cid\" = 5 AND \"type\" IS NOT NULL")) {
+            Object type = row.get("type");
+            if (type instanceof Number number) {
+                map.put((String) row.get("oid"), number.intValue());
+            }
+        }
+        return map;
+    }
+
+    private List<LinkInspectionResult> assembleLinks(InspectionRound round, List<Map<String, Object>> links,
+                                                     Map<String, LaserSample> samples) {
+        Map<String, ThresholdService.Range> ranges = thresholdService.loadRangeMap();
+        String inspectionTime = LocalDateTime.now().format(TIME_FORMATTER);
         List<LinkInspectionResult> results = new ArrayList<>();
         int seq = 1;
 
         for (Map<String, Object> link : links) {
-            String linkOid = (String) link.get("oid");
-            String linkName = (String) link.get("name");
-            String aEnd = (String) link.get("aEnd");
-            String zEnd = (String) link.get("zEnd");
-
-            // 网络过滤
-            if (network != null && !network.isEmpty()) {
-                if (!isPortInNetwork(aEnd, network, networkMap) && !isPortInNetwork(zEnd, network, networkMap)) {
-                    continue;
-                }
-            }
-
             LinkInspectionResult result = new LinkInspectionResult();
             result.setSeqNo(seq++);
-            result.setLinkName(linkName);
-            result.setLinkOid(linkOid);
+            result.setRoundId(round.getId());
+            result.setLinkOid(str(link, "oid"));
+            result.setLinkName(str(link, "name"));
+            result.setCreateTime(inspectionTime);
 
-            fillPortInfo(result, aEnd, portIndex, true, portNameMap, neNameMap, neTypeNameMap, bandwidthMap);
-            fillPortInfo(result, zEnd, portIndex, false, portNameMap, neNameMap, neTypeNameMap, bandwidthMap);
-
+            SideData aSide = buildSide(endOf(link, true), samples, ranges);
+            SideData zSide = buildSide(endOf(link, false), samples, ranges);
+            if (aSide != null) {
+                result.setANeId(aSide.neId());
+                result.setANeName(aSide.neName());
+                result.setANeTypeName(aSide.neTypeName());
+                result.setAPortOid(aSide.portOid());
+                result.setAPortName(aSide.portName());
+                result.setAModuleType(aSide.moduleType());
+                result.setATxPower(aSide.txPower());
+                result.setARxPower(aSide.rxPower());
+                result.setATxStatus(aSide.txStatus());
+                result.setARxStatus(aSide.rxStatus());
+                result.setARsErrorSec(aSide.rsErrorSec());
+                result.setATotalBandwidth(doubleOrNull(aSide.totalBandwidth()));
+                result.setAUsedBandwidth(doubleOrNull(aSide.usedBandwidth()));
+                result.setABandwidthUsage(aSide.bandwidthUsage());
+                result.setAErrorInfo(aSide.errorInfo());
+            }
+            if (zSide != null) {
+                result.setZNeId(zSide.neId());
+                result.setZNeName(zSide.neName());
+                result.setZNeTypeName(zSide.neTypeName());
+                result.setZPortOid(zSide.portOid());
+                result.setZPortName(zSide.portName());
+                result.setZModuleType(zSide.moduleType());
+                result.setZTxPower(zSide.txPower());
+                result.setZRxPower(zSide.rxPower());
+                result.setZTxStatus(zSide.txStatus());
+                result.setZRxStatus(zSide.rxStatus());
+                result.setZRsErrorSec(zSide.rsErrorSec());
+                result.setZTotalBandwidth(doubleOrNull(zSide.totalBandwidth()));
+                result.setZUsedBandwidth(doubleOrNull(zSide.usedBandwidth()));
+                result.setZBandwidthUsage(zSide.bandwidthUsage());
+                result.setZErrorInfo(zSide.errorInfo());
+            }
             results.add(result);
         }
-
         return results;
     }
 
-    private Map<String, String> loadDmeoNameMap() {
-        Map<String, String> map = new HashMap<>();
-        for (Map<String, Object> row : sqliteJdbc.queryForList("SELECT \"oid\", \"name\" FROM \"dmeo\"")) {
-            map.put((String) row.get("oid"), (String) row.get("name"));
+    /** 读取链路某一端的静态信息（dmconnection 冗余字段） */
+    private static LinkEnd endOf(Map<String, Object> link, boolean aEnd) {
+        String prefix = aEnd ? "a" : "z";
+        String portOid = str(link, prefix + "End");
+        if (portOid == null) {
+            return null;
         }
-        return map;
+        return new LinkEnd(portOid, OidUtil.getNeOid(portOid),
+                str(link, prefix + "NeName"), stripNeTypePrefix(str(link, prefix + "NeTypeName")),
+                portNameOf(str(link, prefix + "PortName"), portOid),
+                intOf(link.get(prefix + "Capacity")), intOf(link.get(prefix + "Used")));
     }
 
-    private Map<String, String> loadNeNameMap() {
-        Map<String, String> map = new HashMap<>();
-        for (Map<String, Object> row : sqliteJdbc.queryForList("SELECT \"oid\", \"name\" FROM \"dmeo\" WHERE \"cid\" = 2")) {
-            map.put((String) row.get("oid"), (String) row.get("name"));
-        }
-        return map;
+    /** 端口名称：同步已拼接好，缺失时回退为端口 OID */
+    private static String portNameOf(String syncedPortName, String portOid) {
+        return syncedPortName != null && !syncedPortName.isEmpty() ? syncedPortName : portOid;
     }
 
-    private Map<String, String> loadNeTypeNameMap() {
-        Map<String, String> map = new HashMap<>();
-        for (Map<String, Object> row : sqliteJdbc.queryForList(
-                "SELECT m.\"oid\", f.\"cName\" FROM \"dmne\" m JOIN \"defdmne\" f ON m.\"type\" = f.\"neType\"")) {
-            map.put((String) row.get("oid"), stripNeTypePrefix((String) row.get("cName")));
+    private static SideData buildSide(LinkEnd end, Map<String, LaserSample> samples,
+                                      Map<String, ThresholdService.Range> ranges) {
+        if (end == null) {
+            return null;
         }
-        return map;
+        LaserSample sample = samples.get(end.portOid());
+        String moduleType = sample != null ? sample.moduleType() : null;
+        Double txPower = sample != null ? sample.txPower() : null;
+        Double rxPower = sample != null ? sample.rxPower() : null;
+        ThresholdService.Range range = ThresholdService.rangeFor(ranges, moduleType);
+
+        return new SideData(end.neId(), end.neName(), end.neTypeName(), end.portOid(), end.portName(),
+                moduleType, txPower, rxPower,
+                ThresholdService.evaluateStatus(txPower, range.txLow(), range.txHigh()),
+                ThresholdService.evaluateStatus(rxPower, range.rxLow(), range.rxHigh()),
+                null, // RS错误秒：性能采集未接入，字段预留
+                end.capacity(), end.used(), bandwidthUsage(end.used(), end.capacity()),
+                sample != null ? sample.errorInfo() : "未采集到端口数据");
     }
 
-    /** 去掉网元类型名中的前缀（如 MatrixEdge），只保留数字型号（如 2080）。 */
+    /** 带宽利用率（百分比，保留1位小数）。同单位比值，与存储单位无关 */
+    private static Double bandwidthUsage(Integer used, Integer capacity) {
+        if (used == null || capacity == null || capacity <= 0) {
+            return null;
+        }
+        return Math.round(used * 1000.0 / capacity) / 10.0;
+    }
+
+    /**
+     * VC-12 个数 → Mbps（保留 2 位小数），null 透传。
+     * STM-1 = 155.52 Mbps 含 63 个 VC-12，故 63/252/1008/4032 对应 155.52/622.08/2488.32/9953.28 Mbps
+     */
+    private static Double vc12ToMbps(Double vc12) {
+        return vc12 == null ? null : Math.round(vc12 * MBPS_PER_VC12 * 100.0) / 100.0;
+    }
+
+    /** 写入侧：库里仍存 VC-12 整数 */
+    private static Double doubleOrNull(Integer value) {
+        return value == null ? null : value.doubleValue();
+    }
+
+    /** 至少一端采集到了数据 */
+    private boolean isCollected(LinkInspectionResult r) {
+        return isNullOrEmpty(r.getAErrorInfo()) || isNullOrEmpty(r.getZErrorInfo());
+    }
+
+    private static boolean isNullOrEmpty(String value) {
+        return value == null || value.isEmpty();
+    }
+
+    private void cleanupOldRounds() {
+        try {
+            List<InspectionRound> all = inspectionRoundRepository.findAll();
+            if (all.size() > maxRounds) {
+                all.sort(Comparator.comparing(InspectionRound::getStartTime,
+                        Comparator.nullsLast(Comparator.naturalOrder())).reversed());
+                for (int i = maxRounds; i < all.size(); i++) {
+                    InspectionRound old = all.get(i);
+                    List<LinkInspectionResult> oldResults = linkResultRepository.findByRoundId(old.getId());
+                    if (!oldResults.isEmpty()) {
+                        linkResultRepository.deleteAll(oldResults);
+                    }
+                    inspectionRoundRepository.delete(old);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("清理超龄轮次失败: {}", e.getMessage());
+        }
+    }
+
+    // ========== 协议字段解析 ==========
+
+    /**
+     * 将速率+距离档组合为标准光模块型号名（与老网管一致）
+     * 例: 2.5G+L档 → "L16.1", 155M+I档 → "I1.1", GE+SX → "1000BASE-SX"
+     */
+    static String toModuleTypeName(int laserType, int distance) {
+        if (laserType == 0x10) {
+            return switch (distance) {
+                case 0x10 -> "1000BASE-SX";
+                case 0x11 -> "1000BASE-LX";
+                default -> "GE-Unknown(" + distance + ")";
+            };
+        }
+        // STM 速率代号: 2.5G→16, 622M→4, 155M→1, 10G→64
+        String speedCode = switch (laserType) {
+            case 1 -> "16";   // 2.5G = STM-16
+            case 2 -> "4";    // 622M = STM-4
+            case 3 -> "1";    // 155M = STM-1
+            case 4 -> "64";   // 10G = STM-64 (850nm)
+            default -> "?";
+        };
+        String template = switch (distance) {
+            case 1 -> "I{0}.1";
+            case 2 -> (laserType == 4) ? "S{0}.2b" : "S{0}.1";
+            case 3 -> (laserType == 4) ? "L{0}.2" : "L{0}.1";
+            case 4 -> (laserType == 4) ? "V{0}.2" : "L{0}.2";
+            default -> "Unknown(" + distance + ")";
+        };
+        return java.text.MessageFormat.format(template, speedCode);
+    }
+
+    /** 去掉网元类型名中的厂商标识前缀（如 MatrixEdge），只保留数字型号 */
     static String stripNeTypePrefix(String name) {
         if (name == null || name.isEmpty()) return name;
         return name.replaceAll("^[A-Za-z]+", "");
     }
 
-    private Map<String, List<String>> loadNetworkMap() {
-        Map<String, List<String>> map = new HashMap<>();
-        for (Map<String, Object> row : sqliteJdbc.queryForList(
-                "SELECT r.\"oid\", d.\"name\" FROM \"dmrelation\" r JOIN \"dmeo\" d ON r.\"reo\" = d.\"oid\" WHERE r.\"type\" = 1")) {
-            String oid = (String) row.get("oid");
-            String name = (String) row.get("name");
-            map.computeIfAbsent(oid, k -> new ArrayList<>()).add(name);
-        }
-        return map;
-    }
-
-    /** 带宽数据（总带宽、已使用、利用率） */
-    static class BandwidthInfo {
-        final int capacity;
-        final int used;
-        final double usageRate;
-        BandwidthInfo(int capacity, int used) {
-            this.capacity = capacity;
-            this.used = used;
-            this.usageRate = capacity > 0 ? Math.round(used * 1000.0 / capacity) / 10.0 : 0;
-        }
-    }
-
     /**
-     * 加载带宽数据，key=端口完整oid。
-     * portbandwidth.oid 格式与 dmconnection.aEnd/zEnd 一致，直接用完整 oid 匹配。
+     * 将设备返回的浮点光功率转换为 dBm。
+     * 设备返回 NaN 表示无光功率读数（原始字节 0xFFFFFFFF）。
      */
-    private Map<String, BandwidthInfo> loadBandwidthMap() {
-        Map<String, BandwidthInfo> map = new HashMap<>();
-        for (Map<String, Object> row : sqliteJdbc.queryForList("SELECT * FROM \"portbandwidth\"")) {
-            int dir = row.get("dir") != null ? ((Number) row.get("dir")).intValue() : 0;
-            if (dir != 1) continue;
-            String oid = (String) row.get("oid");
-            if (oid == null) continue;
-            int capacity = row.get("capacity") != null ? ((Number) row.get("capacity")).intValue() : 0;
-            int used = row.get("used") != null ? ((Number) row.get("used")).intValue() : 0;
-            map.put(oid, new BandwidthInfo(capacity, used));
+    private static Double toOpticalPower(float rawPower) {
+        return Float.isNaN(rawPower) ? null : (double) rawPower;
+    }
+
+    // ========== 小工具 ==========
+
+    private static String str(Map<String, Object> row, String key) {
+        Object value = row.get(key);
+        return value != null ? value.toString() : null;
+    }
+
+    private static Integer intOf(Object value) {
+        if (value instanceof Number number) {
+            return number.intValue();
         }
-        return map;
+        return null;
     }
 
-    private boolean isPortInNetwork(String portOid, String network, Map<String, List<String>> networkMap) {
-        if (portOid == null) return false;
-        String neId = OidUtil.getNeOid(portOid);
-        List<String> networks = networkMap.get(neId);
-        return networks != null && networks.contains(network);
+    private static String neIdOf(String portOid) {
+        return portOid != null ? OidUtil.getNeOid(portOid) : null;
     }
 
-    private void fillPortInfo(LinkInspectionResult result,
-                              String portOid, Map<String, OpticalPowerInspection> portIndex, boolean isAEnd,
-                              Map<String, String> portNameMap, Map<String, String> neNameMap,
-                              Map<String, String> neTypeNameMap, Map<String, BandwidthInfo> bandwidthMap) {
-        if (portOid == null) return;
+    /** 链路某一端的静态信息 */
+    private record LinkEnd(String portOid, String neId, String neName, String neTypeName, String portName,
+                           Integer capacity, Integer used) {
+    }
 
-        String portName = portNameMap.get(portOid);
+    /** 组装后写入 link_inspection_result 的某一端数据 */
+    private record SideData(String neId, String neName, String neTypeName, String portOid, String portName,
+                            String moduleType, Double txPower, Double rxPower, String txStatus, String rxStatus,
+                            Integer rsErrorSec, Integer totalBandwidth, Integer usedBandwidth,
+                            Double bandwidthUsage, String errorInfo) {
+    }
 
-        // 直接用完整 oid 匹配巡检记录和带宽数据
-        OpticalPowerInspection record = portIndex.get(portOid);
-        String neId = record != null ? record.getNeId() : OidUtil.getNeOid(portOid);
-        String neName = record != null ? record.getNeName() : neNameMap.get(neId);
-        String neTypeName = stripNeTypePrefix(record != null ? record.getNeTypeName() : neTypeNameMap.get(neId));
+    /** 单端口采集结果 */
+    private record LaserSample(String moduleType, Double txPower, Double rxPower, String errorInfo) {
 
-        if (isAEnd) {
-            result.setANeId(neId);
-            result.setANeName(neName);
-            result.setANeTypeName(neTypeName);
-            result.setAPortName(portName);
-            if (record != null) {
-                result.setAModuleType(record.getModuleTypeKey());
-                result.setATxPower(record.getTxPower());
-                result.setARxPower(record.getRxPower());
-                result.setATxStatus(formatStatus(record.getTxPowerStatus()));
-                result.setARxStatus(formatStatus(record.getRxPowerStatus()));
-                result.setATxLowThreshold(record.getTxLowThreshold());
-                result.setATxHighThreshold(record.getTxHighThreshold());
-                result.setARxLowThreshold(record.getLowThreshold());
-                result.setARxHighThreshold(record.getHighThreshold());
+        static LaserSample of(LaserAttributeAckData ack) {
+            if (ack == null) {
+                return error("激光器查询无响应");
             }
-            result.setAB1Error("--");
-            BandwidthInfo aBw = bandwidthMap.get(portOid);
-            result.setABandwidthUsage(aBw != null ? aBw.usageRate : null);
-            result.setATotalBandwidth(aBw != null ? aBw.capacity : null);
-            result.setAUsedBandwidth(aBw != null ? aBw.used : null);
-        } else {
-            result.setZNeId(neId);
-            result.setZNeName(neName);
-            result.setZNeTypeName(neTypeName);
-            result.setZPortName(portName);
-            if (record != null) {
-                result.setZModuleType(record.getModuleTypeKey());
-                result.setZTxPower(record.getTxPower());
-                result.setZRxPower(record.getRxPower());
-                result.setZTxStatus(formatStatus(record.getTxPowerStatus()));
-                result.setZRxStatus(formatStatus(record.getRxPowerStatus()));
-                result.setZTxLowThreshold(record.getTxLowThreshold());
-                result.setZTxHighThreshold(record.getTxHighThreshold());
-                result.setZRxLowThreshold(record.getLowThreshold());
-                result.setZRxHighThreshold(record.getHighThreshold());
+            if ((ack.getSupportFlag() & LASER_SUPPORT_BIT) != 1) {
+                return error("端口不支持光功率采集");
             }
-            result.setZB1Error("--");
-            BandwidthInfo zBw = bandwidthMap.get(portOid);
-            result.setZBandwidthUsage(zBw != null ? zBw.usageRate : null);
-            result.setZTotalBandwidth(zBw != null ? zBw.capacity : null);
-            result.setZUsedBandwidth(zBw != null ? zBw.used : null);
+            return new LaserSample(
+                    toModuleTypeName(ack.getLaserType(), ack.getDistance()),
+                    toOpticalPower(ack.getTranLaserPower()),
+                    toOpticalPower(ack.getRecvLaserPower()),
+                    null);
         }
-    }
 
-    private String queryNeName(String neId) {
-        try {
-            return sqliteJdbc.queryForObject(
-                    "SELECT \"name\" FROM \"dmeo\" WHERE \"cid\" = 2 AND \"oid\" = ?", String.class, neId);
-        } catch (Exception e) {
-            return null;
+        static LaserSample error(String message) {
+            return new LaserSample(null, null, null, message);
         }
-    }
-
-    private String queryNeTypeName(String neId) {
-        try {
-            String name = sqliteJdbc.queryForObject(
-                    "SELECT f.\"cName\" FROM \"dmne\" m JOIN \"defdmne\" f ON m.\"type\" = f.\"neType\" WHERE m.\"oid\" = ?",
-                    String.class, neId);
-            return stripNeTypePrefix(name);
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    // ========== 工具方法 ==========
-
-    private String formatStatus(Integer status) {
-        if (status == null) return "--";
-        return switch (status) {
-            case 0 -> "正常";
-            case 1 -> "越下限";
-            case 2 -> "越上限";
-            default -> "未知";
-        };
     }
 }

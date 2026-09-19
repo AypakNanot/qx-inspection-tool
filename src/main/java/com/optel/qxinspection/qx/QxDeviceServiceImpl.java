@@ -6,7 +6,6 @@ import com.optel.qx.cci.channel.QxChannel;
 import com.optel.qx.cci.channel.QxChannelManager;
 import com.optel.qx.cci.codec.Message;
 import com.optel.qx.cci.codec.MsgHead;
-import com.optel.qx.cci.facade.TCPChannel;
 import com.optel.qx.cci.util.ChannelID;
 import com.optel.qx.cci.util.ChannelProp;
 import com.optel.qx.cci.util.QxConfig;

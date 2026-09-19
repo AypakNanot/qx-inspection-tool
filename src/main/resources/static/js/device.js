@@ -129,8 +129,8 @@ function updateFilterStats() {
     }
 }
 
-/** 应用筛选和排序 */
-function applyFilterAndSort() {
+/** 按当前筛选条件重算 filteredDevices 并排序（不重置页码） */
+function computeFilteredDevices() {
     filteredDevices = allDevices.filter(d => {
         // 搜索文本筛选
         if (searchText) {
@@ -163,7 +163,11 @@ function applyFilterAndSort() {
             return 0;
         });
     }
+}
 
+/** 应用筛选和排序（用户操作触发，回到第一页） */
+function applyFilterAndSort() {
+    computeFilteredDevices();
     currentPage = 1;
     renderDeviceTable(filteredDevices);
 }
@@ -226,7 +230,7 @@ function renderPagination(total) {
         sizeSelect.onchange = () => {
             pageSize = parseInt(sizeSelect.value);
             currentPage = 1;
-            renderDeviceTable(allDevices);
+            renderDeviceTable(filteredDevices);
         };
         container.appendChild(sizeSelect);
 
@@ -241,7 +245,7 @@ function renderPagination(total) {
         prevBtn.className = 'btn btn-outline btn-sm';
         prevBtn.textContent = '上一页';
         prevBtn.disabled = currentPage <= 1;
-        prevBtn.onclick = () => { currentPage--; renderDeviceTable(allDevices); };
+        prevBtn.onclick = () => { currentPage--; renderDeviceTable(filteredDevices); };
         container.appendChild(prevBtn);
 
         // 下一页
@@ -249,7 +253,7 @@ function renderPagination(total) {
         nextBtn.className = 'btn btn-outline btn-sm';
         nextBtn.textContent = '下一页';
         nextBtn.disabled = currentPage >= totalPages;
-        nextBtn.onclick = () => { currentPage++; renderDeviceTable(allDevices); };
+        nextBtn.onclick = () => { currentPage++; renderDeviceTable(filteredDevices); };
         container.appendChild(nextBtn);
     });
 }
@@ -258,7 +262,8 @@ function renderPagination(total) {
 export async function loadDevices() {
     try {
         allDevices = await get('/connection/status');
-        filteredDevices = allDevices;
+        // 保留用户当前的筛选/排序与页码，避免 10 秒自动刷新把条件清掉
+        computeFilteredDevices();
         renderDeviceTable(filteredDevices);
         updateDeviceStats(allDevices);
         loadNetworkFilter();
@@ -340,15 +345,12 @@ export async function saveGlobalConfig() {
     } catch (e) { showToast('保存失败: ' + e.message, 'error'); }
 }
 
-/** 同步设备列表（从MySQL导入） */
+/** 同步设备列表（从 dmeo 表生成，已按同步范围过滤） */
 export async function syncDevices() {
     try {
-        var network = document.getElementById('connNetwork').value || '';
-        var body = network ? { network: network } : {};
-        var result = await post('/database/sync-devices', body);
+        var result = await post('/database/sync-devices');
         if (result.status === 'SUCCESS') {
-            var msg = network ? '设备同步完成（' + network + '）' : '设备同步完成';
-            showToast(msg, 'success');
+            showToast('设备同步完成', 'success');
             loadDevices();
         } else {
             showToast(result.message || '同步失败', 'error');

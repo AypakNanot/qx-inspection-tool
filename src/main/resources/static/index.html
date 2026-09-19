@@ -176,22 +176,24 @@
 
             <!-- ========== 类型统计页 ========== -->
             <div class="page" id="page-stats">
-                <div class="cards" style="grid-template-columns: repeat(4, 1fr);">
+                <div class="cards" style="grid-template-columns: repeat(5, 1fr);">
+                    <div class="card"><div class="label">网络数</div><div class="value" style="color:#ea580c" id="stNetwork">-</div></div>
                     <div class="card"><div class="label">网元总数</div><div class="value blue" id="stNe">-</div></div>
                     <div class="card"><div class="label">盘总数</div><div class="value" style="color:#7c3aed" id="stSlot">-</div></div>
                     <div class="card"><div class="label">端口总数</div><div class="value green" id="stPort">-</div></div>
-                    <div class="card"><div class="label">网络数</div><div class="value" style="color:#ea580c" id="stNetwork">-</div></div>
+                    <div class="card"><div class="label">链路总数</div><div class="value" style="color:#0891b2" id="stLink">-</div></div>
                 </div>
 
                 <div class="toolbar">
-                    <label style="font-size:13px;color:#6b7280;">网络：</label>
+                    <label style="font-size:13px;color:#6b7280;">统计类型：</label>
+                    <div style="display:flex;gap:2px;">
+                        <button class="btn btn-sm stats-type-btn active" data-stats="ne" onclick="switchStatsType('ne',this)">网元类型</button>
+                        <button class="btn btn-sm stats-type-btn" data-stats="slot" onclick="switchStatsType('slot',this)">盘类型</button>
+                        <button class="btn btn-sm stats-type-btn" data-stats="port" onclick="switchStatsType('port',this)">端口类型</button>
+                    </div>
+                    <label style="font-size:13px;color:#6b7280;margin-left:8px;">网络：</label>
                     <input list="statsNetworkList" id="statsNetwork" placeholder="全部网络" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;width:160px;">
                     <datalist id="statsNetworkList"></datalist>
-                    <label style="font-size:13px;color:#6b7280;margin-left:8px;">口径：</label>
-                    <select id="statsScope" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
-                        <option value="inventory">库存口径</option>
-                        <option value="online">在线口径</option>
-                    </select>
                     <button class="btn btn-primary btn-sm" onclick="loadStats()">筛选</button>
                     <div class="toolbar-right">
                         <div style="display:flex;gap:2px;">
@@ -221,41 +223,20 @@
             <!-- ========== 门限配置页 ========== -->
             <div class="page" id="page-threshold">
                 <div style="background:#f0f7ff;border:1px solid #bfdbfe;border-radius:8px;padding:12px 16px;margin-bottom:16px;font-size:13px;color:#1e40af;">
-                    匹配优先级：<b>MODULE（模块类型匹配）</b> > <b>GLOBAL（全局默认）</b>。修改后即时生效，无需重新采集。
+                    每个模块类型已预置标准默认门限值，您可以修改这些值。修改后即时生效，无需重新采集。
                 </div>
 
-                <!-- 全局默认门限 -->
-                <div class="panel">
-                    <div class="panel-header" onclick="togglePanel(this)">
-                        <h3>全局默认门限（兜底）</h3>
-                        <span class="toggle">&#9660;</span>
-                    </div>
-                    <div class="panel-body">
-                        <div class="form-row" id="globalThresholdView">
-                            <div class="form-group"><label>接收低门限 (dBm)</label><input type="number" id="gRxLow" step="0.1" style="width:100px"></div>
-                            <div class="form-group"><label>接收高门限 (dBm)</label><input type="number" id="gRxHigh" step="0.1" style="width:100px"></div>
-                            <div class="form-group"><label>发送低门限 (dBm)</label><input type="number" id="gTxLow" step="0.1" style="width:100px"></div>
-                            <div class="form-group"><label>发送高门限 (dBm)</label><input type="number" id="gTxHigh" step="0.1" style="width:100px"></div>
-                            <div class="form-group" style="justify-content:flex-end">
-                                <button class="btn btn-primary btn-sm" onclick="saveGlobalThreshold()">保存</button>
-                            </div>
-                        </div>
-                        <div id="globalThresholdMsg" style="font-size:12px;color:#16a34a;margin-top:6px;display:none"></div>
-                    </div>
-                </div>
-
-                <!-- 模块类型规则 -->
+                <!-- 模块类型门限规则 -->
                 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
-                    <h3 style="font-size:14px;font-weight:600;color:#374151;">模块类型规则</h3>
+                    <h3 style="font-size:14px;font-weight:600;color:#374151;">模块类型门限规则</h3>
                     <div style="display:flex;gap:8px;">
                         <button class="btn btn-outline btn-sm" onclick="loadThresholds()">刷新</button>
-                        <button class="btn btn-primary btn-sm" onclick="openThresholdModal('MODULE')" title="为指定模块类型配置独立的光功率门限">新增规则</button>
                     </div>
                 </div>
                 <div class="table-wrap" style="margin-bottom:20px;">
                     <table>
                         <thead>
-                            <tr><th>模块类型 (moduleTypeKey)</th><th>接收低 (dBm)</th><th>接收高 (dBm)</th><th>发送低 (dBm)</th><th>发送高 (dBm)</th><th>说明</th><th style="width:100px">操作</th></tr>
+                            <tr><th>模块类型</th><th>说明</th><th>发送低 (dBm)</th><th>发送高 (dBm)</th><th>接收低 (dBm)</th><th>接收高 (dBm)</th><th style="width:80px">操作</th></tr>
                         </thead>
                         <tbody id="moduleThresholdTable">
                             <tr><td colspan="7" class="loading">加载中...</td></tr>
@@ -297,12 +278,8 @@
                                 <input type="checkbox" id="paramSaveInvalid" checked style="width:16px;height:16px;cursor:pointer;">
                                 保存无效记录
                             </label>
-                            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
-                                <input type="checkbox" id="paramLinkBasedFilter" style="width:16px;height:16px;cursor:pointer;">
-                                按链路过滤端口
-                            </label>
                         </div>
-                        <div style="font-size:12px;color:#9ca3af;margin-top:8px;">并发设备数：多设备同时采集的线程数；保留轮次：超龄轮次自动清理<br>自动连接：未在线设备跳过采集；自动断开：巡检结束后释放所有设备连接<br>保存无效记录：关闭后不保存无法采集光功率的端口记录（如不支持光功率、查询无响应）<br>按链路过滤端口：开启后只采集有物理链路连接的端口（dmconnection cid=100）</div>
+                        <div style="font-size:12px;color:#9ca3af;margin-top:8px;">并发设备数：多设备同时采集的线程数；保留轮次：超龄轮次自动清理<br>自动连接：未在线设备跳过采集；自动断开：巡检结束后释放所有设备连接<br>保存无效记录：关闭后不保存无法采集光功率的端口记录（如不支持光功率、查询无响应）<br>巡检范围为链路（dmconnection cid=100），端口信息随链路两端一并采集</div>
                         <div style="margin-top:10px;">
                             <button class="btn btn-outline btn-sm" onclick="loadCollectParams()">查询</button>
                             <button class="btn btn-primary btn-sm" onclick="saveCollectParams()">保存</button>
@@ -453,34 +430,35 @@
                         <span class="toggle">&#9660;</span>
                     </div>
                     <div class="panel-body">
-                        <div class="cards" style="margin-bottom:12px;">
-                            <div class="card"><div class="label">总端口</div><div class="value blue" id="sumPorts">-</div></div>
-                            <div class="card"><div class="label">支持光功率</div><div class="value green" id="sumSupported">-</div></div>
-                            <div class="card"><div class="label">越限端口</div><div class="value red" id="sumOver">-</div></div>
+                        <div class="cards" style="margin-bottom:12px;grid-template-columns:repeat(5,1fr);">
+                            <div class="card"><div class="label">链路总数</div><div class="value blue" id="sumLinks">-</div></div>
+                            <div class="card"><div class="label">正常</div><div class="value green" id="sumNormal">-</div></div>
+                            <div class="card"><div class="label">异常</div><div class="value red" id="sumAbnormal">-</div></div>
+                            <div class="card"><div class="label">无光</div><div class="value red" id="sumNoLight">-</div></div>
                             <div class="card"><div class="label">巡检耗时</div><div class="value" id="sumDuration" style="color:#6b7280">-</div></div>
                         </div>
                         <div style="font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">按模块类型统计</div>
                         <div class="table-wrap">
                             <table>
-                                <thead><tr><th>模块类型</th><th>总数</th><th>越限</th></tr></thead>
+                                <thead><tr><th>模块类型</th><th>采集端数</th><th>异常</th></tr></thead>
                                 <tbody id="sumModuleTable"><tr><td colspan="3" class="empty">暂无数据</td></tr></tbody>
                             </table>
                         </div>
-                        <div id="sumDeviceTypeSection" style="display:none;margin-top:12px;">
-                            <div style="font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">按设备类型统计</div>
+                        <div id="sumNeTypeSection" style="display:none;margin-top:12px;">
+                            <div style="font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">按网元类型统计</div>
                             <div class="table-wrap">
                                 <table>
-                                    <thead><tr><th>设备类型</th><th>总端口</th><th>支持</th><th>越限</th></tr></thead>
-                                    <tbody id="sumDeviceTypeTable"><tr><td colspan="4" class="empty">暂无数据</td></tr></tbody>
+                                    <thead><tr><th>网元类型</th><th>涉及链路</th><th>异常</th></tr></thead>
+                                    <tbody id="sumNeTypeTable"><tr><td colspan="3" class="empty">暂无数据</td></tr></tbody>
                                 </table>
                             </div>
                         </div>
                         <div id="sumTopAnomalySection" style="display:none;margin-top:12px;">
-                            <div style="font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">越限端口 TOP 10</div>
+                            <div style="font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">异常明细 TOP 10</div>
                             <div class="table-wrap">
                                 <table>
-                                    <thead><tr><th>网元</th><th>槽位</th><th>端口</th><th>端口名</th><th>发送功率</th><th>接收功率</th><th>状态</th></tr></thead>
-                                    <tbody id="sumTopAnomalyTable"><tr><td colspan="7" class="empty">暂无数据</td></tr></tbody>
+                                    <thead><tr><th>端</th><th>链路名称</th><th>网元</th><th>端口</th><th>模块类型</th><th>发送功率</th><th>接收功率</th><th>状态</th></tr></thead>
+                                    <tbody id="sumTopAnomalyTable"><tr><td colspan="8" class="empty">暂无数据</td></tr></tbody>
                                 </table>
                             </div>
                         </div>
@@ -518,33 +496,10 @@
                     <label style="font-size:13px;color:#6b7280;margin-left:8px;">网元：</label>
                     <input list="queryNeList" id="queryNe" placeholder="全部" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;width:160px;">
                     <datalist id="queryNeList"></datalist>
-                    <label style="font-size:13px;color:#6b7280;margin-left:8px;">状态：</label>
-                    <select id="queryStatus" onchange="loadQueryResults()" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
-                        <option value="">全部</option>
-                        <option value="0">正常</option>
-                        <option value="1">劣化</option>
-                        <option value="2">过载</option>
-                        <option value="-1">无效</option>
-                    </select>
-                    <label style="display:flex;align-items:center;gap:4px;font-size:13px;color:#6b7280;margin-left:8px;cursor:pointer;">
-                        <input type="checkbox" id="queryShowInvalid" checked onchange="loadQueryResults()" style="width:14px;height:14px;cursor:pointer;">
-                        显示无效
-                    </label>
-                    <label style="display:flex;align-items:center;gap:4px;font-size:13px;color:#6b7280;margin-left:8px;cursor:pointer;">
-                        <input type="checkbox" id="queryWatchedOnly" onchange="loadQueryResults()" style="width:14px;height:14px;cursor:pointer;">
-                        仅关注
-                    </label>
-                    <label style="display:flex;align-items:center;gap:4px;font-size:13px;color:#6b7280;margin-left:8px;cursor:pointer;">
-                        <input type="checkbox" id="queryLinkMode" onchange="loadQueryResults()" checked style="width:14px;height:14px;cursor:pointer;">
-                        链路模式
-                    </label>
-                    <input type="text" id="querySearch" placeholder="搜索网元/端口名/ID..." oninput="searchQuery(this.value)" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;width:180px;margin-left:8px;">
+                    <input type="text" id="querySearch" placeholder="搜索链路/网元/端口名..." oninput="searchQuery(this.value)" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;width:180px;margin-left:8px;">
                     <button class="btn btn-primary btn-sm" onclick="loadQueryResults()">查询</button>
                     <div class="toolbar-right">
-                        <button class="btn btn-outline btn-sm" onclick="expandAll()">全部展开</button>
-                        <button class="btn btn-outline btn-sm" onclick="collapseAll()">全部收缩</button>
                         <button class="btn btn-outline btn-sm" onclick="exportExcel()" title="将当前筛选结果导出为 Excel 文件">导出 Excel</button>
-                        <button class="btn btn-outline btn-sm" onclick="openTrendModal()" title="选择多个轮次进行趋势分析">趋势分析</button>
                     </div>
                 </div>
 
@@ -554,28 +509,9 @@
                 <!-- 数据表格 -->
                 <div class="table-wrap">
                     <table id="queryTableContainer">
-                        <thead id="queryTableHead">
-                            <tr>
-                                <th onclick="sortQueryBy('neName')" style="cursor:pointer">网元名 ↕</th>
-                                <th style="width:36px;text-align:center;">关注</th>
-                                <th onclick="sortQueryBy('slotNo')" style="cursor:pointer">槽位 ↕</th>
-                                <th onclick="sortQueryBy('portNo')" style="cursor:pointer">端口 ↕</th>
-                                <th onclick="sortQueryBy('portName')" style="cursor:pointer">端口名称 ↕</th>
-                                <th onclick="sortQueryBy('laserWave')" style="cursor:pointer">波长 ↕</th>
-                                <th onclick="sortQueryBy('moduleTypeKey')" style="cursor:pointer">激光器类型 ↕</th>
-                                <th>激光器状态</th>
-                                <th onclick="sortQueryBy('vendorName')" style="cursor:pointer">生产厂商 ↕</th>
-                                <th onclick="sortQueryBy('txPower')" style="cursor:pointer">发送功率(dBm) ↕</th>
-                                <th onclick="sortQueryBy('rxPower')" style="cursor:pointer">接收功率(dBm) ↕</th>
-                                <th>状态</th>
-                                <th>带宽利用率</th>
-                                <th>门限(发送)</th>
-                                <th>门限(接收)</th>
-                                <th onclick="sortQueryBy('inspectionTime')" style="cursor:pointer">巡检时间 ↕</th>
-                            </tr>
-                        </thead>
+                        <thead id="queryTableHead"></thead>
                         <tbody id="queryTable">
-                            <tr><td colspan="16" class="loading">加载中...</td></tr>
+                            <tr><td colspan="26" class="loading">加载中...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -662,15 +598,22 @@
                 <div class="card" style="margin-top:16px;">
                     <div class="card-title">MySQL → SQLite 数据同步</div>
                     <div style="font-size:13px;color:#6b7280;margin-bottom:16px;">
-                        将 MySQL 老网管库中的数据同步到本地 SQLite，同步后所有查询走 SQLite（离线可用）。
+                        选择需要同步的网络，按网络过滤数据并同步到本地 SQLite（含冗余字段，离线可用）。
                         <br>同步完成后 MySQL 连接自动断开。
                     </div>
                     <div id="syncStatus" style="font-size:13px;color:#374151;margin-bottom:16px;line-height:1.8;">
                         加载中...
                     </div>
+                    <div style="margin-bottom:12px;">
+                        <div style="font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">选择同步网络</div>
+                        <div id="syncNetworkList" style="max-height:200px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:6px;padding:8px;font-size:13px;">
+                            加载中...
+                        </div>
+                    </div>
                     <div class="toolbar" style="margin-bottom:0;">
-                        <button class="btn btn-success" onclick="syncEssential()" title="同步网元和端口等核心数据（速度快）">同步必要表</button>
-                        <button class="btn btn-primary" onclick="syncAll()" title="同步全部数据表（包含历史数据，耗时较长）">同步全部表</button>
+                        <button class="btn btn-success" onclick="executeSync()" title="按选中网络执行同步">执行同步</button>
+                        <button class="btn btn-outline" onclick="toggleAllNetworks()">全选/取消</button>
+                        <button class="btn btn-outline" onclick="loadNetworkList()">刷新网络列表</button>
                         <button class="btn btn-outline" onclick="loadSyncStatus()">刷新状态</button>
                     </div>
                     <div id="syncResult" style="margin-top:12px;font-size:12px;color:#6b7280;display:none;"></div>
@@ -768,118 +711,27 @@
         </div>
     </div>
 
-    <!-- 趋势分析弹窗 -->
-    <div class="modal-overlay hidden" id="trendModal" style="background:rgba(0,0,0,0.6);">
-        <div style="width:96vw;height:94vh;background:var(--bg,#fff);border-radius:12px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
-            <!-- 顶栏 -->
-            <div style="padding:14px 24px;border-bottom:1px solid var(--border,#e2e8f0);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
-                <h3 style="font-size:16px;font-weight:600;color:var(--text,#1f2937);">趋势分析</h3>
-                <div style="display:flex;align-items:center;gap:12px;">
-                    <button class="btn btn-primary btn-sm" onclick="runTrend()">查询趋势</button>
-                    <button class="btn btn-outline btn-sm" onclick="closeTrendModal()">关闭</button>
-                </div>
-            </div>
-            <!-- 内容区：左筛选 + 右图表+表格 -->
-            <div style="flex:1;display:flex;overflow:hidden;">
-                <!-- 左侧筛选面板 -->
-                <div style="width:280px;flex-shrink:0;border-right:1px solid var(--border,#e2e8f0);display:flex;flex-direction:column;overflow:hidden;">
-                    <!-- 轮次多选 -->
-                    <div style="padding:12px 16px;border-bottom:1px solid var(--border,#e2e8f0);">
-                        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
-                            <span style="font-size:13px;font-weight:600;color:var(--text,#374151);">选择轮次</span>
-                            <div style="display:flex;gap:6px;">
-                                <button class="btn btn-outline btn-sm" style="padding:2px 8px;font-size:11px;" onclick="trendSelectAllRounds()">全选</button>
-                                <button class="btn btn-outline btn-sm" style="padding:2px 8px;font-size:11px;" onclick="trendDeselectAllRounds()">清空</button>
-                            </div>
-                        </div>
-                        <div id="trendRoundList" style="max-height:240px;overflow-y:auto;font-size:12px;"></div>
-                    </div>
-                    <!-- 筛选条件 -->
-                    <div style="padding:12px 16px;border-bottom:1px solid var(--border,#e2e8f0);">
-                        <div style="font-size:13px;font-weight:600;color:var(--text,#374151);margin-bottom:8px;">筛选条件</div>
-                        <div class="form-group" style="margin-bottom:8px;">
-                            <label style="font-size:12px;color:#6b7280;">网络</label>
-                            <select id="trendNetwork" onchange="onTrendNetworkChange()" style="width:100%;padding:5px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;">
-                                <option value="">全部网络</option>
-                            </select>
-                        </div>
-                        <div class="form-group" style="margin-bottom:8px;">
-                            <label style="font-size:12px;color:#6b7280;">网元</label>
-                            <select id="trendNe" onchange="onTrendNeChange()" style="width:100%;padding:5px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;">
-                                <option value="">全部网元</option>
-                            </select>
-                        </div>
-                        <div class="form-group" style="margin-bottom:0;">
-                            <label style="font-size:12px;color:#6b7280;">端口 <span style="color:#dc2626;">*</span></label>
-                            <select id="trendPort" style="width:100%;padding:5px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;">
-                                <option value="">请选择端口</option>
-                            </select>
-                        </div>
-                    </div>
-                    <!-- 图表模式切换 -->
-                    <div style="padding:12px 16px;">
-                        <div style="font-size:13px;font-weight:600;color:var(--text,#374151);margin-bottom:8px;">图表模式</div>
-                        <div style="display:flex;flex-direction:column;gap:4px;">
-                            <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;color:var(--text,#374151);">
-                                <input type="radio" name="trendChartMode" value="rx" checked onchange="switchTrendChart('rx')"> 接收功率趋势
-                            </label>
-                            <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;color:var(--text,#374151);">
-                                <input type="radio" name="trendChartMode" value="tx" onchange="switchTrendChart('tx')"> 发送功率趋势
-                            </label>
-                            <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;color:var(--text,#374151);">
-                                <input type="radio" name="trendChartMode" value="both" onchange="switchTrendChart('both')"> 综合（发送+接收）
-                            </label>
-                        </div>
-                    </div>
-                </div>
-                <!-- 右侧内容 -->
-                <div style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
-                    <!-- 摘要 -->
-                    <div id="trendSummary" style="padding:8px 24px;font-size:13px;color:#6b7280;border-bottom:1px solid var(--border,#f1f5f9);flex-shrink:0;"></div>
-                    <!-- 图表 -->
-                    <div id="trendChartBox" style="flex-shrink:0;padding:12px 24px;">
-                        <div id="trendChart" style="height:38vh;min-height:240px;background:var(--bg-card,#fff);border-radius:8px;"></div>
-                    </div>
-                    <!-- 表格 -->
-                    <div style="flex:1;overflow:auto;padding:0 24px 16px;">
-                        <div id="trendTableWrap"></div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
     <!-- 门限规则弹窗 -->
     <div class="modal-overlay hidden" id="thresholdModal">
         <div class="modal">
             <div class="modal-header">
-                <h3 id="thresholdModalTitle">新增门限规则</h3>
+                <h3>修改门限规则</h3>
                 <button class="modal-close" onclick="closeThresholdModal()">&times;</button>
             </div>
             <div class="modal-body">
                 <input type="hidden" id="thId">
-                <input type="hidden" id="thLevelType">
-                <!-- MODULE 类型：下拉选择 -->
-                <div class="form-group" style="margin-bottom:12px" id="thModuleSelectGroup">
+                <input type="hidden" id="thMatchKey">
+                <div class="form-group" style="margin-bottom:12px;">
                     <label>模块类型</label>
-                    <select id="thModuleSelect" style="width:100%;padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;" onchange="onModuleSelectChange()">
-                        <option value="">-- 请选择模块类型 --</option>
-                    </select>
-                    <div id="thModuleInfo" style="font-size:12px;color:#6b7280;margin-top:4px;"></div>
-                    <div id="thRefValues" style="display:none;margin-top:8px;padding:8px 12px;background:#fef3c7;border:1px solid #fcd34d;border-radius:6px;font-size:12px;color:#92400e;line-height:1.8;">
-                        <div style="font-weight:600;margin-bottom:2px;">ITU-T G.957 参考值</div>
-                        <div>发送功率范围：<span id="thRefTx" style="font-weight:500;"></span></div>
-                        <div>接收灵敏度范围：<span id="thRefRx" style="font-weight:500;"></span></div>
-                        <div style="color:#b45309;margin-top:2px;">提示：门限应覆盖标准范围并留有适当余量</div>
-                    </div>
-                </div>
-                <div class="form-row" style="margin-bottom:12px;">
-                    <div class="form-group"><label>接收低门限 (dBm)</label><input type="number" id="thRxLow" step="0.1" style="width:100px"></div>
-                    <div class="form-group"><label>接收高门限 (dBm)</label><input type="number" id="thRxHigh" step="0.1" style="width:100px"></div>
+                    <div id="thMatchKeyDisplay" style="padding:6px 10px;background:#f3f4f6;border-radius:6px;font-size:13px;font-weight:500;"></div>
                 </div>
                 <div class="form-row" style="margin-bottom:12px;">
                     <div class="form-group"><label>发送低门限 (dBm)</label><input type="number" id="thTxLow" step="0.1" style="width:100px"></div>
                     <div class="form-group"><label>发送高门限 (dBm)</label><input type="number" id="thTxHigh" step="0.1" style="width:100px"></div>
+                </div>
+                <div class="form-row" style="margin-bottom:12px;">
+                    <div class="form-group"><label>接收低门限 (dBm)</label><input type="number" id="thRxLow" step="0.1" style="width:100px"></div>
+                    <div class="form-group"><label>接收高门限 (dBm)</label><input type="number" id="thRxHigh" step="0.1" style="width:100px"></div>
                 </div>
                 <div class="form-group">
                     <label>说明</label>

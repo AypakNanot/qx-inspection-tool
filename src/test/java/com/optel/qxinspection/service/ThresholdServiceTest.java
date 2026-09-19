@@ -1,377 +1,272 @@
 package com.optel.qxinspection.service;
 
-import com.optel.qxinspection.entity.sqlite.OpticalPowerInspection;
 import com.optel.qxinspection.entity.sqlite.ThresholdRule;
 import com.optel.qxinspection.repository.sqlite.ThresholdRuleRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
 /**
- * 门限判定服务单元测试
+ * 门限服务单元测试（唯一预置源 + 实时判定）
  */
 @ExtendWith(MockitoExtension.class)
 class ThresholdServiceTest {
+
+    /** 预置门限条目数（ThresholdService.PRESETS） */
+    private static final int PRESET_COUNT = 15;
 
     @Mock
     private ThresholdRuleRepository thresholdRuleRepository;
 
     private ThresholdService thresholdService;
 
-    private ThresholdRule globalRule;
-    private ThresholdRule moduleRule;
-
     @BeforeEach
     void setUp() {
         thresholdService = new ThresholdService(thresholdRuleRepository);
-
-        // 全局门限: rxLow=-27, rxHigh=3, txLow=-27, txHigh=3
-        globalRule = new ThresholdRule();
-        globalRule.setId(1L);
-        globalRule.setLevelType("GLOBAL");
-        globalRule.setMatchKey("GLOBAL");
-        globalRule.setRxLow(-27.0);
-        globalRule.setRxHigh(3.0);
-        globalRule.setTxLow(-27.0);
-        globalRule.setTxHigh(3.0);
-
-        // 模块类型门限: rxLow=-28, rxHigh=-8, txLow=-6, txHigh=0
-        moduleRule = new ThresholdRule();
-        moduleRule.setId(2L);
-        moduleRule.setLevelType("MODULE");
-        moduleRule.setMatchKey("L16.1");
-        moduleRule.setRxLow(-28.0);
-        moduleRule.setRxHigh(-8.0);
-        moduleRule.setTxLow(-6.0);
-        moduleRule.setTxHigh(0.0);
     }
 
-    // ========== 全局门限匹配 ==========
-
-    @Test
-    void testApplyThresholds_WithGlobalRule() {
-        OpticalPowerInspection record = new OpticalPowerInspection();
-        record.setSupported(true);
-        record.setTxPower(-3.0);
-        record.setRxPower(-15.0);
-        record.setModuleTypeKey("S4.1"); // 无模块规则，使用全局
-
-        when(thresholdRuleRepository.findAll()).thenReturn(Collections.singletonList(globalRule));
-
-        List<OpticalPowerInspection> result = thresholdService.applyThresholds(Collections.singletonList(record));
-
-        assertEquals(1, result.size());
-        assertEquals(0, result.get(0).getTxPowerStatus()); // -3在-27~3之间，正常
-        assertEquals(0, result.get(0).getRxPowerStatus()); // -15在-27~3之间，正常
+    private static ThresholdRule rule(String matchKey, Double txLow, Double txHigh, Double rxLow, Double rxHigh) {
+        ThresholdRule rule = new ThresholdRule();
+        rule.setId(1L);
+        rule.setMatchKey(matchKey);
+        rule.setTxLow(txLow);
+        rule.setTxHigh(txHigh);
+        rule.setRxLow(rxLow);
+        rule.setRxHigh(rxHigh);
+        rule.setDescription("自定义");
+        return rule;
     }
 
-    // ========== 模块类型门限匹配 ==========
+    // ========== initPresetThresholds ==========
 
     @Test
-    void testApplyThresholds_WithModuleRule_Normal() {
-        // L16.1模块门限: rxLow=-28, rxHigh=-8, txLow=-6, txHigh=0
-        // rxPower=-15 在-28~-8之间 → 正常
-        OpticalPowerInspection record = new OpticalPowerInspection();
-        record.setSupported(true);
-        record.setTxPower(-3.0); // -3在-6~0之间 → 正常
-        record.setRxPower(-15.0); // -15在-28~-8之间 → 正常
-        record.setModuleTypeKey("L16.1");
+    void testInitPresetThresholds_InsertsAllMissing() {
+        when(thresholdRuleRepository.findByMatchKey(anyString())).thenReturn(Optional.empty());
 
-        when(thresholdRuleRepository.findAll()).thenReturn(Arrays.asList(globalRule, moduleRule));
+        thresholdService.initPresetThresholds();
 
-        List<OpticalPowerInspection> result = thresholdService.applyThresholds(Collections.singletonList(record));
-
-        assertEquals(0, result.get(0).getTxPowerStatus());
-        assertEquals(0, result.get(0).getRxPowerStatus());
+        ArgumentCaptor<ThresholdRule> captor = ArgumentCaptor.forClass(ThresholdRule.class);
+        verify(thresholdRuleRepository, times(PRESET_COUNT)).save(captor.capture());
+        ThresholdRule first = captor.getAllValues().get(0);
+        assertEquals("I1.1", first.getMatchKey());
+        assertEquals(-10.0, first.getTxLow());
+        assertEquals(0.0, first.getTxHigh());
+        assertEquals(-28.0, first.getRxLow());
+        assertEquals(-8.0, first.getRxHigh());
+        assertEquals("155M+I档(短距)", first.getDescription());
     }
 
     @Test
-    void testApplyThresholds_WithModuleRule_Degradation() {
-        // L16.1模块门限: rxLow=-28, rxHigh=-8
-        // rxPower=-30 < -28 → 劣化
-        OpticalPowerInspection record = new OpticalPowerInspection();
-        record.setSupported(true);
-        record.setTxPower(-3.0);
-        record.setRxPower(-30.0);
-        record.setModuleTypeKey("L16.1");
+    void testInitPresetThresholds_SkipsExisting() {
+        when(thresholdRuleRepository.findByMatchKey(anyString()))
+                .thenReturn(Optional.of(rule("I1.1", -10.0, 0.0, -28.0, -8.0)));
 
-        when(thresholdRuleRepository.findAll()).thenReturn(Arrays.asList(globalRule, moduleRule));
+        thresholdService.initPresetThresholds();
 
-        List<OpticalPowerInspection> result = thresholdService.applyThresholds(Collections.singletonList(record));
-
-        assertEquals(0, result.get(0).getTxPowerStatus());
-        assertEquals(1, result.get(0).getRxPowerStatus()); // 劣化
+        verify(thresholdRuleRepository, never()).save(any(ThresholdRule.class));
     }
 
-    @Test
-    void testApplyThresholds_WithModuleRule_Overload() {
-        // L16.1模块门限: txLow=-6, txHigh=0
-        // txPower=2.0 > 0 → 过载
-        OpticalPowerInspection record = new OpticalPowerInspection();
-        record.setSupported(true);
-        record.setTxPower(2.0);
-        record.setRxPower(-15.0);
-        record.setModuleTypeKey("L16.1");
-
-        when(thresholdRuleRepository.findAll()).thenReturn(Arrays.asList(globalRule, moduleRule));
-
-        List<OpticalPowerInspection> result = thresholdService.applyThresholds(Collections.singletonList(record));
-
-        assertEquals(2, result.get(0).getTxPowerStatus()); // 过载
-        assertEquals(0, result.get(0).getRxPowerStatus());
-    }
-
-    // ========== 劣化状态判定 ==========
+    // ========== listRules ==========
 
     @Test
-    void testApplyThresholds_DegradationStatus_TxLow() {
-        OpticalPowerInspection record = new OpticalPowerInspection();
-        record.setSupported(true);
-        record.setTxPower(-30.0); // 低于-27
-        record.setRxPower(-15.0);
-        record.setModuleTypeKey("S4.1");
-
-        when(thresholdRuleRepository.findAll()).thenReturn(Collections.singletonList(globalRule));
-
-        List<OpticalPowerInspection> result = thresholdService.applyThresholds(Collections.singletonList(record));
-
-        assertEquals(1, result.get(0).getTxPowerStatus()); // 劣化
-        assertEquals(0, result.get(0).getRxPowerStatus()); // 正常
-    }
-
-    @Test
-    void testApplyThresholds_DegradationStatus_RxLow() {
-        OpticalPowerInspection record = new OpticalPowerInspection();
-        record.setSupported(true);
-        record.setTxPower(-3.0);
-        record.setRxPower(-30.0); // 低于-27
-        record.setModuleTypeKey("S4.1");
-
-        when(thresholdRuleRepository.findAll()).thenReturn(Collections.singletonList(globalRule));
-
-        List<OpticalPowerInspection> result = thresholdService.applyThresholds(Collections.singletonList(record));
-
-        assertEquals(0, result.get(0).getTxPowerStatus());
-        assertEquals(1, result.get(0).getRxPowerStatus()); // 劣化
-    }
-
-    // ========== 过载状态判定 ==========
-
-    @Test
-    void testApplyThresholds_OverloadStatus_TxHigh() {
-        OpticalPowerInspection record = new OpticalPowerInspection();
-        record.setSupported(true);
-        record.setTxPower(5.0); // 高于3.0
-        record.setRxPower(-15.0);
-        record.setModuleTypeKey("S4.1");
-
-        when(thresholdRuleRepository.findAll()).thenReturn(Collections.singletonList(globalRule));
-
-        List<OpticalPowerInspection> result = thresholdService.applyThresholds(Collections.singletonList(record));
-
-        assertEquals(2, result.get(0).getTxPowerStatus()); // 过载
-        assertEquals(0, result.get(0).getRxPowerStatus());
-    }
-
-    @Test
-    void testApplyThresholds_OverloadStatus_RxHigh() {
-        OpticalPowerInspection record = new OpticalPowerInspection();
-        record.setSupported(true);
-        record.setTxPower(-3.0);
-        record.setRxPower(5.0); // 高于3.0
-        record.setModuleTypeKey("S4.1");
-
-        when(thresholdRuleRepository.findAll()).thenReturn(Collections.singletonList(globalRule));
-
-        List<OpticalPowerInspection> result = thresholdService.applyThresholds(Collections.singletonList(record));
-
-        assertEquals(0, result.get(0).getTxPowerStatus());
-        assertEquals(2, result.get(0).getRxPowerStatus()); // 过载
-    }
-
-    // ========== 不支持光功率的记录 ==========
-
-    @Test
-    void testApplyThresholds_UnsupportedRecord() {
-        OpticalPowerInspection record = new OpticalPowerInspection();
-        record.setSupported(false);
-        record.setTxPower(null);
-        record.setRxPower(null);
-
-        when(thresholdRuleRepository.findAll()).thenReturn(Collections.singletonList(globalRule));
-
-        List<OpticalPowerInspection> result = thresholdService.applyThresholds(Collections.singletonList(record));
-
-        assertNotNull(result);
-        assertEquals(1, result.size());
-        assertEquals(0, result.get(0).getTxPowerStatus());
-        assertEquals(0, result.get(0).getRxPowerStatus());
-    }
-
-    // ========== 无门限规则（使用默认值） ==========
-
-    @Test
-    void testApplyThresholds_EmptyRules() {
-        OpticalPowerInspection record = new OpticalPowerInspection();
-        record.setSupported(true);
-        record.setTxPower(-3.0);
-        record.setRxPower(-15.0);
-
+    void testListRules_Empty() {
         when(thresholdRuleRepository.findAll()).thenReturn(Collections.emptyList());
 
-        List<OpticalPowerInspection> result = thresholdService.applyThresholds(Collections.singletonList(record));
-
-        // 使用默认值：txLow=-27, txHigh=3, rxLow=-27, rxHigh=3
-        assertEquals(0, result.get(0).getTxPowerStatus());
-        assertEquals(0, result.get(0).getRxPowerStatus());
+        assertTrue(thresholdService.listRules().isEmpty());
     }
 
-    // ========== 边界值测试 ==========
+    // ========== loadRangeMap ==========
 
     @Test
-    void testApplyThresholds_BoundaryValues_AtLowBoundary() {
-        OpticalPowerInspection record = new OpticalPowerInspection();
-        record.setSupported(true);
-        record.setTxPower(-27.0); // 等于低门限
-        record.setRxPower(-27.0); // 等于低门限
-        record.setModuleTypeKey("S4.1");
+    void testLoadRangeMap_PresetsOnly() {
+        when(thresholdRuleRepository.findAll()).thenReturn(Collections.emptyList());
 
-        when(thresholdRuleRepository.findAll()).thenReturn(Collections.singletonList(globalRule));
+        Map<String, ThresholdService.Range> ranges = thresholdService.loadRangeMap();
 
-        List<OpticalPowerInspection> result = thresholdService.applyThresholds(Collections.singletonList(record));
-
-        // 等于低门限 → 正常（不触发劣化）
-        assertEquals(0, result.get(0).getTxPowerStatus());
-        assertEquals(0, result.get(0).getRxPowerStatus());
+        assertEquals(PRESET_COUNT, ranges.size());
+        ThresholdService.Range s16 = ranges.get("S16.1");
+        assertEquals(-15.0, s16.txLow());
+        assertEquals(-1.0, s16.txHigh());
+        assertEquals(-28.0, s16.rxLow());
+        assertEquals(-8.0, s16.rxHigh());
     }
 
     @Test
-    void testApplyThresholds_BoundaryValues_AtHighBoundary() {
-        OpticalPowerInspection record = new OpticalPowerInspection();
-        record.setSupported(true);
-        record.setTxPower(3.0); // 等于高门限
-        record.setRxPower(3.0); // 等于高门限
-        record.setModuleTypeKey("S4.1");
+    void testLoadRangeMap_DbRuleOverridesPreset_WithNullFallback() {
+        // txHigh 为 null → 回退到预置的 -1.0
+        when(thresholdRuleRepository.findAll())
+                .thenReturn(List.of(rule("S16.1", -6.0, null, -28.0, -8.0)));
 
-        when(thresholdRuleRepository.findAll()).thenReturn(Collections.singletonList(globalRule));
+        ThresholdService.Range range = thresholdService.loadRangeMap().get("S16.1");
 
-        List<OpticalPowerInspection> result = thresholdService.applyThresholds(Collections.singletonList(record));
-
-        // 等于高门限 → 正常（不触发过载）
-        assertEquals(0, result.get(0).getTxPowerStatus());
-        assertEquals(0, result.get(0).getRxPowerStatus());
+        assertEquals(-6.0, range.txLow());
+        assertEquals(-1.0, range.txHigh());
+        assertEquals(-28.0, range.rxLow());
+        assertEquals(-8.0, range.rxHigh());
     }
 
     @Test
-    void testApplyThresholds_BoundaryValues_JustBelowLow() {
-        OpticalPowerInspection record = new OpticalPowerInspection();
-        record.setSupported(true);
-        record.setTxPower(-27.1); // 略低于低门限
-        record.setRxPower(-27.1);
-        record.setModuleTypeKey("S4.1");
+    void testLoadRangeMap_UnknownMatchKey_UsesDefaultRange() {
+        when(thresholdRuleRepository.findAll())
+                .thenReturn(List.of(rule("NOT_A_PRESET", null, null, null, null)));
 
-        when(thresholdRuleRepository.findAll()).thenReturn(Collections.singletonList(globalRule));
+        ThresholdService.Range range = thresholdService.loadRangeMap().get("NOT_A_PRESET");
 
-        List<OpticalPowerInspection> result = thresholdService.applyThresholds(Collections.singletonList(record));
+        assertEquals(-27.0, range.txLow());
+        assertEquals(3.0, range.txHigh());
+        assertEquals(-27.0, range.rxLow());
+        assertEquals(3.0, range.rxHigh());
+    }
 
-        assertEquals(1, result.get(0).getTxPowerStatus()); // 劣化
-        assertEquals(1, result.get(0).getRxPowerStatus()); // 劣化
+    // ========== rangeFor ==========
+
+    @Test
+    void testRangeFor_MatchedKey() {
+        Map<String, ThresholdService.Range> ranges = Map.of("L16.1", new ThresholdService.Range(-15, -1, -28, -8));
+
+        ThresholdService.Range range = ThresholdService.rangeFor(ranges, "L16.1");
+
+        assertEquals(-15.0, range.txLow());
     }
 
     @Test
-    void testApplyThresholds_BoundaryValues_JustAboveHigh() {
-        OpticalPowerInspection record = new OpticalPowerInspection();
-        record.setSupported(true);
-        record.setTxPower(3.1); // 略高于高门限
-        record.setRxPower(3.1);
-        record.setModuleTypeKey("S4.1");
+    void testRangeFor_NullKeyAndAbsentKey_UseDefault() {
+        Map<String, ThresholdService.Range> ranges = Map.of("L16.1", new ThresholdService.Range(-15, -1, -28, -8));
 
-        when(thresholdRuleRepository.findAll()).thenReturn(Collections.singletonList(globalRule));
-
-        List<OpticalPowerInspection> result = thresholdService.applyThresholds(Collections.singletonList(record));
-
-        assertEquals(2, result.get(0).getTxPowerStatus()); // 过载
-        assertEquals(2, result.get(0).getRxPowerStatus()); // 过载
+        assertEquals(3.0, ThresholdService.rangeFor(ranges, null).txHigh());
+        assertEquals(3.0, ThresholdService.rangeFor(ranges, "UNKNOWN").txHigh());
     }
 
-    // ========== 门限阈值字段验证 ==========
+    // ========== evaluateStatus ==========
 
     @Test
-    void testApplyThresholds_SetsThresholdFields() {
-        OpticalPowerInspection record = new OpticalPowerInspection();
-        record.setSupported(true);
-        record.setTxPower(-3.0);
-        record.setRxPower(-15.0);
-        record.setModuleTypeKey("S4.1");
-
-        when(thresholdRuleRepository.findAll()).thenReturn(Collections.singletonList(globalRule));
-
-        List<OpticalPowerInspection> result = thresholdService.applyThresholds(Collections.singletonList(record));
-
-        OpticalPowerInspection r = result.get(0);
-        assertEquals(-27.0, r.getTxLowThreshold());
-        assertEquals(3.0, r.getTxHighThreshold());
-        assertEquals(-27.0, r.getLowThreshold());
-        assertEquals(3.0, r.getHighThreshold());
+    void testEvaluateStatus_NoLightOnNull() {
+        assertEquals(ThresholdService.STATUS_NO_LIGHT,
+                ThresholdService.evaluateStatus(null, -27.0, 3.0));
     }
 
-    // ========== 模块规则优先级验证 ==========
-
     @Test
-    void testApplyThresholds_ModuleRuleOverridesGlobal() {
-        // 同时有全局和模块规则，模块规则应生效
-        // 模块门限: txLow=-6, txHigh=0, rxLow=-28, rxHigh=-8
-        OpticalPowerInspection record = new OpticalPowerInspection();
-        record.setSupported(true);
-        record.setTxPower(1.0); // 1 > 0(模块txHigh) → 过载
-        record.setRxPower(-3.0); // -3 > -8(模块rxHigh) → 过载
-        record.setModuleTypeKey("L16.1");
-
-        when(thresholdRuleRepository.findAll()).thenReturn(Arrays.asList(globalRule, moduleRule));
-
-        List<OpticalPowerInspection> result = thresholdService.applyThresholds(Collections.singletonList(record));
-
-        // 验证使用的是模块规则的阈值（而非全局规则）
-        assertEquals(-6.0, result.get(0).getTxLowThreshold());
-        assertEquals(0.0, result.get(0).getTxHighThreshold());
-        assertEquals(-28.0, result.get(0).getLowThreshold());
-        assertEquals(-8.0, result.get(0).getHighThreshold());
-        assertEquals(2, result.get(0).getTxPowerStatus()); // 过载
-        assertEquals(2, result.get(0).getRxPowerStatus()); // 过载
+    void testEvaluateStatus_High() {
+        assertEquals(ThresholdService.STATUS_HIGH,
+                ThresholdService.evaluateStatus(3.1, -27.0, 3.0));
     }
 
-    // ========== 多条记录批量处理 ==========
+    @Test
+    void testEvaluateStatus_Low() {
+        assertEquals(ThresholdService.STATUS_LOW,
+                ThresholdService.evaluateStatus(-27.1, -27.0, 3.0));
+    }
 
     @Test
-    void testApplyThresholds_MultipleRecords() {
-        OpticalPowerInspection r1 = new OpticalPowerInspection();
-        r1.setSupported(true);
-        r1.setTxPower(-3.0);
-        r1.setRxPower(-15.0);
-        r1.setModuleTypeKey("S4.1");
+    void testEvaluateStatus_NormalIncludingBoundaries() {
+        assertEquals(ThresholdService.STATUS_NORMAL,
+                ThresholdService.evaluateStatus(-27.0, -27.0, 3.0));
+        assertEquals(ThresholdService.STATUS_NORMAL,
+                ThresholdService.evaluateStatus(3.0, -27.0, 3.0));
+        assertEquals(ThresholdService.STATUS_NORMAL,
+                ThresholdService.evaluateStatus(-15.0, -27.0, 3.0));
+    }
 
-        OpticalPowerInspection r2 = new OpticalPowerInspection();
-        r2.setSupported(true);
-        r2.setTxPower(5.0);
-        r2.setRxPower(-30.0);
-        r2.setModuleTypeKey("S4.1");
+    // ========== updateRule ==========
 
-        when(thresholdRuleRepository.findAll()).thenReturn(Collections.singletonList(globalRule));
+    @Test
+    void testUpdateRule_Success() {
+        ThresholdRule existing = rule("L16.1", -15.0, -1.0, -28.0, -8.0);
+        when(thresholdRuleRepository.findByMatchKey("L16.1")).thenReturn(Optional.of(existing));
+        when(thresholdRuleRepository.save(existing)).thenReturn(existing);
 
-        List<OpticalPowerInspection> result = thresholdService.applyThresholds(Arrays.asList(r1, r2));
+        ThresholdRule changes = rule("L16.1", -6.0, 0.0, -28.0, -8.0);
+        ThresholdRule updated = thresholdService.updateRule("L16.1", changes);
 
-        assertEquals(2, result.size());
-        assertEquals(0, result.get(0).getTxPowerStatus()); // r1正常
-        assertEquals(2, result.get(1).getTxPowerStatus()); // r2过载
-        assertEquals(1, result.get(1).getRxPowerStatus()); // r2劣化
+        assertEquals(-6.0, updated.getTxLow());
+        assertEquals(0.0, updated.getTxHigh());
+        assertEquals("自定义", updated.getDescription());
+    }
+
+    @Test
+    void testUpdateRule_BlankDescriptionKeepsExisting() {
+        ThresholdRule existing = rule("L16.1", -15.0, -1.0, -28.0, -8.0);
+        existing.setDescription("原始说明");
+        when(thresholdRuleRepository.findByMatchKey("L16.1")).thenReturn(Optional.of(existing));
+        when(thresholdRuleRepository.save(existing)).thenReturn(existing);
+
+        ThresholdRule changes = rule("L16.1", -6.0, 0.0, -28.0, -8.0);
+        changes.setDescription("   ");
+
+        assertEquals("原始说明", thresholdService.updateRule("L16.1", changes).getDescription());
+    }
+
+    @Test
+    void testUpdateRule_UnknownMatchKey_Throws() {
+        when(thresholdRuleRepository.findByMatchKey("NEW_TYPE")).thenReturn(Optional.empty());
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> thresholdService.updateRule("NEW_TYPE", rule("NEW_TYPE", -10.0, 0.0, -10.0, 0.0)));
+        assertTrue(ex.getMessage().contains("不允许新增"));
+    }
+
+    @Test
+    void testUpdateRule_InvalidRange_Throws() {
+        ThresholdRule existing = rule("L16.1", -15.0, -1.0, -28.0, -8.0);
+        when(thresholdRuleRepository.findByMatchKey("L16.1")).thenReturn(Optional.of(existing));
+
+        ThresholdRule lowAboveHigh = rule("L16.1", 0.0, -6.0, -28.0, -8.0);
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> thresholdService.updateRule("L16.1", lowAboveHigh));
+        assertTrue(ex.getMessage().contains("低门限必须小于高门限"));
+        verify(thresholdRuleRepository, never()).save(any(ThresholdRule.class));
+    }
+
+    @Test
+    void testUpdateRule_NullThreshold_Throws() {
+        ThresholdRule existing = rule("L16.1", -15.0, -1.0, -28.0, -8.0);
+        when(thresholdRuleRepository.findByMatchKey("L16.1")).thenReturn(Optional.of(existing));
+
+        ThresholdRule nullRxHigh = rule("L16.1", -6.0, 0.0, -28.0, null);
+        assertThrows(IllegalArgumentException.class,
+                () -> thresholdService.updateRule("L16.1", nullRxHigh));
+    }
+
+    // ========== listRuleViews ==========
+
+    @Test
+    void testListRuleViews_PresetOrderAndRates() {
+        when(thresholdRuleRepository.findAll()).thenReturn(Collections.emptyList());
+
+        List<ThresholdService.RuleView> views = thresholdService.listRuleViews();
+
+        assertEquals(PRESET_COUNT, views.size());
+        assertEquals("STM-1", views.get(0).rate());
+        assertEquals("I1.1", views.get(0).matchKey());
+        assertEquals(-10.0, views.get(0).range().txLow());
+        assertEquals("GE", views.get(PRESET_COUNT - 1).rate());
+        assertEquals("1000BASE-LX", views.get(PRESET_COUNT - 1).matchKey());
+    }
+
+    @Test
+    void testListRuleViews_ReflectsDbOverride() {
+        when(thresholdRuleRepository.findAll())
+                .thenReturn(List.of(rule("L16.1", -6.0, 0.0, -28.0, -8.0)));
+
+        ThresholdService.RuleView view = thresholdService.listRuleViews().stream()
+                .filter(v -> "L16.1".equals(v.matchKey()))
+                .findFirst()
+                .orElseThrow();
+
+        assertEquals(-6.0, view.range().txLow());
+        assertEquals(0.0, view.range().txHigh());
     }
 }

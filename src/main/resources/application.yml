@@ -46,22 +46,6 @@ app:
     database: "Uniview"
     username: "sa"
     password: "DB_Admin123"
-  # MySQL → SQLite 动态同步配置
-  sync:
-    # 必要表（同步模式=essential时，只同步这些）
-    essential:
-      - dmne
-      - defdmne
-      - emnecomm
-      - dmrelation
-      - dmeo
-      - dmnet
-      - defdmnetwork
-      - dmconnection
-    # 批量写入大小
-    batch-size: 5000
-    # 排除的表（不同步，如系统内部表）
-    exclude: []
   # Qx协议连接配置
   qx:
     connect-timeout-ms: 5000
@@ -80,11 +64,3 @@ app:
   inspection:
     concurrency: 10
     max-rounds: 10
-    # 带宽展示端口过滤：dmeo表 cid=5 且 defName 匹配的模式（独立于光功率过滤）
-    bandwidth-defname-patterns: "STM%,1G_LAN%,10GE%,40GE%,100GE%"
-    # 定时巡检配置
-    scheduled:
-      enabled: false
-      cron: "0 0 2 * * ?"   # 默认每天凌晨2点
-      scope: ALL             # ALL / NETWORK
-      network: ""            # scope=NETWORK时指定网络名

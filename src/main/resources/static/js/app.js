@@ -4,15 +4,14 @@
  */
 
 import { loadDevices, loadGlobalConfig, saveGlobalConfig, syncDevices, clearDataType, clearConnProfiles, toggleAllClearCb, clearSelectedData, connectAll, disconnectAll, connectSingle, disconnectSingle, closeDeviceModal, saveDeviceConfig, deleteDeviceConfig, searchDevices, filterByNetwork, filterByStatus, sortBy, startDeviceRefresh, stopDeviceRefresh } from './device.js';
-import { loadStatsOverview, loadStatsNetworks, loadStats, switchStatsChart, resizeChart } from './stats.js';
-import { loadGlobalThreshold, saveGlobalThreshold, loadThresholds, openThresholdModal, closeThresholdModal, saveThreshold, onModuleSelectChange } from './threshold.js';
+import { loadStatsOverview, loadStatsNetworks, loadStats, switchStatsType, switchStatsChart, resizeChart } from './stats.js';
+import { loadThresholds, openThresholdModal, closeThresholdModal, saveThreshold } from './threshold.js';
 import { loadScheduleStatus, toggleSchedule, toggleSchedScope, toggleManualScope, loadTaskNetworks, loadTaskDevices, startManualInspection, onSchedPresetChange, saveScheduleConfig, loadCollectParams, saveCollectParams } from './task.js';
 import { loadProgress, stopProgressPoll } from './progress.js';
-import { loadQueryRounds, loadQueryFilters, loadQueryResults, exportExcel, searchQuery, sortQueryBy, expandAll, collapseAll, openTrendModal, closeTrendModal, runTrend, switchTrendChart, togglePortWatched, trendSelectAllRounds, trendDeselectAllRounds } from './query.js';
+import { loadQueryRounds, loadQueryFilters, loadQueryResults, exportExcel, searchQuery } from './query.js';
 import { loadClockTopology, refreshClockTopology, resizeClockChart } from './clock.js';
 import { showToast } from './toast.js';
-import { loadSyncStatus, syncEssential, syncAll, clearSyncData, loadMysqlConfig, saveMysqlConfig, testMysqlConnection, loadAuditLogs, backupDatabase, restoreDatabase } from './sync.js';
-import { get } from './api.js';
+import { loadSyncStatus, loadNetworkList, toggleAllNetworks, executeSync, clearSyncData, loadMysqlConfig, saveMysqlConfig, testMysqlConnection, loadAuditLogs, backupDatabase, restoreDatabase } from './sync.js';
 import { initGuide } from './guide.js';
 import { initTheme, toggleTheme } from './theme.js';
 
@@ -54,7 +53,6 @@ function switchPage(el) {
         setTimeout(resizeChart, 100);
     }
     if (page === 'page-threshold') {
-        loadGlobalThreshold();
         loadThresholds();
     }
     if (page === 'page-task') {
@@ -80,6 +78,7 @@ function switchPage(el) {
     if (page === 'page-maintenance') {
         loadMysqlConfig();
         loadSyncStatus();
+        loadNetworkList();
         loadAuditLogs();
     }
     if (page === 'page-guide') {
@@ -115,13 +114,12 @@ window.filterByNetwork = (val) => filterByNetwork(val);
 window.filterByStatus = (val) => filterByStatus(val);
 window.sortBy = sortBy;
 window.loadStats = loadStats;
+window.switchStatsType = switchStatsType;
 window.switchStatsChart = switchStatsChart;
-window.saveGlobalThreshold = saveGlobalThreshold;
 window.loadThresholds = loadThresholds;
-window.openThresholdModal = (levelType) => openThresholdModal(levelType);
+window.openThresholdModal = (rule) => openThresholdModal(rule);
 window.closeThresholdModal = closeThresholdModal;
 window.saveThreshold = saveThreshold;
-window.onModuleSelectChange = onModuleSelectChange;
 window.toggleSchedule = (checked) => toggleSchedule(checked);
 window.onSchedPresetChange = onSchedPresetChange;
 window.saveScheduleConfig = saveScheduleConfig;
@@ -134,21 +132,12 @@ window.loadProgress = loadProgress;
 window.loadQueryResults = loadQueryResults;
 window.exportExcel = exportExcel;
 window.searchQuery = searchQuery;
-window.sortQueryBy = sortQueryBy;
-window.expandAll = expandAll;
-window.collapseAll = collapseAll;
-window.openTrendModal = openTrendModal;
-window.closeTrendModal = closeTrendModal;
-window.runTrend = runTrend;
-window.switchTrendChart = switchTrendChart;
-window.trendSelectAllRounds = trendSelectAllRounds;
-window.trendDeselectAllRounds = trendDeselectAllRounds;
-window.togglePortWatched = togglePortWatched;
 window.refreshClockTopology = refreshClockTopology;
 window.showToast = showToast;
 window.loadSyncStatus = loadSyncStatus;
-window.syncEssential = syncEssential;
-window.syncAll = syncAll;
+window.loadNetworkList = loadNetworkList;
+window.toggleAllNetworks = toggleAllNetworks;
+window.executeSync = executeSync;
 window.clearSyncData = clearSyncData;
 window.loadMysqlConfig = loadMysqlConfig;
 window.saveMysqlConfig = saveMysqlConfig;

@@ -1,6 +1,7 @@
 package com.optel.qxinspection.service;
 
 import com.zaxxer.hikari.HikariDataSource;
+import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -8,7 +9,6 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import java.sql.Connection;
-import java.sql.SQLException;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -46,14 +46,26 @@ public class MysqlConnectionManager {
 
     private volatile HikariDataSource dataSource;
     private volatile JdbcTemplate jdbcTemplate;
+    /** 当前借用连接池的调用方数量；不为 0 时任何路径都不会关闭连接池 */
+    private int borrowed;
+    /** 配置变更标记：借出全部归还后按新配置重建 */
+    private boolean invalidated;
 
     /**
-     * 获取 MySQL JdbcTemplate，不存在则创建
+     * 借用连接池。同一时刻只存在一个池，借用期间不会被其他请求关闭。
      */
     public synchronized JdbcTemplate getJdbcTemplate() {
-        if (jdbcTemplate == null || dataSource == null || dataSource.isClosed()) {
-            createDataSource();
+        if (dataSource == null || dataSource.isClosed() || jdbcTemplate == null) {
+            buildDataSource();
+        } else if (invalidated) {
+            if (borrowed == 0) {
+                shutdownDataSource();
+                buildDataSource();
+            } else {
+                log.info("MySQL config changed, keeping current pool until {} in-flight caller(s) release", borrowed);
+            }
         }
+        borrowed++;
         return jdbcTemplate;
     }
 
@@ -109,7 +121,7 @@ public class MysqlConnectionManager {
             sysConfigService.set(KEY_PASSWORD, password);
         }
         log.info("MySQL 配置已保存: {}@{}", username, host);
-        close();
+        invalidate();
     }
 
     /**
@@ -131,17 +143,27 @@ public class MysqlConnectionManager {
         return getEffectivePassword();
     }
 
+    /** 归还连接池：所有借出者都归还后才真正关闭，避免关掉别的请求正在用的池 */
     public synchronized void close() {
-        if (dataSource != null && !dataSource.isClosed()) {
-            try {
-                dataSource.close();
-                log.info("MySQL 连接池已关闭");
-            } catch (Exception e) {
-                log.warn("关闭 MySQL 连接池异常: {}", e.getMessage());
-            }
+        if (borrowed > 0) {
+            borrowed--;
         }
-        dataSource = null;
-        jdbcTemplate = null;
+        if (borrowed == 0) {
+            shutdownDataSource();
+        }
+    }
+
+    /** 配置变更后作废当前连接池：不立刻关闭，等借出者归还后按新配置重建 */
+    public synchronized void invalidate() {
+        invalidated = true;
+        if (borrowed == 0) {
+            shutdownDataSource();
+        }
+    }
+
+    @PreDestroy
+    public synchronized void shutdown() {
+        shutdownDataSource();
     }
 
     private String getEffectiveHost() {
@@ -169,16 +191,33 @@ public class MysqlConnectionManager {
         return (v != null && !v.isEmpty()) ? v : defaultPassword;
     }
 
-    private void createDataSource() {
+    private void buildDataSource() {
         String host = getEffectiveHost();
         int port = getEffectivePort();
         String database = getEffectiveDatabase();
         String username = getEffectiveUsername();
         String password = getEffectivePassword();
 
-        this.dataSource = createDataSource(host, port, database, username, password);
-        this.jdbcTemplate = new JdbcTemplate(this.dataSource);
-        log.info("MySQL 连接池已创建: {}@{}:{}/{}", username, host, port, database);
+        HikariDataSource ds = createDataSource(host, port, database, username, password);
+        this.dataSource = ds;
+        this.jdbcTemplate = new JdbcTemplate(ds);
+        this.invalidated = false;
+        log.info("MySQL connection pool created: {}@{}:{}/{}", username, host, port, database);
+    }
+
+    private void shutdownDataSource() {
+        HikariDataSource ds = this.dataSource;
+        this.dataSource = null;
+        this.jdbcTemplate = null;
+        if (ds == null || ds.isClosed()) {
+            return;
+        }
+        try {
+            ds.close();
+            log.info("MySQL connection pool closed");
+        } catch (Exception e) {
+            log.warn("Failed to close MySQL connection pool: {}", e.getMessage());
+        }
     }
 
     private HikariDataSource createDataSource(String host, int port, String database,

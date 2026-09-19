@@ -5,6 +5,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.scheduling.TaskScheduler;
+import org.springframework.scheduling.support.CronExpression;
 import org.springframework.scheduling.support.CronTrigger;
 import org.springframework.stereotype.Service;
 
@@ -27,6 +28,9 @@ public class InspectionScheduler implements InitializingBean {
     private static final String KEY_LAST_RUN_STATUS = "schedule.lastRunStatus";
     private static final String KEY_LAST_RUN_TIME = "schedule.lastRunTime";
 
+    /** 默认 cron：每天 02:00（6 段格式，秒 分 时 日 月 周） */
+    public static final String DEFAULT_CRON = "0 0 2 * * ?";
+
     private final InspectionService inspectionService;
     private final SysConfigService sysConfigService;
     private final TaskScheduler taskScheduler;
@@ -34,7 +38,7 @@ public class InspectionScheduler implements InitializingBean {
     private volatile boolean enabled;
     private volatile String scope = "ALL";
     private volatile String network = "";
-    private volatile String cronExpression = "0 0 2 * * ?";
+    private volatile String cronExpression = DEFAULT_CRON;
     private volatile String lastRunStatus = "NEVER";
     private volatile String lastRunTime = "";
 
@@ -46,14 +50,39 @@ public class InspectionScheduler implements InitializingBean {
         enabled = Boolean.parseBoolean(sysConfigService.get(KEY_ENABLED, "false"));
         scope = sysConfigService.get(KEY_SCOPE, "ALL");
         network = sysConfigService.get(KEY_NETWORK, "");
-        cronExpression = sysConfigService.get(KEY_CRON, "0 0 2 * * ?");
         lastRunStatus = sysConfigService.get(KEY_LAST_RUN_STATUS, "NEVER");
         lastRunTime = sysConfigService.get(KEY_LAST_RUN_TIME, "");
+
+        String storedCron = sysConfigService.get(KEY_CRON, DEFAULT_CRON);
+        try {
+            cronExpression = normalizeCron(storedCron);
+        } catch (IllegalArgumentException e) {
+            // 库里的 cron 非法时不能让它把启动搞挂：降级为禁用并回写，用户可在页面上重新配置
+            cronExpression = DEFAULT_CRON;
+            enabled = false;
+            sysConfigService.set(KEY_ENABLED, "false");
+            log.error("存储的 cron 非法，已禁用定时巡检: {}", storedCron);
+        }
 
         if (enabled) {
             scheduleNext();
         }
         log.info("定时巡检调度器初始化: enabled={}, cron={}, scope={}", enabled, cronExpression, scope);
+    }
+
+    /** 校验并规范化 cron 表达式，非法时抛 IllegalArgumentException */
+    private static String normalizeCron(String cron) {
+        if (cron == null || cron.isBlank()) {
+            throw new IllegalArgumentException("cron 表达式不能为空");
+        }
+        String trimmed = cron.trim();
+        try {
+            CronExpression.parse(trimmed);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("cron 表达式非法，需为 6 段格式（如 "
+                    + DEFAULT_CRON + "）: " + trimmed);
+        }
+        return trimmed;
     }
 
     private void scheduleNext() {
@@ -111,6 +140,7 @@ public class InspectionScheduler implements InitializingBean {
     }
 
     public void setEnabled(boolean enabled) {
+        // cronExpression 只会被赋成已校验过的值，这里无需再校验
         this.enabled = enabled;
         sysConfigService.set(KEY_ENABLED, String.valueOf(enabled));
         if (enabled) {
@@ -123,10 +153,13 @@ public class InspectionScheduler implements InitializingBean {
     }
 
     public void updateConfig(boolean enabled, String scope, String network, String cronExpression) {
+        // 先校验再落库：非法 cron 一旦写进 sys_config，下次启动读出来会让应用起不来
+        String validCron = normalizeCron(cronExpression);
+
         this.enabled = enabled;
         this.scope = scope;
         this.network = network != null ? network : "";
-        this.cronExpression = cronExpression;
+        this.cronExpression = validCron;
 
         sysConfigService.set(KEY_ENABLED, String.valueOf(enabled));
         sysConfigService.set(KEY_SCOPE, this.scope);

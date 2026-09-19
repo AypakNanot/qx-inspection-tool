@@ -19,46 +19,28 @@ public class SyncController {
     private final DynamicSyncService dynamicSyncService;
     private final MysqlConnectionManager mysqlConnectionManager;
 
+    /** 获取可同步的网络列表（从 MySQL dmeo cid=1） */
+    @GetMapping("/networks")
+    public ResponseEntity<List<Map<String, Object>>> getAvailableNetworks() {
+        return ResponseEntity.ok(dynamicSyncService.getAvailableNetworks());
+    }
+
+    /** 执行按网络同步 */
+    @PostMapping("/execute")
+    public ResponseEntity<Map<String, Object>> syncNetworks(@RequestBody List<String> networkOids) {
+        return ResponseEntity.ok(dynamicSyncService.syncNetworks(networkOids));
+    }
+
+    /** 获取同步状态 */
     @GetMapping("/status")
     public ResponseEntity<Map<String, Object>> getSyncStatus() {
-        return ResponseEntity.ok(dynamicSyncService.getSyncStatus());
+        return ResponseEntity.ok(dynamicSyncService.getSyncStatusSummary());
     }
 
-    @GetMapping("/tables")
-    public ResponseEntity<List<String>> getAllTables() {
-        return ResponseEntity.ok(dynamicSyncService.getAllTables());
-    }
-
-    @PostMapping("/all")
-    public ResponseEntity<Map<String, Object>> syncAll() {
-        return ResponseEntity.ok(dynamicSyncService.syncAll());
-    }
-
-    @PostMapping("/essential")
-    public ResponseEntity<Map<String, Object>> syncEssential() {
-        return ResponseEntity.ok(dynamicSyncService.syncEssential());
-    }
-
-    @PostMapping("/tables")
-    public ResponseEntity<Map<String, Object>> syncTables(@RequestBody List<String> tables) {
-        return ResponseEntity.ok(dynamicSyncService.syncTables(tables));
-    }
-
-    @GetMapping("/query")
-    public ResponseEntity<List<Map<String, Object>>> query(
-            @RequestParam String table,
-            @RequestParam(required = false) String fields,
-            @RequestParam(required = false) String orderBy,
-            @RequestParam(required = false) Integer limit) {
-        List<String> fieldList = fields != null ?
-                List.of(fields.split(",")) : null;
-        return ResponseEntity.ok(dynamicSyncService.query(
-                table, fieldList, null, orderBy, limit));
-    }
-
+    /** 清除同步数据 */
     @PostMapping("/clear")
     public ResponseEntity<Map<String, Object>> clearSyncData() {
-        Map<String, Long> counts = dynamicSyncService.clearSyncData();
+        Map<String, Object> counts = dynamicSyncService.clearSyncData();
         Map<String, Object> result = new java.util.LinkedHashMap<>();
         result.put("status", "SUCCESS");
         result.put("deletedCounts", counts);

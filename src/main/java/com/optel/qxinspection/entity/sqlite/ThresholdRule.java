@@ -4,26 +4,19 @@ import jakarta.persistence.*;
 import lombok.Data;
 
 /**
- * 光功率门限规则
- * 匹配优先级: MODULE > GLOBAL
+ * 光功率门限规则（按模块类型）
  */
 @Data
 @Entity
-@Table(name = "threshold_rule", uniqueConstraints = {
-    @UniqueConstraint(columnNames = {"level_type", "match_key"})
-})
+@Table(name = "threshold_rule")
 public class ThresholdRule {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    /** 级别: GLOBAL / MODULE */
-    @Column(name = "level_type", nullable = false, length = 20)
-    private String levelType;
-
-    /** 匹配键: GLOBAL时为"GLOBAL"，MODULE时为moduleTypeKey(如S16.1) */
-    @Column(name = "match_key", nullable = false, length = 64)
+    /** 模块类型匹配键（如 S16.1, 1000BASE-SX） */
+    @Column(name = "match_key", nullable = false, unique = true, length = 64)
     private String matchKey;
 
     /** 接收光功率低门限 (dBm) */

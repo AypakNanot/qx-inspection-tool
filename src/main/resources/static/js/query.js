@@ -1,32 +1,49 @@
 /**
  * 数据查询模块
- * 查询巡检结果，支持按轮次/网络/网元/状态筛选，按网元分组折叠，分页浏览，列排序，文本搜索，导出Excel
- * 支持链路模式：按链路显示A端和Z端
+ * 按链路查询巡检结果：A/Z 端各 12 列（网元3 + 光模块5 + 误码1 + 带宽3）
+ * 支持轮次/网络筛选、文本搜索、分页浏览、导出 Excel
  */
 
-import { get, post, API } from './api.js';
+import { get, API } from './api.js';
 
-/** 全量查询结果 */
-let allResults = [];
-/** 筛选后结果 */
-let filteredResults = [];
-/** 链路查询结果 */
+/** 全量链路巡检结果 */
 let allLinkResults = [];
+/** 筛选后的链路巡检结果 */
 let filteredLinkResults = [];
-/** 当前是否链路模式 */
-let isLinkMode = false;
 /** 分页状态 */
 let currentPage = 1;
 let pageSize = 20;
-let sortField = '';
-let sortOrder = 'asc';
 let searchText = '';
-/** 展开的网元组（neId Set） */
-let expandedGroups = new Set();
-/** 关注端口集合 "neId:slotNo:portNo" */
-let watchedKeys = new Set();
-/** 带宽数据索引 key=neId:slotNo:portNo */
-let bandwidthMap = new Map();
+
+/** 3 行合并表头结构（与导出 Excel 一致） */
+const HEADER_ROWS = [
+    [
+        { text: '序号', rowspan: 3, width: '50px' },
+        { text: '链路名称', rowspan: 3, minWidth: '150px' },
+        { text: 'A端', colspan: 12 },
+        { text: 'Z端', colspan: 12 }
+    ],
+    [
+        { text: '网元', colspan: 3 },
+        { text: '光模块', colspan: 5 },
+        { text: '误码' },
+        { text: '带宽', colspan: 3 },
+        { text: '网元', colspan: 3 },
+        { text: '光模块', colspan: 5 },
+        { text: '误码' },
+        { text: '带宽', colspan: 3 }
+    ],
+    [
+        { text: '名称' }, { text: '类型' }, { text: '端口' },
+        { text: '类型' }, { text: 'TX\n(dBm)' }, { text: 'RX\n(dBm)' },
+        { text: 'TX\n状态' }, { text: 'RX\n状态' }, { text: 'RS\n错误秒' },
+        { text: '总\n(Mbps)' }, { text: '已用\n(Mbps)' }, { text: '利用率' },
+        { text: '名称' }, { text: '类型' }, { text: '端口' },
+        { text: '类型' }, { text: 'TX\n(dBm)' }, { text: 'RX\n(dBm)' },
+        { text: 'TX\n状态' }, { text: 'RX\n状态' }, { text: 'RS\n错误秒' },
+        { text: '总\n(Mbps)' }, { text: '已用\n(Mbps)' }, { text: '利用率' }
+    ]
+];
 
 /** 格式化时间：去掉T和毫秒 */
 function formatTime(t) {
@@ -34,77 +51,59 @@ function formatTime(t) {
     return t.replace('T', ' ').replace(/\.\d+$/, '');
 }
 
-/** 格式化容量（Mbps → 人类可读） */
-function formatCapacity(mbps) {
-    if (!mbps || mbps <= 0) return '--';
-    if (mbps >= 1000000) return (mbps / 1000000).toFixed(0) + ' Tbps';
-    if (mbps >= 1000) return (mbps / 1000).toFixed(mbps % 1000 === 0 ? 0 : 1) + ' Gbps';
-    return mbps + ' Mbps';
-}
-
-/** 格式化已用/总容量 */
-function formatUsedCapacity(used, capacity) {
-    if (!capacity || capacity <= 0) return '--';
-    return formatCapacity(used) + ' / ' + formatCapacity(capacity);
-}
-
-/** 格式化通道使用摘要（取最高有数据的VC等级） */
-function formatChannelSummary(bw) {
-    const levels = [
-        { key: 'vc4', label: 'VC4' },
-        { key: 'vc3', label: 'VC3' },
-        { key: 'vc12', label: 'VC12' }
-    ];
-    for (const lv of levels) {
-        const info = bw[lv.key];
-        if (info && info.totalCount > 0) {
-            return lv.label + ': ' + info.usedCount + '/' + info.totalCount;
-        }
-    }
-    return '--';
-}
-
-/** 加载关注端口列表 */
-async function loadWatchedPorts() {
-    try {
-        const list = await get('/inspection/port/watched');
-        watchedKeys = new Set(list.map(p => p.neId + ':' + p.slotNo + ':' + p.portNo));
-    } catch (e) { console.error('loadWatchedPorts', e); }
-}
-
-/** 生成端口关注键 */
-function portKey(r) {
-    return r.neId + ':' + r.slotNo + ':' + r.portNo;
-}
-
-/** 切换端口关注状态 */
-export async function togglePortWatched(r) {
-    try {
-        const res = await post('/inspection/port/watched/toggle', {
-            neId: r.neId,
-            slotNo: r.slotNo,
-            portNo: r.portNo,
-            portName: r.portName,
-            neName: r.neName
-        });
-        if (res.watched) {
-            watchedKeys.add(portKey(r));
-        } else {
-            watchedKeys.delete(portKey(r));
-        }
-        renderQueryTable();
-    } catch (e) { console.error('togglePortWatched', e); }
-}
-
-/** 检查端口是否被关注 */
-function isWatched(r) {
-    return watchedKeys.has(portKey(r));
-}
-
 /** 创建文本单元格 */
 function createTextCell(text) {
     const td = document.createElement('td');
     td.textContent = text;
+    return td;
+}
+
+/** 功率单元格：正常显示一位小数，异常标红 */
+function powerCell(value, status) {
+    const td = document.createElement('td');
+    if (value == null) {
+        td.textContent = '--';
+        td.style.color = '#9ca3af';
+        return td;
+    }
+    td.textContent = value.toFixed(1);
+    if (status && status !== '正常' && status !== '--') td.style.color = '#dc2626';
+    return td;
+}
+
+/** 状态单元格：正常为绿色，其余标红 */
+function statusCell(text) {
+    const td = document.createElement('td');
+    const value = text || '--';
+    td.textContent = value;
+    if (value === '正常') td.style.color = '#16a34a';
+    else if (value !== '--') td.style.color = '#dc2626';
+    return td;
+}
+
+/** 数值单元格：整数原样，空值显示 -- */
+function numberCell(value) {
+    const td = document.createElement('td');
+    if (value == null) {
+        td.textContent = '--';
+        td.style.color = '#9ca3af';
+    } else {
+        td.textContent = String(value);
+    }
+    return td;
+}
+
+/** 利用率单元格：不带 % 后缀，与导出 Excel 一致 */
+function usageCell(value) {
+    const td = document.createElement('td');
+    if (value == null) {
+        td.textContent = '--';
+        td.style.color = '#9ca3af';
+        return td;
+    }
+    td.textContent = value.toFixed(1);
+    if (value >= 90) td.style.color = '#dc2626';
+    else if (value >= 70) td.style.color = '#f59e0b';
     return td;
 }
 
@@ -128,7 +127,7 @@ export async function loadQueryRounds() {
     } catch (e) { console.error('loadQueryRounds', e); }
 }
 
-/** 加载筛选条件（网络+网元列表） */
+/** 加载筛选条件（网络 + 网元列表） */
 export async function loadQueryFilters() {
     try {
         const data = await get('/inventory/networks');
@@ -145,332 +144,94 @@ export async function loadQueryFilters() {
         dl.textContent = '';
         devices.forEach(d => {
             const opt = document.createElement('option');
-            opt.value = d.neId; opt.textContent = d.neName;
+            opt.value = d.neName; opt.textContent = d.neName;
             dl.appendChild(opt);
         });
     } catch (e) { console.error('loadQueryDevices', e); }
 }
 
-/** 加载查询结果 */
-export async function loadQueryResults() {
-    const roundId = document.getElementById('queryRound').value;
-    const network = document.getElementById('queryNetwork').value.trim();
-    const neId = document.getElementById('queryNe').value.trim();
-    const params = new URLSearchParams();
-    if (roundId) params.set('roundId', roundId);
-    if (network) params.set('network', network);
-    if (neId) params.set('neId', neId);
-
-    // 检查是否启用链路模式
-    const linkModeCheckbox = document.getElementById('queryLinkMode');
-    isLinkMode = linkModeCheckbox ? linkModeCheckbox.checked : false;
-
-    try {
-        if (isLinkMode) {
-            // 链路模式：加载链路巡检结果
-            const linkParams = new URLSearchParams();
-            if (roundId) linkParams.set('roundId', roundId);
-            if (network) linkParams.set('network', network);
-            allLinkResults = await get('/inspection/link-results' + (linkParams.toString() ? '?' + linkParams : ''));
-            filteredLinkResults = [...allLinkResults];
-        } else {
-            // 端口模式：并行加载巡检结果和带宽数据
-            const [inspectionData, bandwidthData] = await Promise.all([
-                get('/inspection/results' + (params.toString() ? '?' + params : '')),
-                get('/bandwidth/all').catch(() => [])
-            ]);
-
-            // 构建巡检索引 key=neId:slotNo:portNo（只取有有效slotNo/portNo的记录）
-            const inspectionMap = new Map();
-            for (const r of inspectionData) {
-                if (r.slotNo != null && r.portNo != null) {
-                    const key = r.neId + ':' + r.slotNo + ':' + r.portNo;
-                    inspectionMap.set(key, r);
-                }
-            }
-
-            // 以带宽数据为主，合并巡检数据
-            allResults = bandwidthData.map(bw => {
-                const key = bw.neId + ':' + bw.slotNo + ':' + bw.portNo;
-                const inspection = inspectionMap.get(key);
-                if (inspection) {
-                    return { ...inspection, bandwidth: bw };
-                }
-                // 无巡检记录的端口，用带宽数据填充基本信息
-                return {
-                    neId: bw.neId,
-                    neName: bw.neName,
-                    slotNo: bw.slotNo,
-                    portNo: bw.portNo,
-                    supported: false,
-                    bandwidth: bw
-                };
-            });
-        }
-
-        currentPage = 1;
-        expandedGroups = new Set();
-        updateTableHeader();
-        await loadWatchedPorts();
-        applyFilterAndSort();
-    } catch (e) { console.error('loadQueryResults', e); }
-}
-
-/** 更新表头（根据链路模式切换） */
+/** 渲染 3 行合并表头 */
 function updateTableHeader() {
     const thead = document.getElementById('queryTableHead');
     if (!thead) return;
 
-    while (thead.firstChild) {
-        thead.removeChild(thead.firstChild);
-    }
-
-    const tr = document.createElement('tr');
-
-    if (isLinkMode) {
-        const linkHeaders = [
-            { text: '序号', width: '50px' },
-            { text: '链路名称', minWidth: '150px' },
-            { lines: ['A端', '网元'] },
-            { lines: ['A端', '网元类型'] },
-            { text: 'A端口' },
-            { lines: ['光模块', '类型'] },
-            { lines: ['发光功率', '(dBm)'] },
-            { lines: ['收光功率', '(dBm)'] },
-            { lines: ['发光', '状态'] },
-            { lines: ['收光', '状态'] },
-            { lines: ['B1', '差错率'] },
-            { lines: ['总带宽', '(Mbps)'] },
-            { lines: ['已使用', '带宽(Mbps)'] },
-            { lines: ['带宽', '利用率'] },
-            { lines: ['Z端', '网元'] },
-            { lines: ['Z端', '网元类型'] },
-            { text: 'Z端口' },
-            { lines: ['光模块', '类型'] },
-            { lines: ['发光功率', '(dBm)'] },
-            { lines: ['收光功率', '(dBm)'] },
-            { lines: ['发光', '状态'] },
-            { lines: ['收光', '状态'] },
-            { lines: ['B1', '差错率'] },
-            { lines: ['总带宽', '(Mbps)'] },
-            { lines: ['已使用', '带宽(Mbps)'] },
-            { lines: ['带宽', '利用率'] }
-        ];
-        linkHeaders.forEach(function(h) {
+    thead.textContent = '';
+    HEADER_ROWS.forEach(cells => {
+        const tr = document.createElement('tr');
+        cells.forEach(h => {
             const th = document.createElement('th');
-            if (h.lines) {
-                h.lines.forEach(function(line, i) {
-                    if (i > 0) th.appendChild(document.createElement('br'));
-                    th.appendChild(document.createTextNode(line));
-                });
-            } else {
-                th.textContent = h.text;
-            }
+            if (h.rowspan) th.rowSpan = h.rowspan;
+            if (h.colspan) th.colSpan = h.colspan;
             if (h.width) th.style.width = h.width;
             if (h.minWidth) th.style.minWidth = h.minWidth;
+            const lines = h.text.split('\n');
+            lines.forEach((line, i) => {
+                if (i > 0) th.appendChild(document.createElement('br'));
+                th.appendChild(document.createTextNode(line));
+            });
             tr.appendChild(th);
         });
-    } else {
-        var portHeaders = [
-            { text: '网元名 ⇅', sortable: true, field: 'neName' },
-            { text: '关注', width: '36px', align: 'center' },
-            { text: '槽位 ⇅', sortable: true, field: 'slotNo' },
-            { text: '端口 ⇅', sortable: true, field: 'portNo' },
-            { text: '端口名称 ⇅', sortable: true, field: 'portName' },
-            { text: '波长 ⇅', sortable: true, field: 'laserWave' },
-            { lines: ['激光器', '类型 ⇅'], sortable: true, field: 'moduleTypeKey' },
-            { lines: ['激光器', '状态'] },
-            { text: '生产厂商 ⇅', sortable: true, field: 'vendorName' },
-            { lines: ['发送功率', '(dBm) ⇅'], sortable: true, field: 'txPower' },
-            { lines: ['接收功率', '(dBm) ⇅'], sortable: true, field: 'rxPower' },
-            { text: '状态' },
-            { lines: ['带宽', '利用率'] },
-            { lines: ['门限', '(发送)'] },
-            { lines: ['门限', '(接收)'] },
-            { text: '巡检时间 ⇅', sortable: true, field: 'inspectionTime' }
-        ];
-        portHeaders.forEach(function(h) {
-            const th = document.createElement('th');
-            if (h.lines) {
-                h.lines.forEach(function(line, i) {
-                    if (i > 0) th.appendChild(document.createElement('br'));
-                    th.appendChild(document.createTextNode(line));
-                });
-            } else {
-                th.textContent = h.text;
-            }
-            if (h.width) th.style.width = h.width;
-            if (h.align) th.style.textAlign = h.align;
-            if (h.sortable) {
-                th.style.cursor = 'pointer';
-                th.onclick = function() { sortQueryBy(h.field); };
-            }
-            tr.appendChild(th);
-        });
-    }
-
-    thead.appendChild(tr);
-}
-
-/** 应用筛选和排序 */
-function applyFilterAndSort() {
-    if (isLinkMode) {
-        applyLinkFilterAndSort();
-        return;
-    }
-
-    const statusFilter = document.getElementById('queryStatus').value;
-    const showInvalid = document.getElementById('queryShowInvalid').checked;
-    const watchedOnly = document.getElementById('queryWatchedOnly').checked;
-
-    filteredResults = allResults.filter(r => {
-        // 显示无效记录开关（有带宽数据的记录始终显示）
-        const hasBandwidth = r.bandwidth && r.bandwidth.hasBandwidth;
-        if (!showInvalid && !r.supported && !hasBandwidth) return false;
-
-        // 仅关注
-        if (watchedOnly && !isWatched(r)) return false;
-
-        if (statusFilter !== '' && !hasBandwidth) {
-            if (statusFilter === '-1') {
-                if (r.supported) return false;
-            } else {
-                if (!r.supported) return false;
-                const st = parseInt(statusFilter);
-                if (r.txPowerStatus !== st && r.rxPowerStatus !== st) return false;
-            }
-        }
-        if (searchText) {
-            const text = searchText.toLowerCase();
-            const match = (r.neName || '').toLowerCase().includes(text) ||
-                         (r.neId || '').toLowerCase().includes(text) ||
-                         (r.portName || '').toLowerCase().includes(text) ||
-                         (r.laserWave || '').toLowerCase().includes(text) ||
-                         (r.moduleTypeKey || '').toLowerCase().includes(text) ||
-                         (r.slotNo != null && String(r.slotNo).includes(text)) ||
-                         (r.portNo != null && String(r.portNo).includes(text));
-            if (!match) return false;
-        }
-        return true;
+        thead.appendChild(tr);
     });
-
-    // 排序：先按网元名分组排序，组内按槽位+端口号排序
-    if (sortField) {
-        if (sortField === 'neName') {
-            filteredResults.sort((a, b) => {
-                let va = a.neName || ''; let vb = b.neName || '';
-                va = va.toLowerCase(); vb = vb.toLowerCase();
-                if (va < vb) return sortOrder === 'asc' ? -1 : 1;
-                if (va > vb) return sortOrder === 'asc' ? 1 : -1;
-                return 0;
-            });
-        } else {
-            const grouped = groupByNe(filteredResults);
-            filteredResults = [];
-            const groups = [...grouped.values()].sort((a, b) => {
-                let va = a[0].neName || ''; let vb = b[0].neName || '';
-                va = va.toLowerCase(); vb = vb.toLowerCase();
-                if (va < vb) return -1; if (va > vb) return 1; return 0;
-            });
-            for (const group of groups) {
-                group.sort((a, b) => {
-                    let va = a[sortField]; let vb = b[sortField];
-                    if (va == null) va = ''; if (vb == null) vb = '';
-                    if (typeof va === 'number' && typeof vb === 'number') {
-                        return sortOrder === 'asc' ? va - vb : vb - va;
-                    }
-                    if (typeof va === 'string') va = va.toLowerCase();
-                    if (typeof vb === 'string') vb = vb.toLowerCase();
-                    if (va < vb) return sortOrder === 'asc' ? -1 : 1;
-                    if (va > vb) return sortOrder === 'asc' ? 1 : -1;
-                    return 0;
-                });
-                filteredResults.push(...group);
-            }
-        }
-    }
-
-    // 默认按网元名排序（无排序字段时）
-    if (!sortField) {
-        filteredResults.sort((a, b) => {
-            let va = a.neName || ''; let vb = b.neName || '';
-            va = va.toLowerCase(); vb = vb.toLowerCase();
-            if (va < vb) return -1; if (va > vb) return 1;
-            return (a.slotNo || 0) - (b.slotNo || 0) || (a.portNo || 0) - (b.portNo || 0);
-        });
-    }
-
-    renderQueryTable();
 }
 
-/** 链路模式：应用筛选和排序 */
-function applyLinkFilterAndSort() {
-    filteredLinkResults = allLinkResults.filter(r => {
-        if (searchText) {
-            const text = searchText.toLowerCase();
-            const match = (r.linkName || '').toLowerCase().includes(text) ||
-                         (r.aNeName || '').toLowerCase().includes(text) ||
-                         (r.aPortName || '').toLowerCase().includes(text) ||
-                         (r.zNeName || '').toLowerCase().includes(text) ||
-                         (r.zPortName || '').toLowerCase().includes(text);
-            if (!match) return false;
-        }
-        return true;
-    });
+/** 加载查询结果（链路口径） */
+export async function loadQueryResults() {
+    const roundId = document.getElementById('queryRound').value;
+    const network = document.getElementById('queryNetwork').value.trim();
+    const params = new URLSearchParams();
+    if (roundId) params.set('roundId', roundId);
+    if (network) params.set('network', network);
 
-    // 默认按序号排序
-    filteredLinkResults.sort((a, b) => (a.seqNo || 0) - (b.seqNo || 0));
-
-    renderLinkQueryTable();
+    try {
+        allLinkResults = await get('/inspection/link-results' + (params.toString() ? '?' + params : ''));
+        allLinkResults.sort((a, b) => (a.seqNo || 0) - (b.seqNo || 0));
+        currentPage = 1;
+        updateTableHeader();
+        applyFilterAndSort();
+    } catch (e) { console.error('loadQueryResults', e); }
 }
 
-/** 按网元分组 */
-function groupByNe(results) {
-    const map = new Map();
-    for (const r of results) {
-        const key = r.neId || 'unknown';
-        if (!map.has(key)) map.set(key, []);
-        map.get(key).push(r);
-    }
-    return map;
-}
-
-/** 搜索文本 */
+/** 文本搜索 */
 export function searchQuery(text) {
     searchText = text.trim();
     currentPage = 1;
     applyFilterAndSort();
 }
 
-/** 切换排序字段 */
-export function sortQueryBy(field) {
-    if (sortField === field) {
-        sortOrder = sortOrder === 'asc' ? 'desc' : 'asc';
-    } else {
-        sortField = field;
-        sortOrder = 'asc';
-    }
-    applyFilterAndSort();
+/** 应用筛选（链路名称 / 网元名 / 端口名 / 网元筛选框） */
+function applyFilterAndSort() {
+    const neFilter = (document.getElementById('queryNe').value || '').trim().toLowerCase();
+    filteredLinkResults = allLinkResults.filter(r => {
+        if (neFilter) {
+            const hitNe = [r.aNeName, r.zNeName, r.aNeId, r.zNeId]
+                .some(v => v && v.toLowerCase().includes(neFilter));
+            if (!hitNe) return false;
+        }
+        if (searchText) {
+            const text = searchText.toLowerCase();
+            return [r.linkName, r.aNeName, r.aPortName, r.zNeName, r.zPortName]
+                .some(v => v && v.toLowerCase().includes(text));
+        }
+        return true;
+    });
+    renderLinkQueryTable();
 }
 
-/** 获取端口状态（正常/劣化/过载/无效） */
-function getPortStatus(r) {
-    const hasBw = r.bandwidth && r.bandwidth.hasBandwidth;
-    if (!r.supported && !hasBw) return { text: '无效', cls: 'badge-offline' };
-    if (!r.supported && hasBw) return { text: '仅带宽', cls: 'badge-bandwidth' };
-    if (r.txPowerStatus > 0 || r.rxPowerStatus > 0) {
-        const isOver = (r.txPowerStatus === 2 || r.rxPowerStatus === 2);
-        return { text: isOver ? '过载' : '劣化', cls: 'badge-failed' };
-    }
-    return { text: '正常', cls: 'badge-online' };
-}
-
-/** 获取链路端口状态 */
-function getLinkPortStatus(txStatus, rxStatus) {
-    if (txStatus === '越上限' || rxStatus === '越上限') return { text: '过载', cls: 'badge-failed' };
-    if (txStatus === '越下限' || rxStatus === '越下限') return { text: '劣化', cls: 'badge-failed' };
-    if (txStatus === '未知' && rxStatus === '未知') return { text: '无效', cls: 'badge-offline' };
-    return { text: '正常', cls: 'badge-online' };
+/** 渲染单端 12 列 */
+function appendSide(row, r, prefix) {
+    row.appendChild(createTextCell(r[prefix + 'NeName'] || '-'));
+    row.appendChild(createTextCell(r[prefix + 'NeTypeName'] || '-'));
+    row.appendChild(createTextCell(r[prefix + 'PortName'] || '-'));
+    row.appendChild(createTextCell(r[prefix + 'ModuleType'] || '--'));
+    row.appendChild(powerCell(r[prefix + 'TxPower'], r[prefix + 'TxStatus']));
+    row.appendChild(powerCell(r[prefix + 'RxPower'], r[prefix + 'RxStatus']));
+    row.appendChild(statusCell(r[prefix + 'TxStatus']));
+    row.appendChild(statusCell(r[prefix + 'RxStatus']));
+    row.appendChild(numberCell(r[prefix + 'RsErrorSec']));
+    row.appendChild(numberCell(r[prefix + 'TotalBandwidth']));
+    row.appendChild(numberCell(r[prefix + 'UsedBandwidth']));
+    row.appendChild(usageCell(r[prefix + 'BandwidthUsage']));
 }
 
 /** 渲染链路查询结果表格 */
@@ -480,19 +241,17 @@ function renderLinkQueryTable() {
     document.getElementById('queryCount').textContent =
         '筛选结果：' + filteredLinkResults.length + ' / ' + allLinkResults.length + ' 条';
 
-    if (!filteredLinkResults || filteredLinkResults.length === 0) {
+    if (filteredLinkResults.length === 0) {
         const tr = document.createElement('tr');
         const td = document.createElement('td');
         td.colSpan = 26;
-        td.style.cssText = 'text-align:center;padding:40px 0;color:#9ca3af;';
-        td.textContent = '暂无链路巡检数据';
-        tr.appendChild(td);
-        tbody.appendChild(tr);
-        renderPagination(filteredLinkResults.length);
+        td.className = 'empty';
+        td.textContent = '暂无链路巡检数据，请先执行一次巡检，完成后在此查看结果';
+        tr.appendChild(td); tbody.appendChild(tr);
+        renderPagination(0);
         return;
     }
 
-    // 分页
     const total = filteredLinkResults.length;
     const totalPages = Math.ceil(total / pageSize);
     if (currentPage > totalPages) currentPage = totalPages;
@@ -501,95 +260,20 @@ function renderLinkQueryTable() {
 
     pageData.forEach(r => {
         const tr = document.createElement('tr');
-        tr.style.cssText = 'cursor:default;';
-
-        // 序号
         tr.appendChild(createTextCell(r.seqNo || ''));
-
-        // 链路名称
         const linkTd = document.createElement('td');
         linkTd.textContent = r.linkName || '-';
-        linkTd.style.cssText = 'font-weight:500;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
         linkTd.title = r.linkName || '';
         tr.appendChild(linkTd);
-
-        // A端信息
-        tr.appendChild(createTextCell(r.aNeName || '-'));
-        tr.appendChild(createTextCell(r.aNeTypeName || '-'));
-        tr.appendChild(createTextCell(r.aPortName || '-'));
-        tr.appendChild(createTextCell(r.aModuleType || '--'));
-
-        // A端功率
-        const aTxTd = document.createElement('td');
-        aTxTd.textContent = r.aTxPower != null ? r.aTxPower.toFixed(1) : '--';
-        if (r.aTxStatus !== '正常' && r.aTxStatus !== '--') aTxTd.style.color = '#dc2626';
-        tr.appendChild(aTxTd);
-
-        const aRxTd = document.createElement('td');
-        aRxTd.textContent = r.aRxPower != null ? r.aRxPower.toFixed(1) : '--';
-        if (r.aRxStatus !== '正常' && r.aRxStatus !== '--') aRxTd.style.color = '#dc2626';
-        tr.appendChild(aRxTd);
-
-        // A端发光状态
-        const aTxStatusTd = document.createElement('td');
-        aTxStatusTd.textContent = r.aTxStatus || '--';
-        if (r.aTxStatus && r.aTxStatus !== '正常') aTxStatusTd.style.color = '#dc2626';
-        tr.appendChild(aTxStatusTd);
-
-        // A端收光状态
-        const aRxStatusTd = document.createElement('td');
-        aRxStatusTd.textContent = r.aRxStatus || '--';
-        if (r.aRxStatus && r.aRxStatus !== '正常') aRxStatusTd.style.color = '#dc2626';
-        tr.appendChild(aRxStatusTd);
-
-        // A端B1差错率、带宽数据
-        tr.appendChild(createTextCell(r.aB1Error || '--'));
-        tr.appendChild(createTextCell(r.aTotalBandwidth != null ? r.aTotalBandwidth : '--'));
-        tr.appendChild(createTextCell(r.aUsedBandwidth != null ? r.aUsedBandwidth : '--'));
-        tr.appendChild(createTextCell(r.aBandwidthUsage != null ? r.aBandwidthUsage.toFixed(2) + '%' : '--'));
-
-        // Z端信息
-        tr.appendChild(createTextCell(r.zNeName || '-'));
-        tr.appendChild(createTextCell(r.zNeTypeName || '-'));
-        tr.appendChild(createTextCell(r.zPortName || '-'));
-        tr.appendChild(createTextCell(r.zModuleType || '--'));
-
-        // Z端功率
-        const zTxTd = document.createElement('td');
-        zTxTd.textContent = r.zTxPower != null ? r.zTxPower.toFixed(1) : '--';
-        if (r.zTxStatus !== '正常' && r.zTxStatus !== '--') zTxTd.style.color = '#dc2626';
-        tr.appendChild(zTxTd);
-
-        const zRxTd = document.createElement('td');
-        zRxTd.textContent = r.zRxPower != null ? r.zRxPower.toFixed(1) : '--';
-        if (r.zRxStatus !== '正常' && r.zRxStatus !== '--') zRxTd.style.color = '#dc2626';
-        tr.appendChild(zRxTd);
-
-        // Z端发光状态
-        const zTxStatusTd = document.createElement('td');
-        zTxStatusTd.textContent = r.zTxStatus || '--';
-        if (r.zTxStatus && r.zTxStatus !== '正常') zTxStatusTd.style.color = '#dc2626';
-        tr.appendChild(zTxStatusTd);
-
-        // Z端收光状态
-        const zRxStatusTd = document.createElement('td');
-        zRxStatusTd.textContent = r.zRxStatus || '--';
-        if (r.zRxStatus && r.zRxStatus !== '正常') zRxStatusTd.style.color = '#dc2626';
-        tr.appendChild(zRxStatusTd);
-
-        // Z端B1差错率、带宽数据
-        tr.appendChild(createTextCell(r.zB1Error || '--'));
-        tr.appendChild(createTextCell(r.zTotalBandwidth != null ? r.zTotalBandwidth : '--'));
-        tr.appendChild(createTextCell(r.zUsedBandwidth != null ? r.zUsedBandwidth : '--'));
-        tr.appendChild(createTextCell(r.zBandwidthUsage != null ? r.zBandwidthUsage.toFixed(2) + '%' : '--'));
-
+        appendSide(tr, r, 'a');
+        appendSide(tr, r, 'z');
         tbody.appendChild(tr);
     });
 
     renderPagination(total);
 }
 
-/** 渲染分页控件（链路模式） */
+/** 渲染分页控件 */
 function renderPagination(total) {
     const containers = [
         document.getElementById('queryPaginationTop'),
@@ -616,9 +300,9 @@ function renderPagination(total) {
             sizeSelect.appendChild(opt);
         });
         sizeSelect.onchange = () => {
-            pageSize = parseInt(sizeSelect.value);
+            pageSize = parseInt(sizeSelect.value, 10);
             currentPage = 1;
-            renderCurrentTable();
+            renderLinkQueryTable();
         };
         container.appendChild(sizeSelect);
 
@@ -633,7 +317,7 @@ function renderPagination(total) {
         prevBtn.className = 'btn btn-outline btn-sm';
         prevBtn.textContent = '上一页';
         prevBtn.disabled = currentPage <= 1;
-        prevBtn.onclick = () => { currentPage--; renderCurrentTable(); };
+        prevBtn.onclick = () => { currentPage--; renderLinkQueryTable(); };
         container.appendChild(prevBtn);
 
         // 下一页
@@ -641,777 +325,17 @@ function renderPagination(total) {
         nextBtn.className = 'btn btn-outline btn-sm';
         nextBtn.textContent = '下一页';
         nextBtn.disabled = currentPage >= totalPages;
-        nextBtn.onclick = () => { currentPage++; renderCurrentTable(); };
+        nextBtn.onclick = () => { currentPage++; renderLinkQueryTable(); };
         container.appendChild(nextBtn);
     });
 }
 
-/** 渲染查询结果表格（按网元分组，可展开收缩） */
-function renderQueryTable() {
-    const tbody = document.getElementById('queryTable');
-    tbody.textContent = '';
-    document.getElementById('queryCount').textContent =
-        '筛选结果：' + filteredResults.length + ' / ' + allResults.length + ' 条';
-
-    if (!filteredResults || filteredResults.length === 0) {
-        const tr = document.createElement('tr');
-        const td = document.createElement('td');
-        td.colSpan = 16; td.className = 'empty'; td.textContent = '暂无巡检数据，请先执行一次巡检，完成后在此查看结果';
-        tr.appendChild(td); tbody.appendChild(tr);
-        renderQueryPagination(0);
-        return;
-    }
-
-    // 按网元分组
-    const groups = groupByNe(filteredResults);
-    const groupEntries = [...groups.entries()];
-
-    // 分页：按网元组分页
-    const totalGroups = groupEntries.length;
-    const totalGroupPages = Math.ceil(totalGroups / pageSize);
-    if (currentPage > totalGroupPages) currentPage = totalGroupPages;
-    const start = (currentPage - 1) * pageSize;
-    const end = Math.min(start + pageSize, totalGroups);
-    const pageGroups = groupEntries.slice(start, end);
-
-    pageGroups.forEach(([neId, ports]) => {
-        const first = ports[0];
-        const expanded = expandedGroups.has(neId);
-
-        // 统计该网元下的端口状态
-        let normal = 0, abnormal = 0, invalid = 0, bwOnly = 0;
-        let bwSum = 0, bwCount = 0, bwMax = 0;
-        for (const p of ports) {
-            const hasBw = p.bandwidth && p.bandwidth.hasBandwidth;
-            if (!p.supported && !hasBw) { invalid++; continue; }
-            if (!p.supported && hasBw) { bwOnly++; }
-            else if (p.txPowerStatus > 0 || p.rxPowerStatus > 0) { abnormal++; }
-            else { normal++; }
-            if (hasBw && p.bandwidth.usageRate != null) {
-                bwSum += p.bandwidth.usageRate;
-                bwCount++;
-                if (p.bandwidth.usageRate > bwMax) bwMax = p.bandwidth.usageRate;
-            }
-        }
-
-        // === 网元汇总行 ===
-        const groupTr = document.createElement('tr');
-        groupTr.style.cssText = 'background:#f8fafc;cursor:pointer;font-weight:600;';
-
-        // 展开图标
-        const arrowTd = document.createElement('td');
-        arrowTd.style.cssText = 'width:30px;text-align:center;color:#6b7280;';
-        arrowTd.textContent = expanded ? '▼' : '▶';
-        groupTr.appendChild(arrowTd);
-
-        // 关注列占位
-        groupTr.appendChild(createTextCell(''));
-
-        // 网元名 + 端口数
-        const nameTd = document.createElement('td');
-        nameTd.colSpan = 3;
-        nameTd.textContent = (first.neName || '-') + '（' + ports.length + ' 个端口）';
-        groupTr.appendChild(nameTd);
-
-        // 状态摘要
-        const statusTd = document.createElement('td');
-        statusTd.colSpan = 2;
-        statusTd.style.cssText = 'font-size:12px;font-weight:400;color:#6b7280;';
-        if (normal > 0) {
-            const s = document.createElement('span');
-            s.textContent = '正常 ' + normal;
-            statusTd.appendChild(s);
-        }
-        if (abnormal > 0) {
-            if (statusTd.childNodes.length > 0) statusTd.appendChild(document.createTextNode(' / '));
-            const s = document.createElement('span');
-            s.style.color = '#dc2626';
-            s.textContent = '异常 ' + abnormal;
-            statusTd.appendChild(s);
-        }
-        if (bwOnly > 0) {
-            if (statusTd.childNodes.length > 0) statusTd.appendChild(document.createTextNode(' / '));
-            const s = document.createElement('span');
-            s.style.color = '#1a73e8';
-            s.textContent = '仅带宽 ' + bwOnly;
-            statusTd.appendChild(s);
-        }
-        if (invalid > 0) {
-            if (statusTd.childNodes.length > 0) statusTd.appendChild(document.createTextNode(' / '));
-            const s = document.createElement('span');
-            s.textContent = '无效 ' + invalid;
-            statusTd.appendChild(s);
-        }
-        if (statusTd.childNodes.length === 0) statusTd.textContent = '-';
-        groupTr.appendChild(statusTd);
-
-        // 空列占位（laserState, vendorName, txPower, rxPower, status）
-        groupTr.appendChild(createTextCell(''));
-        groupTr.appendChild(createTextCell(''));
-        groupTr.appendChild(createTextCell(''));
-        groupTr.appendChild(createTextCell(''));
-        groupTr.appendChild(createTextCell(''));
-
-        // 带宽利用率汇总
-        const bwTd = document.createElement('td');
-        bwTd.style.cssText = 'font-size:12px;font-weight:400;color:#6b7280;';
-        if (bwCount > 0) {
-            const avg = (bwSum / bwCount).toFixed(1);
-            bwTd.textContent = '均 ' + avg + '% / 峰 ' + bwMax.toFixed(1) + '%';
-            if (bwMax >= 90) bwTd.style.color = '#dc2626';
-            else if (bwMax >= 70) bwTd.style.color = '#f59e0b';
-        } else {
-            bwTd.textContent = '-';
-        }
-        groupTr.appendChild(bwTd);
-
-        groupTr.appendChild(createTextCell(''));
-        groupTr.appendChild(createTextCell(''));
-
-        // 巡检时间
-        groupTr.appendChild(createTextCell(formatTime(first.inspectionTime)));
-
-        groupTr.onclick = () => toggleGroup(neId);
-        tbody.appendChild(groupTr);
-
-        // === 端口子行 ===
-        if (expanded) {
-            ports.forEach(r => {
-                const tr = document.createElement('tr');
-                tr.style.cssText = 'background:#ffffff;';
-
-                // 缩进占位
-                const indentTd = document.createElement('td');
-                indentTd.style.cssText = 'width:30px;';
-                tr.appendChild(indentTd);
-
-                // 关注星标
-                const starTd = document.createElement('td');
-                starTd.style.cssText = 'width:24px;text-align:center;cursor:pointer;font-size:14px;';
-                starTd.textContent = isWatched(r) ? '★' : '☆';
-                starTd.style.color = isWatched(r) ? '#f59e0b' : '#d1d5db';
-                starTd.onclick = (e) => { e.stopPropagation(); togglePortWatched(r); };
-                starTd.title = isWatched(r) ? '取消关注' : '关注此端口';
-                tr.appendChild(starTd);
-
-                tr.appendChild(createTextCell(r.slotNo != null ? String(r.slotNo) : '-'));
-                tr.appendChild(createTextCell(r.portNo != null ? String(r.portNo) : '-'));
-                tr.appendChild(createTextCell(r.portName || '-'));
-
-                // 纯带宽端口：显示带宽详情；否则显示光功率信息
-                const hasBw = r.bandwidth && r.bandwidth.hasBandwidth;
-                if (!r.supported && hasBw) {
-                    // 波长列 → 总容量
-                    tr.appendChild(createTextCell(formatCapacity(r.bandwidth.capacity)));
-                    // 激光器类型列 → 通道使用摘要
-                    tr.appendChild(createTextCell(formatChannelSummary(r.bandwidth)));
-                    // 激光器状态 → 空
-                    tr.appendChild(createTextCell('--'));
-                    // 生产厂商 → 空
-                    tr.appendChild(createTextCell('--'));
-                    // 发送功率 → 已用/总量
-                    tr.appendChild(createTextCell(formatUsedCapacity(r.bandwidth.used, r.bandwidth.capacity)));
-                    // 接收功率 → 空
-                    tr.appendChild(createTextCell('--'));
-                } else {
-                    tr.appendChild(createTextCell(r.laserWave || '-'));
-                    tr.appendChild(createTextCell(r.moduleTypeKey || '-'));
-
-                    // 激光器状态
-                    const lsTd = document.createElement('td');
-                    const lsText = r.laserState === 1 ? '开' : r.laserState === 2 ? '关' : '--';
-                    lsTd.textContent = lsText;
-                    if (r.laserState === 2) lsTd.style.color = '#dc2626';
-                    tr.appendChild(lsTd);
-
-                    tr.appendChild(createTextCell(r.vendorName || '--'));
-
-                    // 发送功率
-                    const txTd = document.createElement('td');
-                    if (r.supported && r.txPower != null) {
-                        txTd.textContent = r.txPower.toFixed(1);
-                        if (r.txPowerStatus > 0) txTd.style.color = '#dc2626';
-                    } else {
-                        txTd.textContent = '--';
-                        txTd.style.color = '#9ca3af';
-                    }
-                    tr.appendChild(txTd);
-
-                    // 接收功率
-                    const rxTd = document.createElement('td');
-                    if (r.supported && r.rxPower != null) {
-                        rxTd.textContent = r.rxPower.toFixed(1);
-                        if (r.rxPowerStatus > 0) rxTd.style.color = '#dc2626';
-                    } else {
-                        rxTd.textContent = '--';
-                        rxTd.style.color = '#9ca3af';
-                    }
-                    tr.appendChild(rxTd);
-                }
-
-                // 状态
-                const stTd = document.createElement('td');
-                const status = getPortStatus(r);
-                const badge = document.createElement('span');
-                badge.className = 'badge ' + status.cls;
-                badge.textContent = status.text;
-                stTd.appendChild(badge);
-                tr.appendChild(stTd);
-
-                // 带宽利用率
-                const bwTd = document.createElement('td');
-                if (r.bandwidth && r.bandwidth.hasBandwidth) {
-                    const rate = r.bandwidth.usageRate || 0;
-                    const rateText = rate.toFixed(1) + '%';
-                    // 进度条容器
-                    const barWrap = document.createElement('div');
-                    barWrap.style.cssText = 'display:flex;align-items:center;gap:6px;min-width:120px;';
-                    const barOuter = document.createElement('div');
-                    barOuter.style.cssText = 'flex:1;height:6px;background:#e5e7eb;border-radius:3px;overflow:hidden;min-width:60px;';
-                    const barInner = document.createElement('div');
-                    barInner.style.cssText = 'height:100%;border-radius:3px;transition:width .3s;';
-                    if (rate >= 90) barInner.style.background = '#dc2626';
-                    else if (rate >= 70) barInner.style.background = '#f59e0b';
-                    else barInner.style.background = '#22c55e';
-                    barInner.style.width = Math.min(rate, 100) + '%';
-                    barOuter.appendChild(barInner);
-                    const rateSpan = document.createElement('span');
-                    rateSpan.style.cssText = 'font-size:12px;white-space:nowrap;min-width:42px;text-align:right;';
-                    rateSpan.textContent = rateText;
-                    if (rate >= 90) rateSpan.style.color = '#dc2626';
-                    else if (rate >= 70) rateSpan.style.color = '#f59e0b';
-                    barWrap.appendChild(barOuter);
-                    barWrap.appendChild(rateSpan);
-                    bwTd.appendChild(barWrap);
-                } else {
-                    bwTd.textContent = '--';
-                    bwTd.style.color = '#9ca3af';
-                }
-                tr.appendChild(bwTd);
-
-                tr.appendChild(createTextCell(r.txLowThreshold != null ? r.txLowThreshold + '~' + r.txHighThreshold : '-'));
-                tr.appendChild(createTextCell(r.lowThreshold != null ? r.lowThreshold + '~' + r.highThreshold : '-'));
-                tr.appendChild(createTextCell(formatTime(r.inspectionTime)));
-                tbody.appendChild(tr);
-            });
-        }
-    });
-
-    renderQueryPagination(totalGroups);
-}
-
-/** 切换网元组展开/收缩 */
-function toggleGroup(neId) {
-    if (expandedGroups.has(neId)) {
-        expandedGroups.delete(neId);
-    } else {
-        expandedGroups.add(neId);
-    }
-    renderQueryTable();
-}
-
-/** 全部展开 */
-export function expandAll() {
-    const groups = groupByNe(filteredResults);
-    for (const neId of groups.keys()) expandedGroups.add(neId);
-    renderCurrentTable();
-}
-
-/** 全部收缩 */
-export function collapseAll() {
-    expandedGroups.clear();
-    renderCurrentTable();
-}
-
-/** 渲染分页控件 */
-function renderQueryPagination(totalGroups) {
-    const containers = [
-        document.getElementById('queryPaginationTop'),
-        document.getElementById('queryPagination')
-    ].filter(Boolean);
-
-    const totalGroupPages = Math.ceil(totalGroups / pageSize);
-    const showPagination = totalGroupPages > 1;
-
-    containers.forEach(container => {
-        container.textContent = '';
-        container.style.display = showPagination ? 'flex' : 'none';
-
-        if (!showPagination) return;
-
-        // 每页条数选择
-        const sizeSelect = document.createElement('select');
-        sizeSelect.style.cssText = 'padding:4px 8px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;margin-right:12px;';
-        [10, 20, 50, 100].forEach(size => {
-            const opt = document.createElement('option');
-            opt.value = size;
-            opt.textContent = size + '组/页';
-            if (size === pageSize) opt.selected = true;
-            sizeSelect.appendChild(opt);
-        });
-        sizeSelect.onchange = () => {
-            pageSize = parseInt(sizeSelect.value);
-            currentPage = 1;
-            renderCurrentTable();
-        };
-        container.appendChild(sizeSelect);
-
-        // 页码信息
-        const info = document.createElement('span');
-        info.style.cssText = 'font-size:12px;color:#6b7280;line-height:28px;margin-right:12px;';
-        info.textContent = '第 ' + currentPage + '/' + totalGroupPages + ' 页，共 ' + totalGroups + ' 个网元';
-        container.appendChild(info);
-
-        // 上一页
-        const prevBtn = document.createElement('button');
-        prevBtn.className = 'btn btn-outline btn-sm';
-        prevBtn.textContent = '上一页';
-        prevBtn.disabled = currentPage <= 1;
-        prevBtn.onclick = () => { currentPage--; renderCurrentTable(); };
-        container.appendChild(prevBtn);
-
-        // 下一页
-        const nextBtn = document.createElement('button');
-        nextBtn.className = 'btn btn-outline btn-sm';
-        nextBtn.textContent = '下一页';
-        nextBtn.disabled = currentPage >= totalGroupPages;
-        nextBtn.onclick = () => { currentPage++; renderCurrentTable(); };
-        container.appendChild(nextBtn);
-    });
-}
-
-/** 根据当前模式渲染表格 */
-function renderCurrentTable() {
-    if (isLinkMode) {
-        renderLinkQueryTable();
-    } else {
-        renderQueryTable();
-    }
-}
-
-/** 导出Excel */
+/** 导出 Excel（链路口径） */
 export function exportExcel() {
     const roundId = document.getElementById('queryRound').value;
     const network = document.getElementById('queryNetwork').value.trim();
     const params = new URLSearchParams();
     if (roundId) params.set('roundId', roundId);
     if (network) params.set('network', network);
-
-    if (isLinkMode) {
-        // 链路模式导出
-        window.open(API + '/inspection/export-link' + (params.toString() ? '?' + params : ''), '_blank');
-    } else {
-        // 端口模式导出
-        const showInvalid = document.getElementById('queryShowInvalid').checked;
-        params.set('showInvalid', showInvalid);
-        window.open(API + '/inspection/export' + (params.toString() ? '?' + params : ''), '_blank');
-    }
-}
-
-// ========== 趋势分析 ==========
-
-let trendChart = null;
-let trendData = null;
-let trendChartMode = 'rx';
-let trendAllDevices = [];
-let trendAllPorts = [];
-
-/** 级联：网络变化 → 刷新网元列表 */
-function populateTrendNeList(network) {
-    const filtered = network
-        ? trendAllDevices.filter(d => d.networkName === network)
-        : trendAllDevices;
-    const neSel = document.getElementById('trendNe');
-    neSel.innerHTML = '<option value="">全部网元</option>';
-    filtered.forEach(d => {
-        const o = document.createElement('option');
-        o.value = d.neId; o.textContent = d.neName || d.neId;
-        neSel.appendChild(o);
-    });
-    // 网元变化后清空端口
-    populateTrendPortList('');
-}
-
-/** 级联：网元变化 → 刷新端口列表 */
-function populateTrendPortList(neId) {
-    const filtered = neId
-        ? trendAllPorts.filter(p => p.neId === neId)
-        : trendAllPorts;
-    const portSel = document.getElementById('trendPort');
-    portSel.innerHTML = '<option value="">请选择端口</option>';
-    const seen = new Set();
-    filtered.forEach(p => {
-        const key = p.neId + ':' + p.portName;
-        if (seen.has(key)) return;
-        seen.add(key);
-        const o = document.createElement('option');
-        o.value = p.portName;
-        // 显示网元名+端口名让用户看清楚
-        const ne = trendAllDevices.find(d => d.neId === p.neId);
-        o.textContent = (ne ? ne.neName : p.neId) + ' / ' + p.portName;
-        portSel.appendChild(o);
-    });
-}
-
-window.onTrendNetworkChange = function() {
-    populateTrendNeList(document.getElementById('trendNetwork').value);
-};
-window.onTrendNeChange = function() {
-    populateTrendPortList(document.getElementById('trendNe').value);
-};
-
-/** 打开趋势分析弹窗 */
-export async function openTrendModal() {
-    document.getElementById('trendModal').classList.remove('hidden');
-    document.getElementById('trendTableWrap').textContent = '';
-    document.getElementById('trendSummary').textContent = '';
-    trendData = null;
-    if (trendChart) { trendChart.dispose(); trendChart = null; }
-
-    // 加载轮次列表
-    const rounds = await get('/inspection/rounds');
-    const list = document.getElementById('trendRoundList');
-    list.textContent = '';
-    rounds.forEach(r => {
-        const label = document.createElement('label');
-        label.style.cssText = 'display:flex;align-items:center;gap:6px;padding:3px 0;cursor:pointer;color:var(--text,#374151);';
-        const cb = document.createElement('input');
-        cb.type = 'checkbox';
-        cb.className = 'trend-round-cb';
-        cb.value = r.id;
-        // 默认选中最近5个
-        const span = document.createElement('span');
-        span.textContent = '#' + r.id + ' ' + formatTime(r.startTime);
-        label.appendChild(cb);
-        label.appendChild(span);
-        list.appendChild(label);
-    });
-    // 默认选中最近5个
-    const cbs = list.querySelectorAll('.trend-round-cb');
-    const selectCount = Math.min(5, cbs.length);
-    for (let i = 0; i < selectCount; i++) cbs[i].checked = true;
-
-    // 加载设备和端口数据，构建级联筛选
-    try {
-        const [devices, portList] = await Promise.all([
-            get('/connection/status'),
-            get('/inspection/port-names')
-        ]);
-        // 存储全量数据
-        trendAllDevices = devices;
-        trendAllPorts = portList; // [{neId, portName}]
-
-        // 提取去重网络列表
-        const networkSet = new Set(devices.map(d => d.networkName).filter(Boolean));
-        const netSel = document.getElementById('trendNetwork');
-        netSel.innerHTML = '<option value="">全部网络</option>';
-        [...networkSet].sort().forEach(n => {
-            const o = document.createElement('option'); o.value = n; o.textContent = n;
-            netSel.appendChild(o);
-        });
-        // 初始化网元和端口
-        populateTrendNeList('');
-    } catch (e) { console.error('loadTrendFilters', e); }
-
-    setTimeout(() => { if (trendChart) trendChart.resize(); }, 200);
-}
-
-/** 关闭趋势弹窗 */
-export function closeTrendModal() {
-    document.getElementById('trendModal').classList.add('hidden');
-    if (trendChart) { trendChart.dispose(); trendChart = null; }
-}
-
-/** 全选轮次 */
-export function trendSelectAllRounds() {
-    document.querySelectorAll('.trend-round-cb').forEach(cb => cb.checked = true);
-}
-/** 清空轮次 */
-export function trendDeselectAllRounds() {
-    document.querySelectorAll('.trend-round-cb').forEach(cb => cb.checked = false);
-}
-
-/** 执行趋势查询 */
-export async function runTrend() {
-    const checked = [...document.querySelectorAll('.trend-round-cb:checked')].map(cb => parseInt(cb.value, 10));
-    if (checked.length < 2) { showToast('请至少选择2个轮次', 'error'); return; }
-    if (checked.length > 50) { showToast('最多选择50个轮次', 'error'); return; }
-
-    const portName = document.getElementById('trendPort').value.trim();
-    if (!portName) { showToast('请选择端口', 'error'); return; }
-
-    const network = document.getElementById('trendNetwork').value.trim();
-    const neId = document.getElementById('trendNe').value.trim();
-    let url = '/inspection/trend/multi?roundIds=' + checked.join(',') + '&portName=' + encodeURIComponent(portName);
-    if (network) url += '&network=' + encodeURIComponent(network);
-    if (neId) url += '&neId=' + encodeURIComponent(neId);
-
-    const data = await get(url);
-    trendData = data;
-
-    document.getElementById('trendSummary').textContent =
-        portName + ' · ' + data.timeline.length + ' 个轮次，共 ' + data.ports.length + ' 个匹配端口';
-
-    renderTrendTable(data);
-    renderTrendChart(data);
-}
-
-/** 切换图表模式 */
-export function switchTrendChart(mode) {
-    trendChartMode = mode;
-    if (trendData) renderTrendChart(trendData);
-}
-
-/** 渲染趋势 ECharts 折线图 */
-function renderTrendChart(data) {
-    const container = document.getElementById('trendChart');
-    if (!trendChart) {
-        trendChart = echarts.init(container);
-        setTimeout(() => trendChart && trendChart.resize(), 100);
-    } else {
-        trendChart.resize();
-    }
-
-    const xLabels = data.timeline.map(t => formatTime(t.time));
-    const isDark = document.body.getAttribute('data-theme') === 'dark';
-    const textColor = isDark ? '#94a3b8' : '#6b7280';
-    const splitColor = isDark ? '#334155' : '#e5e7eb';
-
-    // 构建series：Rx 用蓝色，Tx 用橙色
-    const series = [];
-    const legendNames = [];
-
-    // 收集门限值
-    let rxLow = null, rxHigh = null, txLow = null, txHigh = null;
-    for (const port of data.ports) {
-        for (const d of port.roundData) {
-            if (d) {
-                if (rxLow === null && d.rxLow != null) rxLow = d.rxLow;
-                if (rxHigh === null && d.rxHigh != null) rxHigh = d.rxHigh;
-                if (txLow === null && d.txLow != null) txLow = d.txLow;
-                if (txHigh === null && d.txHigh != null) txHigh = d.txHigh;
-                if (rxLow !== null && rxHigh !== null && txLow !== null && txHigh !== null) break;
-            }
-        }
-        if (rxLow !== null && rxHigh !== null && txLow !== null && txHigh !== null) break;
-    }
-
-    for (let i = 0; i < data.ports.length; i++) {
-        const port = data.ports[i];
-        const label = (port.portName && port.portName !== '-')
-            ? port.portName
-            : '槽位' + port.slotNo + ' 端口' + port.portNo;
-
-        if (trendChartMode === 'rx' || trendChartMode === 'both') {
-            const rxData = port.roundData.map(d => d ? d.rxPower : null);
-            const name = i === 0 ? '接收功率 (Rx)' : label + ' (Rx)';
-            legendNames.push(name);
-            const rxSeries = {
-                name, type: 'line', data: rxData,
-                symbol: 'circle', symbolSize: 6,
-                lineStyle: { width: 2, color: '#3b82f6' },
-                itemStyle: { color: '#3b82f6' }
-            };
-            if (i === 0 && (rxLow !== null || rxHigh !== null)) {
-                const markLines = [];
-                if (rxLow !== null) markLines.push({ yAxis: rxLow, lineStyle: { color: '#f59e0b', type: 'dashed', width: 1 }, label: { formatter: 'Rx低 ' + rxLow, color: '#f59e0b', fontSize: 10, position: 'insideEndTop' } });
-                if (rxHigh !== null) markLines.push({ yAxis: rxHigh, lineStyle: { color: '#ef4444', type: 'dashed', width: 1 }, label: { formatter: 'Rx高 ' + rxHigh, color: '#ef4444', fontSize: 10, position: 'insideEndTop' } });
-                rxSeries.markLine = { silent: true, data: markLines };
-            }
-            series.push(rxSeries);
-        }
-        if (trendChartMode === 'tx' || trendChartMode === 'both') {
-            const txData = port.roundData.map(d => d ? d.txPower : null);
-            const name = i === 0 ? '发送功率 (Tx)' : label + ' (Tx)';
-            legendNames.push(name);
-            const txSeries = {
-                name, type: 'line', data: txData,
-                symbol: 'diamond', symbolSize: 6,
-                lineStyle: { width: 2, color: '#f97316', type: trendChartMode === 'both' ? 'dashed' : 'solid' },
-                itemStyle: { color: '#f97316' }
-            };
-            if (i === 0 && (txLow !== null || txHigh !== null)) {
-                const markLines = [];
-                if (txLow !== null) markLines.push({ yAxis: txLow, lineStyle: { color: '#06b6d4', type: 'dashed', width: 1 }, label: { formatter: 'Tx低 ' + txLow, color: '#06b6d4', fontSize: 10, position: 'insideEndBottom' } });
-                if (txHigh !== null) markLines.push({ yAxis: txHigh, lineStyle: { color: '#8b5cf6', type: 'dashed', width: 1 }, label: { formatter: 'Tx高 ' + txHigh, color: '#8b5cf6', fontSize: 10, position: 'insideEndBottom' } });
-                txSeries.markLine = { silent: true, data: markLines };
-            }
-            series.push(txSeries);
-        }
-    }
-
-    const option = {
-        tooltip: {
-            trigger: 'axis',
-            formatter: function(params) {
-                const idx = params[0].dataIndex;
-                const time = xLabels[idx];
-                let s = '<b>' + time + '</b><br/>';
-                params.forEach(p => {
-                    if (p.value != null) {
-                        s += p.marker + p.seriesName + ': <b>' + p.value.toFixed(2) + ' dBm</b><br/>';
-                    }
-                });
-                return s;
-            }
-        },
-        legend: {
-            data: legendNames,
-            textStyle: { color: textColor, fontSize: 10 },
-            type: 'scroll', pageTextStyle: { color: textColor },
-            top: 0, bottom: 20
-        },
-        grid: { left: 60, right: 20, top: 40, bottom: 30 },
-        xAxis: {
-            type: 'category', data: xLabels,
-            axisLabel: { color: textColor, fontSize: 10, rotate: xLabels.length > 8 ? 30 : 0 },
-            axisLine: { lineStyle: { color: splitColor } }
-        },
-        yAxis: {
-            type: 'value', name: '功率 (dBm)',
-            nameTextStyle: { color: textColor, fontSize: 11 },
-            axisLabel: { color: textColor },
-            splitLine: { lineStyle: { color: splitColor } }
-        },
-        series
-    };
-
-    trendChart.setOption(option, true);
-}
-
-/** 渲染趋势详情表格：每个端口一组，每轮次一行，显示值+升降标记 */
-function renderTrendTable(data) {
-    const wrap = document.getElementById('trendTableWrap');
-    wrap.textContent = '';
-
-    if (data.ports.length === 0) {
-        wrap.textContent = '所选条件下无数据';
-        wrap.style.cssText = 'text-align:center;padding:40px;color:#9ca3af;font-size:13px;';
-        return;
-    }
-    wrap.style.cssText = '';
-
-    const table = document.createElement('table');
-    table.style.cssText = 'width:100%;font-size:13px;border-collapse:collapse;';
-
-    const thBase = 'padding:8px 12px;text-align:center;border-bottom:2px solid var(--border,#e2e8f0);font-size:12px;';
-    const tdBase = 'padding:7px 12px;text-align:center;border-bottom:1px solid var(--border,#f1f5f9);font-size:13px;';
-
-    for (let pi = 0; pi < data.ports.length; pi++) {
-        const port = data.ports[pi];
-        const portLabel = (port.portName && port.portName !== '-')
-            ? port.portName
-            : 'S' + port.slotNo + 'P' + port.portNo;
-
-        // 端口分组表头
-        const thead = document.createElement('thead');
-        thead.style.cssText = pi > 0 ? 'border-top:2px solid var(--border,#e2e8f0);' : '';
-        const headTr = document.createElement('tr');
-        ['轮次', 'Rx (dBm)', '对比', 'Tx (dBm)', '对比'].forEach((text, i) => {
-            const th = document.createElement('th');
-            th.style.cssText = thBase + (i === 0 ? 'text-align:left;width:180px;' : 'width:100px;');
-            th.textContent = text;
-            headTr.appendChild(th);
-        });
-        thead.appendChild(headTr);
-        table.appendChild(thead);
-
-        // 端口标题行
-        const titleTr = document.createElement('tr');
-        titleTr.style.cssText = 'background:var(--bg-card,#f8fafc);';
-        const titleTd = document.createElement('td');
-        titleTd.colSpan = 5;
-        titleTd.style.cssText = 'padding:8px 12px;font-weight:600;font-size:13px;color:var(--text,#1f2937);';
-        titleTd.textContent = portLabel + (port.neName ? ' (' + port.neName + ')' : '');
-        titleTr.appendChild(titleTd);
-        table.appendChild(titleTr);
-
-        // 轮次数据行
-        const tbody = document.createElement('tbody');
-        let prevRx = null, prevTx = null;
-
-        for (let i = 0; i < data.timeline.length; i++) {
-            const d = port.roundData[i];
-            const tr = document.createElement('tr');
-            tr.style.cssText = i % 2 === 0 ? '' : 'background:var(--bg-card,#fafbfc);';
-
-            // 轮次时间
-            const roundTd = createTextCell('#' + data.timeline[i].roundId + ' ' + formatTime(data.timeline[i].time));
-            roundTd.style.cssText = tdBase + 'text-align:left;font-size:12px;color:#6b7280;';
-            tr.appendChild(roundTd);
-
-            // Rx 值
-            const rxTd = document.createElement('td');
-            rxTd.style.cssText = tdBase + 'text-align:right;font-weight:500;';
-            if (d && d.rxPower != null) {
-                rxTd.textContent = d.rxPower.toFixed(1);
-                if (d.rxStatus > 0) rxTd.style.color = '#dc2626';
-            } else {
-                rxTd.textContent = '--'; rxTd.style.color = '#9ca3af';
-            }
-            tr.appendChild(rxTd);
-
-            // Rx 对比
-            const rxCmp = document.createElement('td');
-            rxCmp.style.cssText = tdBase;
-            if (d && d.rxPower != null && prevRx !== null) {
-                const delta = d.rxPower - prevRx;
-                const span = document.createElement('span');
-                span.style.cssText = 'font-size:12px;font-weight:700;';
-                if (delta > 0.05) { span.textContent = '▲+' + delta.toFixed(1); span.style.color = '#16a34a'; }
-                else if (delta < -0.05) { span.textContent = '▼' + delta.toFixed(1); span.style.color = '#dc2626'; }
-                else { span.textContent = '— 0'; span.style.color = '#9ca3af'; }
-                rxCmp.appendChild(span);
-            } else {
-                rxCmp.textContent = '--'; rxCmp.style.color = '#9ca3af';
-            }
-            tr.appendChild(rxCmp);
-
-            // Tx 值
-            const txTd = document.createElement('td');
-            txTd.style.cssText = tdBase + 'text-align:right;font-weight:500;';
-            if (d && d.txPower != null) {
-                txTd.textContent = d.txPower.toFixed(1);
-                if (d.txStatus > 0) txTd.style.color = '#dc2626';
-            } else {
-                txTd.textContent = '--'; txTd.style.color = '#9ca3af';
-            }
-            tr.appendChild(txTd);
-
-            // Tx 对比
-            const txCmp = document.createElement('td');
-            txCmp.style.cssText = tdBase;
-            if (d && d.txPower != null && prevTx !== null) {
-                const delta = d.txPower - prevTx;
-                const span = document.createElement('span');
-                span.style.cssText = 'font-size:12px;font-weight:700;';
-                if (delta > 0.05) { span.textContent = '▲+' + delta.toFixed(1); span.style.color = '#16a34a'; }
-                else if (delta < -0.05) { span.textContent = '▼' + delta.toFixed(1); span.style.color = '#dc2626'; }
-                else { span.textContent = '— 0'; span.style.color = '#9ca3af'; }
-                txCmp.appendChild(span);
-            } else {
-                txCmp.textContent = '--'; txCmp.style.color = '#9ca3af';
-            }
-            tr.appendChild(txCmp);
-
-            if (d) {
-                if (d.rxPower != null) prevRx = d.rxPower;
-                if (d.txPower != null) prevTx = d.txPower;
-            }
-            tbody.appendChild(tr);
-        }
-        table.appendChild(tbody);
-    }
-
-    wrap.appendChild(table);
-}
-
-function formatPower(v) {
-    return v != null ? v.toFixed(1) : '--';
-}
-
-function formatDelta(v) {
-    if (v == null) return '--';
-    const s = v > 0 ? '+' + v.toFixed(1) : v.toFixed(1);
-    return s + ' dB';
+    window.open(API + '/inspection/export-link' + (params.toString() ? '?' + params : ''), '_blank');
 }
