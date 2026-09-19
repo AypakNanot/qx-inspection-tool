@@ -228,10 +228,12 @@ public class InspectionService {
         List<LinkInspectionResult> links = linkResultRepository.findByRoundId(latest.getId());
         long abnormal = links.stream().filter(this::isAbnormal).count();
         long noLight = links.stream().filter(this::hasNoLight).count();
+        long hasError = links.stream().filter(this::hasError).count();
         summary.put("linkCount", links.size());
         summary.put("normalLinks", links.size() - abnormal);
         summary.put("abnormalLinks", abnormal);
         summary.put("noLightLinks", noLight);
+        summary.put("errorLinks", hasError);
         summary.put("byModuleType", groupByModuleType(links));
         summary.put("byNeType", groupByNeType(links));
         summary.put("topAnomalies", topAnomalies(links));
@@ -351,6 +353,11 @@ public class InspectionService {
                 || ThresholdService.STATUS_NO_LIGHT.equals(r.getARxStatus())
                 || ThresholdService.STATUS_NO_LIGHT.equals(r.getZTxStatus())
                 || ThresholdService.STATUS_NO_LIGHT.equals(r.getZRxStatus());
+    }
+
+    private boolean hasError(LinkInspectionResult r) {
+        return (r.getARsErrorSec() != null && r.getARsErrorSec() > 0)
+                || (r.getZRsErrorSec() != null && r.getZRsErrorSec() > 0);
     }
 
     /** 采集失败，或门限判定为过高/过低/无光，均视为异常 */

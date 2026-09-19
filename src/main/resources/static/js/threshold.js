@@ -6,6 +6,9 @@
 import { get, post } from './api.js';
 import { showToast } from './toast.js';
 
+/** 预置门限值缓存（matchKey → {txLow, txHigh, rxLow, rxHigh}） */
+let presetMap = {};
+
 /** 加载所有门限规则 */
 export async function loadThresholds() {
     try {
@@ -27,7 +30,16 @@ function renderThresholdTable(rules) {
         return;
     }
 
-    rules.forEach(r => tbody.appendChild(buildThresholdRow(r)));
+    rules.forEach(r => {
+        // 缓存预置值
+        if (r.presetTxLow != null) {
+            presetMap[r.matchKey] = {
+                txLow: r.presetTxLow, txHigh: r.presetTxHigh,
+                rxLow: r.presetRxLow, rxHigh: r.presetRxHigh
+            };
+        }
+        tbody.appendChild(buildThresholdRow(r));
+    });
 }
 
 /** 构建单条门限规则行 */
@@ -70,12 +82,45 @@ export function openThresholdModal(rule) {
     document.getElementById('thTxHigh').value = rule.txHigh != null ? rule.txHigh : '';
     document.getElementById('thRxLow').value = rule.rxLow != null ? rule.rxLow : '';
     document.getElementById('thRxHigh').value = rule.rxHigh != null ? rule.rxHigh : '';
+
+    // 显示预置标准值
+    const preset = presetMap[rule.matchKey];
+    if (preset) {
+        document.getElementById('thPresetTxLow').value = preset.txLow;
+        document.getElementById('thPresetTxHigh').value = preset.txHigh;
+        document.getElementById('thPresetRxLow').value = preset.rxLow;
+        document.getElementById('thPresetRxHigh').value = preset.rxHigh;
+        document.getElementById('thPresetTxLowHint').textContent = '标准: ' + preset.txLow;
+        document.getElementById('thPresetTxHighHint').textContent = '标准: ' + preset.txHigh;
+        document.getElementById('thPresetRxLowHint').textContent = '标准: ' + preset.rxLow;
+        document.getElementById('thPresetRxHighHint').textContent = '标准: ' + preset.rxHigh;
+    } else {
+        ['thPresetTxLowHint', 'thPresetTxHighHint', 'thPresetRxLowHint', 'thPresetRxHighHint'].forEach(id => {
+            document.getElementById(id).textContent = '';
+        });
+    }
+
     document.getElementById('thresholdModal').classList.remove('hidden');
 }
 
 /** 关闭门限弹窗 */
 export function closeThresholdModal() {
     document.getElementById('thresholdModal').classList.add('hidden');
+}
+
+/** 恢复默认值（前端操作，不请求后端） */
+export function restoreThresholdDefaults() {
+    const matchKey = document.getElementById('thMatchKey').value;
+    const preset = presetMap[matchKey];
+    if (!preset) {
+        showToast('该模块类型无预置默认值', 'error');
+        return;
+    }
+    document.getElementById('thTxLow').value = preset.txLow;
+    document.getElementById('thTxHigh').value = preset.txHigh;
+    document.getElementById('thRxLow').value = preset.rxLow;
+    document.getElementById('thRxHigh').value = preset.rxHigh;
+    showToast('已恢复为标准默认值，请确认后保存', 'success');
 }
 
 /** 保存门限规则（只允许修改） */

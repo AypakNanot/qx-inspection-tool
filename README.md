@@ -10,7 +10,7 @@
 | M4 定时调度 | 定时巡检+进度展示+摘要统计 | 1天 |
 | M5 前端+趋势 | 前端仪表盘+趋势/异常API | 2天 |
 | 协议层重构 | YAML schema+代码生成+OID段位修正+端口查询优化 | 2天 |
-| 前端SPA化 | 侧边栏SPA重构+库存统计+时钟拓扑 | 1.5天 |
+| 前端SPA化 | 侧边栏SPA重构+库存统计 | 1.5天 |
 | 数据同步 | MySQL→SQLite动态同步+Toast通知+定时配置持久化 | 1.5天 |
 | 前端模块化 | ES6模块拆分+分页排序筛选+SQLite迁移+UX优化 | 1.5天 |
 | 功能增强 | 自动连接/断开配置+树形分组表格+老网管激光器格式 | 2天 |
@@ -122,11 +122,11 @@
   - `fRecvLaserPower` / `fTranLaserPower`：float 精度 dBm（0.1）
   - `bSupportFlag` 能力位：bit0=1 支持光功率查询，0=不支持（显示 `--`）
   - 同报文自带光模块属性：`bLaserType`（速率）、`bDistance`（距离档）、`bLaserWave`（波长）、`bmPartNumber`（型号编码）
-- 逐端口查询（报文按槽位+端口单端口返回）
+- 链路口径采集：每条链路两端端口一并采集
 - **无效值处理**：`bSupportFlag` bit0=0 或功率值异常 → 记录为"不支持"，界面显示 `--`，不算失败
 - 离线/登录失败设备：跳过并记录，不阻塞其他设备
 - **限速**：单设备串行逐口查；多设备并发数可配（默认 ≤ 10）
-- 采集进度可见：已完成网元数/总数、当前正在采集的网元、失败列表
+- 采集进度可见：已完成链路数/总数、当前正在采集的网元/端口、失败列表
 
 #### F3.3 数据缓存（P0）
 - 巡检结果写入 SQLite，**保留最近 N 轮（默认 10，可配）**，超龄轮次自动清理
@@ -134,10 +134,12 @@
 - 每条记录：轮次号、网络、网元、设备类型、槽位、端口、端口类型、接收光功率、发送光功率、是否支持、采集时间
 
 #### F3.4 查询与筛选（P0）
-- 界面查询缓存数据，**明确展示数据更新时间**
-- 筛选维度：范围（全网/网络/网元）、端口类型、是否支持、判定状态
-- **判定状态**：正常 / 劣化 / 过载 / 无效（基于门限）
-- 列表列：网络 | 网元 | 设备类型 | 槽位/端口 | 端口类型 | 接收功率 | 发送功率 | 判定状态 | 采集时间
+- 链路口径查询：每条链路一行，A端与Z端并列展示
+- 筛选维度：轮次、网络、网元、文本搜索
+- 前端筛选：光模块类型、异常状态（过高/过低/无光/正常）、误码、带宽利用率
+- 列表列：序号 | 链路名称 | A端(网元3列+光模块5列+误码1列+带宽3列) | Z端(同A端)
+- A端表头蓝色背景，Z端表头黄色背景区分
+- 长内容列自动截断，悬停显示完整内容
 - 导出与筛选结果一致
 
 #### F3.5 光功率门限判定（P0，工具侧）
@@ -148,8 +150,9 @@
 - 光模块类型来源：`bLaserType`（速率）+ `bDistance`（距离档）组合，如 `L16.1`、`S4.1`、`1000BASE-SX`
 - `bmPartNumber`（型号编码）一并入库，可用于精确匹配
 - 门限表按模块类型逐行配置，每行 4 个值：接收下限/上限、发送下限/上限
-- **匹配优先级**：`bmPartNumber` 精确匹配 > `moduleTypeKey` 类型匹配 > 全局默认
-- 全局默认门限（兜底）：接收 [-28, -8] dBm、发送 [-6, 0] dBm
+- **预置标准值**：每个模块类型预置标准门限值（如 STM-16 S档: 发送[-15,-1] / 接收[-28,-8]）
+- 编辑弹窗中显示标准参考值，支持一键恢复默认
+- 全局默认门限（兜底）：接收 [-27, 3] dBm、发送 [-27, 3] dBm
 - 配置界面即时生效，**无需重新采集**（判定与数据分离）
 
 **判定规则**：
@@ -174,11 +177,7 @@
 - **自动断开**：巡检完成后是否主动断开所有连接（默认：是）
 - 配置持久化到SQLite，重启后保留
 
-### F4 时钟拓扑（P2）
-- 全网时钟拓扑可视化（ECharts关系图）
-- 支持刷新拓扑数据
-
-### F5 数据维护
+### F4 数据维护
 - MySQL→SQLite按需同步（动态建表+批量写入）
 - 同步状态查看、全量/增量同步
 - 数据库连通测试
@@ -561,8 +560,8 @@ src/main/java/com/optel/qxinspection/
 │   └── SyncConfig.java               # MySQL同步白名单
 ├── controller/              # REST API
 │   ├── ConnectionController.java      # 设备连接管理
-│   ├── InspectionController.java      # 巡检核心（触发/进度/结果/导出/门限/时钟）
-│   ├── StatsController.java           # 设备类型统计
+│   ├── InspectionController.java      # 巡检核心（触发/进度/结果/导出/门限/备份恢复）
+│   ├── InventoryStatsController.java  # 库存统计（总览/类型分布）
 │   ├── SyncController.java            # MySQL数据同步
 │   └── DatabaseTestController.java    # 数据库连通测试
 ├── entity/
@@ -576,9 +575,10 @@ src/main/java/com/optel/qxinspection/
 ├── repository/              # JPA Repository
 ├── service/                 # 业务逻辑
 │   ├── QxConnectionService.java       # 连接管理（状态监听+缓存）
-│   ├── InspectionService.java         # 巡检核心逻辑
+│   ├── InspectionService.java         # 巡检核心逻辑（链路口径）
 │   ├── InspectionScheduler.java       # 定时巡检调度
-│   ├── ThresholdService.java          # 门限判定（实时计算）
+│   ├── ThresholdService.java          # 门限判定（预置值+实时计算）
+│   ├── InventoryStatsService.java     # 库存统计服务
 │   ├── DeviceAccessService.java       # 设备发现（从MySQL读取）
 │   ├── DynamicSyncService.java        # MySQL→SQLite动态同步
 │   └── SysConfigService.java          # 系统配置持久化
@@ -596,15 +596,13 @@ src/main/resources/static/            # 前端
     ├── threshold.js    # 门限配置页
     ├── task.js         # 任务配置页
     ├── progress.js     # 任务进度页
-    ├── query.js        # 数据查询页（树形分组表格）
-    ├── clock.js        # 时钟拓扑页
+    ├── query.js        # 数据查询页（链路口径，A/Z端并列）
     ├── sync.js         # 数据维护页
     └── toast.js        # Toast通知组件
 
 src/main/schema/            # Qx协议YAML Schema
 ├── laser.yaml              # 0x2410 激光器属性查询
-├── device.yaml             # 设备命令
-└── clock.yaml              # 时钟命令
+└── device.yaml             # 设备命令
 ```
 
 ## 12. API端点
@@ -632,13 +630,13 @@ src/main/schema/            # Qx协议YAML Schema
 | GET | `/api/inspection/trend/ne` | 网元趋势 |
 | GET | `/api/inspection/anomaly/summary` | 异常汇总 |
 | GET | `/api/inspection/anomaly/details` | 异常详情 |
-| GET | `/api/inspection/thresholds` | 门限规则列表 |
-| POST | `/api/inspection/thresholds` | 创建/更新门限 |
-| DELETE | `/api/inspection/thresholds/{id}` | 删除门限 |
-| GET | `/api/inspection/thresholds/snapshot` | 门限快照 |
-| GET | `/api/inspection/clock/topology` | 时钟拓扑 |
-| POST | `/api/inspection/clock/refresh` | 刷新时钟拓扑 |
-| GET | `/api/inventory/stats` | 类型统计 |
+| GET | `/api/inspection/thresholds` | 门限规则列表（含预置标准值） |
+| POST | `/api/inspection/thresholds` | 更新门限规则 |
+| GET | `/api/inventory/overview` | 库存总览（网络/网元/盘/链路/需巡检端口数） |
+| GET | `/api/inventory/ne-stats` | 网元类型统计 |
+| GET | `/api/inventory/slot-stats` | 盘类型统计 |
+| GET | `/api/inventory/port-stats` | 端口类型统计 |
+| GET | `/api/inventory/networks` | 网络列表 |
 | GET | `/api/sync/status` | 同步状态 |
 | POST | `/api/sync/essential` | 同步必要表 |
 | POST | `/api/sync/all` | 同步全部表 |

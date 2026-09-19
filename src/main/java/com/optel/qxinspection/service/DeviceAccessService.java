@@ -21,17 +21,20 @@ public class DeviceAccessService {
     private final ConnProfileRepository connProfileRepository;
     private final InspectionRoundRepository inspectionRoundRepository;
     private final LinkInspectionResultRepository linkResultRepository;
+    private final AuditLogRepository auditLogRepository;
 
     public DeviceAccessService(@Qualifier("sqliteJdbc") JdbcTemplate sqliteJdbc,
                                DeviceAccessConfigRepository deviceAccessConfigRepository,
                                ConnProfileRepository connProfileRepository,
                                InspectionRoundRepository inspectionRoundRepository,
-                               LinkInspectionResultRepository linkResultRepository) {
+                               LinkInspectionResultRepository linkResultRepository,
+                               AuditLogRepository auditLogRepository) {
         this.sqliteJdbc = sqliteJdbc;
         this.deviceAccessConfigRepository = deviceAccessConfigRepository;
         this.connProfileRepository = connProfileRepository;
         this.inspectionRoundRepository = inspectionRoundRepository;
         this.linkResultRepository = linkResultRepository;
+        this.auditLogRepository = auditLogRepository;
     }
 
     /**
@@ -113,6 +116,7 @@ public class DeviceAccessService {
         boolean clearRecords = Boolean.TRUE.equals(options.get("inspectionRecords"));
         boolean clearRounds = Boolean.TRUE.equals(options.get("inspectionRounds"));
         boolean clearDevices = Boolean.TRUE.equals(options.get("deviceConfigs"));
+        boolean clearAuditLogs = Boolean.TRUE.equals(options.get("auditLogs"));
         Object connOpt = options.get("connectionProfiles");
 
         if (clearRecords) {
@@ -157,6 +161,11 @@ public class DeviceAccessService {
             long c = deviceAccessConfigRepository.count();
             counts.put("设备配置", c);
             deviceAccessConfigRepository.deleteAllInBatch();
+        }
+        if (clearAuditLogs) {
+            long c = auditLogRepository.count();
+            counts.put("操作日志", c);
+            auditLogRepository.deleteAllInBatch();
         }
 
         log.info("已清除数据: {}", counts);

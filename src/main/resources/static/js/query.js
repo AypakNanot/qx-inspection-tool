@@ -20,28 +20,28 @@ const HEADER_ROWS = [
     [
         { text: '序号', rowspan: 3, width: '50px' },
         { text: '链路名称', rowspan: 3, minWidth: '150px' },
-        { text: 'A端', colspan: 12 },
-        { text: 'Z端', colspan: 12 }
+        { text: 'A端', colspan: 12, className: 'query-th-a' },
+        { text: 'Z端', colspan: 12, className: 'query-th-z' }
     ],
     [
-        { text: '网元', colspan: 3 },
-        { text: '光模块', colspan: 5 },
-        { text: '误码' },
-        { text: '带宽', colspan: 3 },
-        { text: '网元', colspan: 3 },
-        { text: '光模块', colspan: 5 },
-        { text: '误码' },
-        { text: '带宽', colspan: 3 }
+        { text: '网元', colspan: 3, className: 'query-th-a' },
+        { text: '光模块', colspan: 5, className: 'query-th-a' },
+        { text: '误码', className: 'query-th-a' },
+        { text: '带宽', colspan: 3, className: 'query-th-a' },
+        { text: '网元', colspan: 3, className: 'query-th-z' },
+        { text: '光模块', colspan: 5, className: 'query-th-z' },
+        { text: '误码', className: 'query-th-z' },
+        { text: '带宽', colspan: 3, className: 'query-th-z' }
     ],
     [
-        { text: '名称' }, { text: '类型' }, { text: '端口' },
-        { text: '类型' }, { text: 'TX\n(dBm)' }, { text: 'RX\n(dBm)' },
-        { text: 'TX\n状态' }, { text: 'RX\n状态' }, { text: 'RS\n错误秒' },
-        { text: '总\n(Mbps)' }, { text: '已用\n(Mbps)' }, { text: '利用率' },
-        { text: '名称' }, { text: '类型' }, { text: '端口' },
-        { text: '类型' }, { text: 'TX\n(dBm)' }, { text: 'RX\n(dBm)' },
-        { text: 'TX\n状态' }, { text: 'RX\n状态' }, { text: 'RS\n错误秒' },
-        { text: '总\n(Mbps)' }, { text: '已用\n(Mbps)' }, { text: '利用率' }
+        { text: '名称', className: 'query-th-a' }, { text: '类型', className: 'query-th-a' }, { text: '端口', className: 'query-th-a' },
+        { text: '类型', className: 'query-th-a' }, { text: 'TX\n(dBm)', className: 'query-th-a' }, { text: 'RX\n(dBm)', className: 'query-th-a' },
+        { text: 'TX\n状态', className: 'query-th-a' }, { text: 'RX\n状态', className: 'query-th-a' }, { text: 'RS\n错误秒', className: 'query-th-a' },
+        { text: '总\n(Mbps)', className: 'query-th-a' }, { text: '已用\n(Mbps)', className: 'query-th-a' }, { text: '利用率', className: 'query-th-a' },
+        { text: '名称', className: 'query-th-z' }, { text: '类型', className: 'query-th-z' }, { text: '端口', className: 'query-th-z' },
+        { text: '类型', className: 'query-th-z' }, { text: 'TX\n(dBm)', className: 'query-th-z' }, { text: 'RX\n(dBm)', className: 'query-th-z' },
+        { text: 'TX\n状态', className: 'query-th-z' }, { text: 'RX\n状态', className: 'query-th-z' }, { text: 'RS\n错误秒', className: 'query-th-z' },
+        { text: '总\n(Mbps)', className: 'query-th-z' }, { text: '已用\n(Mbps)', className: 'query-th-z' }, { text: '利用率', className: 'query-th-z' }
     ]
 ];
 
@@ -52,13 +52,23 @@ function formatTime(t) {
 }
 
 /** 创建文本单元格 */
-function createTextCell(text) {
+function createTextCell(text, className) {
     const td = document.createElement('td');
     td.textContent = text;
+    if (className) td.className = className;
     return td;
 }
 
-/** 功率单元格：正常显示一位小数，异常标红 */
+/** 创建带截断的单元格 */
+function truncCell(text, className) {
+    const td = document.createElement('td');
+    td.textContent = text || '-';
+    td.title = text || '';
+    td.className = (className ? className + ' ' : '') + 'col-truncate';
+    return td;
+}
+
+/** 功率单元格：正常显示一位小数，异常标背景色 */
 function powerCell(value, status) {
     const td = document.createElement('td');
     if (value == null) {
@@ -67,17 +77,25 @@ function powerCell(value, status) {
         return td;
     }
     td.textContent = value.toFixed(1);
-    if (status && status !== '正常' && status !== '--') td.style.color = '#dc2626';
+    if (status && status !== '正常' && status !== '--') {
+        if (status === '无光') td.className = 'status-no-light';
+        else if (status === '过高') td.className = 'status-high';
+        else if (status === '过低') td.className = 'status-low';
+        else td.className = 'status-high';
+    }
     return td;
 }
 
-/** 状态单元格：正常为绿色，其余标红 */
+/** 状态单元格：正常绿色背景，异常红色/灰色背景 */
 function statusCell(text) {
     const td = document.createElement('td');
     const value = text || '--';
     td.textContent = value;
-    if (value === '正常') td.style.color = '#16a34a';
-    else if (value !== '--') td.style.color = '#dc2626';
+    if (value === '正常') td.className = 'status-normal';
+    else if (value === '无光') td.className = 'status-no-light';
+    else if (value === '过高') td.className = 'status-high';
+    else if (value === '过低') td.className = 'status-low';
+    else if (value !== '--') td.className = 'status-high';
     return td;
 }
 
@@ -102,8 +120,8 @@ function usageCell(value) {
         return td;
     }
     td.textContent = value.toFixed(1);
-    if (value >= 90) td.style.color = '#dc2626';
-    else if (value >= 70) td.style.color = '#f59e0b';
+    if (value >= 90) td.className = 'status-high';
+    else if (value >= 70) td.className = 'status-warn';
     return td;
 }
 
@@ -164,6 +182,7 @@ function updateTableHeader() {
             if (h.colspan) th.colSpan = h.colspan;
             if (h.width) th.style.width = h.width;
             if (h.minWidth) th.style.minWidth = h.minWidth;
+            if (h.className) th.className = h.className;
             const lines = h.text.split('\n');
             lines.forEach((line, i) => {
                 if (i > 0) th.appendChild(document.createElement('br'));
@@ -188,8 +207,30 @@ export async function loadQueryResults() {
         allLinkResults.sort((a, b) => (a.seqNo || 0) - (b.seqNo || 0));
         currentPage = 1;
         updateTableHeader();
+        populateModuleTypeFilter();
         applyFilterAndSort();
     } catch (e) { console.error('loadQueryResults', e); }
+}
+
+/** 填充光模块类型筛选下拉框 */
+function populateModuleTypeFilter() {
+    const sel = document.getElementById('filterModuleType');
+    const current = sel.value;
+    const types = new Set();
+    allLinkResults.forEach(r => {
+        if (r.aModuleType) types.add(r.aModuleType);
+        if (r.zModuleType) types.add(r.zModuleType);
+    });
+    sel.textContent = '';
+    const opt0 = document.createElement('option');
+    opt0.value = ''; opt0.textContent = '全部';
+    sel.appendChild(opt0);
+    Array.from(types).sort().forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t; opt.textContent = t;
+        sel.appendChild(opt);
+    });
+    sel.value = current;
 }
 
 /** 文本搜索 */
@@ -199,19 +240,51 @@ export function searchQuery(text) {
     applyFilterAndSort();
 }
 
-/** 应用筛选（链路名称 / 网元名 / 端口名 / 网元筛选框） */
-function applyFilterAndSort() {
+/** 应用所有筛选（链路名称 / 网元名 / 端口名 / 光模块 / 异常 / 误码 / 带宽） */
+export function applyFilterAndSort() {
     const neFilter = (document.getElementById('queryNe').value || '').trim().toLowerCase();
+    const moduleFilter = (document.getElementById('filterModuleType').value || '').trim();
+    const anomalyFilter = (document.getElementById('filterAnomaly').value || '').trim();
+    const errorFilter = (document.getElementById('filterError').value || '').trim();
+    const bandwidthFilter = (document.getElementById('filterBandwidth').value || '').trim();
+
     filteredLinkResults = allLinkResults.filter(r => {
+        // 网元筛选
         if (neFilter) {
             const hitNe = [r.aNeName, r.zNeName, r.aNeId, r.zNeId]
                 .some(v => v && v.toLowerCase().includes(neFilter));
             if (!hitNe) return false;
         }
+        // 文本搜索
         if (searchText) {
             const text = searchText.toLowerCase();
-            return [r.linkName, r.aNeName, r.aPortName, r.zNeName, r.zPortName]
+            const hit = [r.linkName, r.aNeName, r.aPortName, r.zNeName, r.zPortName]
                 .some(v => v && v.toLowerCase().includes(text));
+            if (!hit) return false;
+        }
+        // 光模块筛选
+        if (moduleFilter) {
+            if (r.aModuleType !== moduleFilter && r.zModuleType !== moduleFilter) return false;
+        }
+        // 异常状态筛选
+        if (anomalyFilter) {
+            const statuses = [r.aTxStatus, r.aRxStatus, r.zTxStatus, r.zRxStatus];
+            if (!statuses.includes(anomalyFilter)) return false;
+        }
+        // 误码筛选
+        if (errorFilter === 'yes') {
+            if ((!r.aRsErrorSec || r.aRsErrorSec === 0) && (!r.zRsErrorSec || r.zRsErrorSec === 0)) return false;
+        } else if (errorFilter === 'no') {
+            if ((r.aRsErrorSec && r.aRsErrorSec > 0) || (r.zRsErrorSec && r.zRsErrorSec > 0)) return false;
+        }
+        // 带宽利用率筛选
+        if (bandwidthFilter) {
+            const usages = [r.aBandwidthUsage, r.zBandwidthUsage].filter(v => v != null);
+            if (bandwidthFilter === 'high') {
+                if (!usages.some(v => v >= 70)) return false;
+            } else if (bandwidthFilter === 'normal') {
+                if (usages.some(v => v >= 70)) return false;
+            }
         }
         return true;
     });
@@ -220,9 +293,9 @@ function applyFilterAndSort() {
 
 /** 渲染单端 12 列 */
 function appendSide(row, r, prefix) {
-    row.appendChild(createTextCell(r[prefix + 'NeName'] || '-'));
+    row.appendChild(truncCell(r[prefix + 'NeName']));
     row.appendChild(createTextCell(r[prefix + 'NeTypeName'] || '-'));
-    row.appendChild(createTextCell(r[prefix + 'PortName'] || '-'));
+    row.appendChild(truncCell(r[prefix + 'PortName']));
     row.appendChild(createTextCell(r[prefix + 'ModuleType'] || '--'));
     row.appendChild(powerCell(r[prefix + 'TxPower'], r[prefix + 'TxStatus']));
     row.appendChild(powerCell(r[prefix + 'RxPower'], r[prefix + 'RxStatus']));
@@ -261,9 +334,7 @@ function renderLinkQueryTable() {
     pageData.forEach(r => {
         const tr = document.createElement('tr');
         tr.appendChild(createTextCell(r.seqNo || ''));
-        const linkTd = document.createElement('td');
-        linkTd.textContent = r.linkName || '-';
-        linkTd.title = r.linkName || '';
+        const linkTd = truncCell(r.linkName);
         tr.appendChild(linkTd);
         appendSide(tr, r, 'a');
         appendSide(tr, r, 'z');

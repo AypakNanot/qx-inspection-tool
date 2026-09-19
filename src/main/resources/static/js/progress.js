@@ -61,6 +61,8 @@ function renderProgress(d) {
         }
         return;
     }
+    // 巡检进行中时隐藏之前的完成横幅
+    document.getElementById('progCompleteBanner').style.display = 'none';
     statusEl.textContent = '进行中';
     statusEl.style.color = '#1a73e8';
     panel.style.display = '';
@@ -137,6 +139,7 @@ async function loadSummary() {
         document.getElementById('sumNormal').textContent = d.normalLinks || 0;
         document.getElementById('sumAbnormal').textContent = d.abnormalLinks || 0;
         document.getElementById('sumNoLight').textContent = d.noLightLinks || 0;
+        document.getElementById('sumError').textContent = d.errorLinks || 0;
         document.getElementById('sumDuration').textContent = formatDurationSec(d.durationSec);
         renderModuleSummary(d.byModuleType || {});
         renderNeTypeSummary(d.byNeType || {});

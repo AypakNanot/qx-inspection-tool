@@ -1,6 +1,6 @@
 /**
  * 类型统计模块
- * 展示设备类型分布，支持柱状图/饼图/折线图切换
+ * 展示设备类型分布，支持柱状图/饼图切换
  */
 
 import { get } from './api.js';
@@ -10,7 +10,7 @@ import { showToast } from './toast.js';
 let statsChart = null;
 /** 图表数据缓存 */
 let statsChartData = [];
-/** 当前图表类型: bar/pie/line */
+/** 当前图表类型: bar/pie */
 let statsChartType = 'bar';
 /** 当前统计类型: ne/slot/port */
 let statsType = 'ne';
@@ -28,15 +28,15 @@ function createTextCell(text) {
     return td;
 }
 
-/** 加载统计概览（网络/网元/盘/端口/链路数量） */
+/** 加载统计概览（网络/网元/盘/链路/需巡检端口数量） */
 export async function loadStatsOverview() {
     try {
         const d = await get('/inventory/overview');
         document.getElementById('stNetwork').textContent = d.networkCount || 0;
         document.getElementById('stNe').textContent = d.neCount || 0;
         document.getElementById('stSlot').textContent = d.slotCount || 0;
-        document.getElementById('stPort').textContent = d.portCount || 0;
         document.getElementById('stLink').textContent = d.linkCount || 0;
+        document.getElementById('stInspectionPorts').textContent = d.inspectionPortCount || 0;
     } catch (e) { console.error('loadStatsOverview', e); document.getElementById('stNe').textContent = '-'; }
 }
 
@@ -75,7 +75,7 @@ export function switchStatsType(type, btn) {
     loadStats();
 }
 
-/** 切换图表类型（柱状图/饼图/折线图） */
+/** 切换图表类型（柱状图/饼图） */
 export function switchStatsChart(type, btn) {
     statsChartType = type;
     btn.parentElement.querySelectorAll('button').forEach(b => b.classList.remove('active'));
@@ -110,18 +110,6 @@ function renderStatsChart() {
                 label: { show: false },
                 emphasis: { label: { show: true, fontSize: 14, fontWeight: 'bold' } },
                 data: top20.map(d => ({ name: d.name, value: d.count }))
-            }]
-        }, true);
-    } else if (statsChartType === 'line') {
-        statsChart.setOption({
-            tooltip: { trigger: 'axis' },
-            grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
-            xAxis: { type: 'category', data: names, axisLabel: { rotate: 30, fontSize: 10 } },
-            yAxis: { type: 'value' },
-            color: STATS_COLORS,
-            series: [{ type: 'line', data: values, smooth: true, symbol: 'circle', symbolSize: 6,
-                lineStyle: { width: 2 }, areaStyle: { opacity: 0.15 },
-                label: { show: true, position: 'top', fontSize: 11 }
             }]
         }, true);
     } else {

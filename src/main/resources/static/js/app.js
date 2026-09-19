@@ -5,11 +5,11 @@
 
 import { loadDevices, loadGlobalConfig, saveGlobalConfig, syncDevices, clearDataType, clearConnProfiles, toggleAllClearCb, clearSelectedData, connectAll, disconnectAll, connectSingle, disconnectSingle, closeDeviceModal, saveDeviceConfig, deleteDeviceConfig, searchDevices, filterByNetwork, filterByStatus, sortBy, startDeviceRefresh, stopDeviceRefresh } from './device.js';
 import { loadStatsOverview, loadStatsNetworks, loadStats, switchStatsType, switchStatsChart, resizeChart } from './stats.js';
-import { loadThresholds, openThresholdModal, closeThresholdModal, saveThreshold } from './threshold.js';
+import { loadThresholds, openThresholdModal, closeThresholdModal, saveThreshold, restoreThresholdDefaults } from './threshold.js';
 import { loadScheduleStatus, toggleSchedule, toggleSchedScope, toggleManualScope, loadTaskNetworks, loadTaskDevices, startManualInspection, onSchedPresetChange, saveScheduleConfig, loadCollectParams, saveCollectParams } from './task.js';
 import { loadProgress, stopProgressPoll } from './progress.js';
-import { loadQueryRounds, loadQueryFilters, loadQueryResults, exportExcel, searchQuery } from './query.js';
-import { loadClockTopology, refreshClockTopology, resizeClockChart } from './clock.js';
+import { loadQueryRounds, loadQueryFilters, loadQueryResults, exportExcel, searchQuery, applyFilterAndSort } from './query.js';
+
 import { showToast } from './toast.js';
 import { loadSyncStatus, loadNetworkList, toggleAllNetworks, executeSync, clearSyncData, loadMysqlConfig, saveMysqlConfig, testMysqlConnection, loadAuditLogs, backupDatabase, restoreDatabase } from './sync.js';
 import { initGuide } from './guide.js';
@@ -24,7 +24,6 @@ const TITLES = {
     'page-task': ['任务配置', '光功率巡检 / 任务配置'],
     'page-progress': ['任务进度', '光功率巡检 / 任务进度'],
     'page-query': ['数据查询', '光功率巡检 / 数据查询'],
-    'page-clock': ['时钟拓扑', '时钟管理 / 时钟拓扑'],
     'page-maintenance': ['数据维护', '维护 / 数据维护']
 };
 
@@ -71,10 +70,6 @@ function switchPage(el) {
         loadQueryFilters();
         loadQueryResults();
     }
-    if (page === 'page-clock') {
-        loadClockTopology();
-        setTimeout(resizeClockChart, 100);
-    }
     if (page === 'page-maintenance') {
         loadMysqlConfig();
         loadSyncStatus();
@@ -120,6 +115,7 @@ window.loadThresholds = loadThresholds;
 window.openThresholdModal = (rule) => openThresholdModal(rule);
 window.closeThresholdModal = closeThresholdModal;
 window.saveThreshold = saveThreshold;
+window.restoreThresholdDefaults = restoreThresholdDefaults;
 window.toggleSchedule = (checked) => toggleSchedule(checked);
 window.onSchedPresetChange = onSchedPresetChange;
 window.saveScheduleConfig = saveScheduleConfig;
@@ -132,7 +128,7 @@ window.loadProgress = loadProgress;
 window.loadQueryResults = loadQueryResults;
 window.exportExcel = exportExcel;
 window.searchQuery = searchQuery;
-window.refreshClockTopology = refreshClockTopology;
+window.applyFilterAndSort = applyFilterAndSort;
 window.showToast = showToast;
 window.loadSyncStatus = loadSyncStatus;
 window.loadNetworkList = loadNetworkList;
@@ -153,5 +149,6 @@ loadDevices();
 loadGlobalConfig();
 loadStatsOverview();
 loadStatsNetworks();
+loadThresholds();
 
-window.addEventListener('resize', () => { resizeChart(); resizeClockChart(); });
+window.addEventListener('resize', () => { resizeChart(); });

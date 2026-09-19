@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -93,6 +94,34 @@ public class ThresholdService {
         if (inserted > 0) {
             log.info("已初始化 {} 条预置门限规则", inserted);
         }
+    }
+
+    /** 查询全部门限规则（含预置值信息） */
+    public List<Map<String, Object>> listRulesWithPresets() {
+        Map<String, Preset> presetMap = new HashMap<>();
+        for (Preset preset : PRESETS) {
+            presetMap.put(preset.matchKey(), preset);
+        }
+        List<Map<String, Object>> result = new java.util.ArrayList<>();
+        for (ThresholdRule rule : thresholdRuleRepository.findAll()) {
+            Map<String, Object> entry = new LinkedHashMap<>();
+            entry.put("id", rule.getId());
+            entry.put("matchKey", rule.getMatchKey());
+            entry.put("txLow", rule.getTxLow());
+            entry.put("txHigh", rule.getTxHigh());
+            entry.put("rxLow", rule.getRxLow());
+            entry.put("rxHigh", rule.getRxHigh());
+            entry.put("description", rule.getDescription());
+            Preset preset = presetMap.get(rule.getMatchKey());
+            if (preset != null) {
+                entry.put("presetTxLow", preset.txLow());
+                entry.put("presetTxHigh", preset.txHigh());
+                entry.put("presetRxLow", preset.rxLow());
+                entry.put("presetRxHigh", preset.rxHigh());
+            }
+            result.add(entry);
+        }
+        return result;
     }
 
     /** 查询全部门限规则 */

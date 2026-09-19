@@ -4,6 +4,7 @@ import com.optel.qxinspection.entity.sqlite.ConnProfile;
 import com.optel.qxinspection.entity.sqlite.DeviceAccessConfig;
 import com.optel.qxinspection.repository.sqlite.ConnProfileRepository;
 import com.optel.qxinspection.repository.sqlite.DeviceAccessConfigRepository;
+import com.optel.qxinspection.repository.sqlite.AuditLogRepository;
 import com.optel.qxinspection.repository.sqlite.InspectionRoundRepository;
 import com.optel.qxinspection.repository.sqlite.LinkInspectionResultRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -50,13 +51,16 @@ class DeviceAccessServiceTest {
     @Mock
     private LinkInspectionResultRepository linkResultRepository;
 
+    @Mock
+    private AuditLogRepository auditLogRepository;
+
     private DeviceAccessService deviceAccessService;
 
     @BeforeEach
     void setUp() {
         deviceAccessService = new DeviceAccessService(sqliteJdbc,
                 deviceAccessConfigRepository, connProfileRepository,
-                inspectionRoundRepository, linkResultRepository);
+                inspectionRoundRepository, linkResultRepository, auditLogRepository);
     }
 
     private static Map<String, Object> neRow(String oid, String name, String ipAddr) {

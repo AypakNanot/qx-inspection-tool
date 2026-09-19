@@ -5,7 +5,6 @@ import com.optel.qxinspection.entity.sqlite.InspectionRound;
 import com.optel.qxinspection.entity.sqlite.LinkInspectionResult;
 import com.optel.qxinspection.entity.sqlite.ThresholdRule;
 import com.optel.qxinspection.service.AuditService;
-import com.optel.qxinspection.service.ClockInspectionService;
 import com.optel.qxinspection.service.InspectionScheduler;
 import com.optel.qxinspection.service.InspectionService;
 import com.optel.qxinspection.service.ThresholdService;
@@ -77,7 +76,6 @@ public class InspectionController {
     private final InspectionScheduler inspectionScheduler;
     private final AuditService auditService;
     private final ThresholdService thresholdService;
-    private final ClockInspectionService clockInspectionService;
     private final org.springframework.jdbc.core.JdbcTemplate sqliteJdbc;
 
     @Value("${app.admin-token:}")
@@ -470,11 +468,11 @@ public class InspectionController {
     // ========== 门限管理 ==========
 
     /**
-     * 查询所有门限规则
+     * 查询所有门限规则（含预置标准值）
      */
     @GetMapping("/thresholds")
-    public List<ThresholdRule> listThresholds() {
-        return thresholdService.listRules();
+    public List<Map<String, Object>> listThresholds() {
+        return thresholdService.listRulesWithPresets();
     }
 
     /**
@@ -485,24 +483,6 @@ public class InspectionController {
         ThresholdRule saved = thresholdService.updateRule(rule.getMatchKey(), rule);
         auditService.record("THRESHOLD", rule.getMatchKey(), "SUCCESS", null);
         return saved;
-    }
-
-    // ========== 时钟拓扑 ==========
-
-    /**
-     * 获取全网时钟拓扑
-     */
-    @GetMapping("/clock/topology")
-    public List<ClockInspectionService.ClockNode> getClockTopology() {
-        return clockInspectionService.getTopology();
-    }
-
-    /**
-     * 刷新时钟拓扑数据
-     */
-    @PostMapping("/clock/refresh")
-    public List<ClockInspectionService.ClockNode> refreshClockTopology() {
-        return clockInspectionService.refreshTopology();
     }
 
     // ========== 审计日志 ==========

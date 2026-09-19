@@ -1,7 +1,6 @@
 package com.optel.qxinspection.controller;
 
 import com.optel.qxinspection.service.AuditService;
-import com.optel.qxinspection.service.ClockInspectionService;
 import com.optel.qxinspection.service.InspectionScheduler;
 import com.optel.qxinspection.service.InspectionService;
 import com.optel.qxinspection.service.ThresholdService;
@@ -62,7 +61,7 @@ class InspectionControllerBackupRestoreTest {
 
         controller = new InspectionController(
                 mock(InspectionService.class), mock(InspectionScheduler.class), mock(AuditService.class),
-                mock(ThresholdService.class), mock(ClockInspectionService.class), jdbc);
+                mock(ThresholdService.class), jdbc);
         ReflectionTestUtils.setField(controller, "adminToken", ADMIN_TOKEN);
         ReflectionTestUtils.setField(controller, "sqliteUrl", "jdbc:sqlite:" + fwd(dbPath));
     }

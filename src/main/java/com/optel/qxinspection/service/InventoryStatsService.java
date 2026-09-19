@@ -39,7 +39,7 @@ public class InventoryStatsService {
     }
 
     /**
-     * 总览统计：网络 / 网元 / 盘 / 端口 / 链路数量
+     * 总览统计：网络 / 网元 / 盘 / 链路 / 需巡检端口数量
      */
     public Map<String, Object> getOverview() {
         Map<String, Object> result = new LinkedHashMap<>();
@@ -50,6 +50,11 @@ public class InventoryStatsService {
         Long linkCount = sqliteJdbc.queryForObject(
                 "SELECT COUNT(*) FROM dmconnection WHERE cid = ?", Long.class, CID_LINK);
         result.put("linkCount", linkCount != null ? linkCount : 0L);
+        // 需巡检端口数：链路两端端口去重计数
+        Long inspectionPortCount = sqliteJdbc.queryForObject(
+                "SELECT COUNT(DISTINCT port) FROM (SELECT aEnd AS port FROM dmconnection WHERE cid = 100 UNION SELECT zEnd AS port FROM dmconnection WHERE cid = 100)",
+                Long.class);
+        result.put("inspectionPortCount", inspectionPortCount != null ? inspectionPortCount : 0L);
         return result;
     }
 

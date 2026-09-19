@@ -425,7 +425,7 @@ export async function clearSelectedData() {
         return;
     }
     const types = Array.from(checked).map(cb => cb.value);
-    const labels = { syncData: '同步数据', deviceConfigs: '设备配置', connectionProfiles: '连接配置', thresholdRules: '门限规则', inspectionRecords: '巡检记录', inspectionRounds: '巡检轮次' };
+    const labels = { syncData: '同步数据', deviceConfigs: '设备配置', connectionProfiles: '连接配置', thresholdRules: '门限规则', inspectionRecords: '巡检记录', inspectionRounds: '巡检轮次', auditLogs: '操作日志' };
     const names = types.map(t => labels[t] || t).join('、');
     if (!confirm('确认清除所选数据（' + names + '）？\n\n此操作不可恢复！')) return;
 

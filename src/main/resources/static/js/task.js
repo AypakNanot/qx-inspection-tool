@@ -191,7 +191,7 @@ export function startManualInspection(switchPageFn) {
             params.set('neId', neId);
         }
         const d = await post('/inspection/start' + (params.toString() ? '?' + params : ''));
-        showToast('巡检已启动: 轮次 #' + d.roundId + ', ' + d.totalDevices + ' 台设备', 'success');
+        showToast('巡检已启动: 轮次 #' + d.roundId + ', ' + d.totalLinks + ' 条链路', 'success');
         switchPageFn(document.querySelector('[data-page="page-progress"]'));
     });
 }
