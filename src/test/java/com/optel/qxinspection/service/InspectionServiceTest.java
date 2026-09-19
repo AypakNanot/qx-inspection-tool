@@ -60,6 +60,9 @@ class InspectionServiceTest {
     @Mock
     private SysConfigService sysConfigService;
 
+    @Mock
+    private DynamicSyncService dynamicSyncService;
+
     @InjectMocks
     private InspectionService inspectionService;
 
@@ -74,6 +77,8 @@ class InspectionServiceTest {
         });
         lenient().when(qxConnectionService.connectSingle(anyString()))
                 .thenReturn(Map.of("success", false, "message", "mock 拒绝连接"));
+        // 巡检前自动同步：测试时返回空列表跳过同步
+        lenient().when(dynamicSyncService.getSyncedNetworkIds()).thenReturn(Collections.emptyList());
     }
 
     /** 一条链路记录（dmconnection cid=100 的列名） */
@@ -95,6 +100,8 @@ class InspectionServiceTest {
         link.put("zPortName", "P1(0/1/1)");
         link.put("zCapacity", 2500000);
         link.put("zUsed", 25000);
+        link.put("linkCapacity", 0);
+        link.put("linkUsed", 0);
         return link;
     }
 

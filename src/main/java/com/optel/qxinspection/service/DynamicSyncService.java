@@ -51,8 +51,9 @@ public class DynamicSyncService {
     private static final String INSERT_DMCONNECTION_SQL =
             "INSERT INTO dmconnection (oid, cid, name, aEnd, zEnd, createTime, creator, additionInfo, "
                     + "aNeName, aNeTypeName, aNetworkName, aPortName, aCapacity, aUsed, "
-                    + "zNeName, zNeTypeName, zNetworkName, zPortName, zCapacity, zUsed) "
-                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                    + "zNeName, zNeTypeName, zNetworkName, zPortName, zCapacity, zUsed, "
+                    + "linkCapacity, linkUsed) "
+                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
     private final JdbcTemplate sqliteJdbc;
     private final MysqlConnectionManager mysqlConnectionManager;
@@ -183,7 +184,8 @@ public class DynamicSyncService {
                     mysqlJdbc.queryForList("SELECT * FROM dmrelation"),
                     mysqlJdbc.queryForList("SELECT * FROM defdmne"),
                     mysqlJdbc.queryForList("SELECT * FROM emnecomm"),
-                    mysqlJdbc.queryForList("SELECT * FROM portbandwidth"));
+                    mysqlJdbc.queryForList("SELECT * FROM portbandwidth"),
+                    mysqlJdbc.queryForList("SELECT * FROM linkbandwidth WHERE dir = 1"));
 
             Set<String> targetNetworks = new HashSet<>(networkOids);
             Set<String> targetNeOids = index.neOidsIn(targetNetworks);
@@ -245,7 +247,8 @@ public class DynamicSyncService {
                                  List<Map<String, Object>> allDmrelation,
                                  List<Map<String, Object>> allDefdmne,
                                  List<Map<String, Object>> allEmnecomm,
-                                 List<Map<String, Object>> allPortbandwidth) {
+                                 List<Map<String, Object>> allPortbandwidth,
+                                 List<Map<String, Object>> allLinkbandwidth) {
         SyncIndex index = new SyncIndex();
 
         for (Map<String, Object> row : allDmeo) {
@@ -284,6 +287,11 @@ public class DynamicSyncService {
             if (toInt(row.get("dir")) == 1) {
                 index.bandwidthMap.put(toStr(row.get("oid")), row);
             }
+        }
+
+        // linkOid → linkbandwidth info (dir=1，双向链路级别带宽)
+        for (Map<String, Object> row : allLinkbandwidth) {
+            index.linkBandwidthMap.put(toStr(row.get("oid")), row);
         }
 
         return index;
@@ -330,15 +338,17 @@ public class DynamicSyncService {
             if (!targetNeOids.contains(aNeOid) && !targetNeOids.contains(zNeOid)) {
                 continue;
             }
+            String linkOid = toStr(row.get("oid"));
             rows.add(new Object[]{
-                    toStr(row.get("oid")), toInt(row.get("cid")), toStr(row.get("name")), aEnd, zEnd,
+                    linkOid, toInt(row.get("cid")), toStr(row.get("name")), aEnd, zEnd,
                     row.get("createTime"), toStr(row.get("creator")), toStr(row.get("additionInfo")),
                     index.neNameMap.get(aNeOid), index.neTypeNameOf(aNeOid),
                     index.networkNameOf(index.neNetworkMap.get(aNeOid)), index.portNameOf(aEnd),
                     index.bandwidthOf(aEnd, "capacity"), index.bandwidthOf(aEnd, "used"),
                     index.neNameMap.get(zNeOid), index.neTypeNameOf(zNeOid),
                     index.networkNameOf(index.neNetworkMap.get(zNeOid)), index.portNameOf(zEnd),
-                    index.bandwidthOf(zEnd, "capacity"), index.bandwidthOf(zEnd, "used")
+                    index.bandwidthOf(zEnd, "capacity"), index.bandwidthOf(zEnd, "used"),
+                    index.linkBandwidthOf(linkOid, "capacity"), index.linkBandwidthOf(linkOid, "used")
             });
         }
         return rows;
@@ -414,6 +424,7 @@ public class DynamicSyncService {
         private final Map<String, String> ipAddrMap = new HashMap<>();
         private final Map<String, String> portNameMap = new HashMap<>();
         private final Map<String, Map<String, Object>> bandwidthMap = new HashMap<>();
+        private final Map<String, Map<String, Object>> linkBandwidthMap = new HashMap<>();
 
         /** cid=1 自身即网络，其余通过 dmrelation 反查所属网络 */
         String networkOidOf(String oid, int cid) {
@@ -451,6 +462,11 @@ public class DynamicSyncService {
         int bandwidthOf(String portOid, String field) {
             Map<String, Object> bandwidth = bandwidthMap.get(portOid);
             return bandwidth == null ? 0 : toInt(bandwidth.get(field));
+        }
+
+        int linkBandwidthOf(String linkOid, String field) {
+            Map<String, Object> bw = linkBandwidthMap.get(linkOid);
+            return bw == null ? 0 : toInt(bw.get(field));
         }
 
         Set<String> neOidsIn(Set<String> networkOids) {

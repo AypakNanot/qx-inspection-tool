@@ -65,7 +65,8 @@ public class InspectionService {
     private static final String LINK_SELECT_SQL = """
             SELECT "oid", "name", "aEnd", "zEnd",
                    "aNetworkName", "aNeName", "aNeTypeName", "aPortName", "aCapacity", "aUsed",
-                   "zNetworkName", "zNeName", "zNeTypeName", "zPortName", "zCapacity", "zUsed"
+                   "zNetworkName", "zNeName", "zNeTypeName", "zPortName", "zCapacity", "zUsed",
+                   "linkCapacity", "linkUsed"
             FROM "dmconnection" WHERE "cid" = 100 ORDER BY "name"
             """;
 
@@ -76,6 +77,7 @@ public class InspectionService {
     private final JdbcTemplate sqliteJdbc;
     private final ThresholdService thresholdService;
     private final SysConfigService sysConfigService;
+    private final DynamicSyncService dynamicSyncService;
 
     @Value("${app.inspection.concurrency:10}")
     private int concurrency;
@@ -192,6 +194,8 @@ public class InspectionService {
             result.setAUsedBandwidth(vc12ToMbps(result.getAUsedBandwidth()));
             result.setZTotalBandwidth(vc12ToMbps(result.getZTotalBandwidth()));
             result.setZUsedBandwidth(vc12ToMbps(result.getZUsedBandwidth()));
+            result.setLinkTotalBandwidth(vc12ToMbps(result.getLinkTotalBandwidth()));
+            result.setLinkUsedBandwidth(vc12ToMbps(result.getLinkUsedBandwidth()));
         }
         return results;
     }
@@ -413,6 +417,9 @@ public class InspectionService {
             throw new IllegalStateException("已有巡检任务正在运行，请等待完成后再触发");
         }
 
+        // 巡检前自动同步，失败不影响巡检
+        autoSyncBeforeInspection();
+
         List<Map<String, Object>> links = loadLinks(scopeType, scopeParam);
         if (links.isEmpty()) {
             throw new IllegalStateException("未找到可巡检的链路，请先在「数据维护」页面同步业务数据");
@@ -449,6 +456,22 @@ public class InspectionService {
                 .thenRun(inspectionPool::shutdown);
 
         return saved;
+    }
+
+    /** 巡检前自动同步：有已同步网络则刷新数据，无则跳过。失败只记日志，不阻塞巡检 */
+    private void autoSyncBeforeInspection() {
+        try {
+            List<String> syncedNetworkIds = dynamicSyncService.getSyncedNetworkIds();
+            if (syncedNetworkIds.isEmpty()) {
+                log.info("无已同步网络，跳过自动同步");
+                return;
+            }
+            log.info("巡检前自动同步: {} 个网络", syncedNetworkIds.size());
+            dynamicSyncService.syncNetworks(syncedNetworkIds);
+            log.info("巡检前自动同步完成");
+        } catch (Exception e) {
+            log.warn("巡检前自动同步失败，继续执行巡检: {}", e.getMessage());
+        }
     }
 
     /**
@@ -719,22 +742,34 @@ public class InspectionService {
                 result.setZBandwidthUsage(zSide.bandwidthUsage());
                 result.setZErrorInfo(zSide.errorInfo());
             }
+            // 链路级别带宽（从 dmconnection.linkCapacity/linkUsed 读取）
+            result.setLinkTotalBandwidth(doubleOrNull(intOf(link.get("linkCapacity"))));
+            result.setLinkUsedBandwidth(doubleOrNull(intOf(link.get("linkUsed"))));
             results.add(result);
         }
         return results;
     }
 
-    /** 读取链路某一端的静态信息（dmconnection 冗余字段） */
+    /** 读取链路某一端的静态信息（dmconnection 冗余字段），优先使用链路级别带宽 */
     private static LinkEnd endOf(Map<String, Object> link, boolean aEnd) {
         String prefix = aEnd ? "a" : "z";
         String portOid = str(link, prefix + "End");
         if (portOid == null) {
             return null;
         }
+        // 优先使用链路级别带宽（linkCapacity/linkUsed），降级到端口级别（兼容旧数据）
+        int capacity = intOf(link.get("linkCapacity"));
+        int used = intOf(link.get("linkUsed"));
+        if (capacity == 0) {
+            capacity = intOf(link.get(prefix + "Capacity"));
+        }
+        if (used == 0) {
+            used = intOf(link.get(prefix + "Used"));
+        }
         return new LinkEnd(portOid, OidUtil.getNeOid(portOid),
                 str(link, prefix + "NeName"), stripNeTypePrefix(str(link, prefix + "NeTypeName")),
                 portNameOf(str(link, prefix + "PortName"), portOid),
-                intOf(link.get(prefix + "Capacity")), intOf(link.get(prefix + "Used")));
+                capacity, used);
     }
 
     /** 端口名称：同步已拼接好，缺失时回退为端口 OID */

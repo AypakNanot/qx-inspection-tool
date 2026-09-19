@@ -21,7 +21,8 @@ const HEADER_ROWS = [
         { text: '序号', rowspan: 3, width: '50px', center: true },
         { text: '链路名称', rowspan: 3, minWidth: '150px' },
         { text: 'A端', colspan: 12, className: 'query-th-a' },
-        { text: 'Z端', colspan: 12, className: 'query-th-z' }
+        { text: 'Z端', colspan: 12, className: 'query-th-z' },
+        { text: '链路带宽', colspan: 2, className: 'query-th-link' }
     ],
     [
         { text: '网元', colspan: 3, className: 'query-th-a' },
@@ -47,7 +48,8 @@ const HEADER_ROWS = [
         { text: 'TX\n状态', className: 'query-th-z', center: true }, { text: 'RX\n状态', className: 'query-th-z', center: true },
         { text: 'RS', unit: '错误秒', className: 'query-th-z', center: true },
         { text: '总', unit: 'Mbps', className: 'query-th-z', center: true }, { text: '已用', unit: 'Mbps', className: 'query-th-z', center: true },
-        { text: '利用率', className: 'query-th-z', center: true }
+        { text: '利用率', className: 'query-th-z', center: true },
+        { text: '总', unit: 'Mbps', className: 'query-th-link', center: true }, { text: '已用', unit: 'Mbps', className: 'query-th-link', center: true }
     ]
 ];
 
@@ -351,6 +353,9 @@ function renderLinkQueryTable() {
         tr.appendChild(linkTd);
         appendSide(tr, r, 'a');
         appendSide(tr, r, 'z');
+        // 链路级别带宽
+        tr.appendChild(numberCell(r.linkTotalBandwidth, 'center-cell'));
+        tr.appendChild(numberCell(r.linkUsedBandwidth, 'center-cell'));
         tbody.appendChild(tr);
     });
 

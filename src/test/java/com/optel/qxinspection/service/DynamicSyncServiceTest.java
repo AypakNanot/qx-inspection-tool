@@ -148,6 +148,8 @@ class DynamicSyncServiceTest {
                 bwRow("101:1:11:1", 1, 1008, 21),
                 bwRow("101:1:11:1", 2, 2222, 22),
                 bwRow("101:1:11:1", 3, 3333, 33)));
+        when(mysqlJdbc.queryForList("SELECT * FROM linkbandwidth WHERE dir = 1")).thenReturn(List.of(
+                bwRow("9001", 1, 1008, 810)));
         when(mysqlJdbc.queryForList("SELECT * FROM dmconnection WHERE cid = ?", 100)).thenReturn(List.of(
                 connRow("9001", "L1", "101:1:11:1", "102:1:11:2"),
                 connRow("9002", "L2", "1026:1:11:1", "101:1:11:1"),
@@ -235,8 +237,9 @@ class DynamicSyncServiceTest {
         List<List<Object>> connRows = capturedRows(
                 "INSERT INTO dmconnection (oid, cid, name, aEnd, zEnd, createTime, creator, additionInfo, "
                         + "aNeName, aNeTypeName, aNetworkName, aPortName, aCapacity, aUsed, "
-                        + "zNeName, zNeTypeName, zNetworkName, zPortName, zCapacity, zUsed) "
-                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                        + "zNeName, zNeTypeName, zNetworkName, zPortName, zCapacity, zUsed, "
+                        + "linkCapacity, linkUsed) "
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
         // 9001 双端在 71 内；9002 只有 Z 端在 71 内（跨网络链路保留）；9003 双端都不在
         assertEquals(2, connRows.size());
         assertTrue(connRows.stream().noneMatch(r -> "9003".equals(r.get(0))));
@@ -260,8 +263,9 @@ class DynamicSyncServiceTest {
         List<List<Object>> connRows = capturedRows(
                 "INSERT INTO dmconnection (oid, cid, name, aEnd, zEnd, createTime, creator, additionInfo, "
                         + "aNeName, aNeTypeName, aNetworkName, aPortName, aCapacity, aUsed, "
-                        + "zNeName, zNeTypeName, zNetworkName, zPortName, zCapacity, zUsed) "
-                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                        + "zNeName, zNeTypeName, zNetworkName, zPortName, zCapacity, zUsed, "
+                        + "linkCapacity, linkUsed) "
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
         List<Object> link = rowByOid(connRows, "9001");
         // dir=1 的 1008/21，而不是 dir=2/3 的 2222/3333
         assertEquals(1008, link.get(12));
@@ -269,6 +273,9 @@ class DynamicSyncServiceTest {
         // 无 portbandwidth 记录时回退 0
         assertEquals(0, link.get(18));
         assertEquals(0, link.get(19));
+        // linkbandwidth dir=1: 1008/810
+        assertEquals(1008, link.get(20));
+        assertEquals(810, link.get(21));
     }
 
     @Test

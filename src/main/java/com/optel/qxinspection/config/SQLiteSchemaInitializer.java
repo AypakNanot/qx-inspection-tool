@@ -158,6 +158,8 @@ public class SQLiteSchemaInitializer {
                 zPortName TEXT,
                 zCapacity INTEGER,
                 zUsed INTEGER,
+                linkCapacity INTEGER DEFAULT 0,
+                linkUsed INTEGER DEFAULT 0,
                 PRIMARY KEY (oid)
             )
         """);
@@ -199,7 +201,9 @@ public class SQLiteSchemaInitializer {
                 z_total_bandwidth INTEGER,
                 z_used_bandwidth INTEGER,
                 z_bandwidth_usage REAL,
-                z_error_info TEXT
+                z_error_info TEXT,
+                link_total_bandwidth INTEGER,
+                link_used_bandwidth INTEGER
             )
         """);
         addColumnIfNotExists("dmconnection", "aNeName", "TEXT");
@@ -214,9 +218,13 @@ public class SQLiteSchemaInitializer {
         addColumnIfNotExists("dmconnection", "zPortName", "TEXT");
         addColumnIfNotExists("dmconnection", "zCapacity", "INTEGER");
         addColumnIfNotExists("dmconnection", "zUsed", "INTEGER");
+        addColumnIfNotExists("dmconnection", "linkCapacity", "INTEGER DEFAULT 0");
+        addColumnIfNotExists("dmconnection", "linkUsed", "INTEGER DEFAULT 0");
 
         createIndexIfNotExists("idx_lir_round", "link_inspection_result", "round_id");
         createIndexIfNotExists("idx_lir_link", "link_inspection_result", "link_oid");
+        addColumnIfNotExists("link_inspection_result", "link_total_bandwidth", "INTEGER");
+        addColumnIfNotExists("link_inspection_result", "link_used_bandwidth", "INTEGER");
 
         // 清理旧同步表（已被 dmeo/dmconnection 冗余字段替代）
         dropTableIfExists("dmne");

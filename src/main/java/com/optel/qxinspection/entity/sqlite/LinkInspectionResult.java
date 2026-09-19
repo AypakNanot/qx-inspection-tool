@@ -175,4 +175,16 @@ public class LinkInspectionResult implements Serializable {
     @JsonProperty("zErrorInfo")
     @Column(name = "z_error_info")
     private String zErrorInfo;
+
+    // ==================== 链路级别带宽 ====================
+
+    /** 链路级别总带宽(Mbps)。库里存的是 VC-12 个数，读取时由 InspectionService 换算 */
+    @JsonProperty("linkTotalBandwidth")
+    @Column(name = "link_total_bandwidth")
+    private Double linkTotalBandwidth;
+
+    /** 链路级别已用带宽(Mbps)。库里存的是 VC-12 个数，读取时由 InspectionService 换算 */
+    @JsonProperty("linkUsedBandwidth")
+    @Column(name = "link_used_bandwidth")
+    private Double linkUsedBandwidth;
 }
