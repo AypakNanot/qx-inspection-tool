@@ -3,39 +3,33 @@ schema:
   namespace: "device"
 
 messages:
-  # 0x2406 物理端口安装查询
+
+  # 0x2406 — 物理端口安装查询
+  # C 请求: STRU_CFG_Qx_Port_Get (8 bytes)
+  # C 响应: STRU_CFG_Qx_PhysicalPort_Ack (12 bytes)
   - cmdCode: 0x2406
-    operation: "物理端口查询"
+    className: "PortGet"
+    listRecord: true
+    operation: "物理端口安装查询"
     request:
-      className: "PortQueryGetData"
       fields:
         - { name: subcaseNo,   type: BYTE,  desc: "子架序号" }
-        - { name: slotId,      type: BYTE,  desc: "槽位(0xFF=全部)" }
-        - { name: portType,    type: BYTE,  desc: "端口类型(0xFF=全部)" }
-        - { name: portSubType, type: BYTE,  desc: "端口子类型(0xFF=全部)" }
-        - { name: portId,      type: SHORT, desc: "端口号(0xFFFF=全部)" }
-        - { name: backup,      type: SHORT, desc: "备用" }
+        - { name: slotId,      type: BYTE,  desc: "槽位序号（0xFF=所有槽位）" }
+        - { name: portType,    type: BYTE,  desc: "端口类型（0xFF=所有端口类型）" }
+        - { name: portSubType, type: BYTE,  desc: "端口子类型（0xFF=所有端口子类型）" }
+        - { name: portId,      type: SHORT, desc: "端口号（0xFFFF=所有端口）" }
+        - { name: backup1,     type: BYTE,  desc: "备用字节" }
+        - { name: backup2,     type: BYTE,  desc: "备用字节" }
     response:
-      className: "PortQueryAckData"
       fields:
-        - { name: result, type: INT }
-        - { name: count,  type: INT }
-        - { name: records, listOf: "PortQueryRecord", countField: "count" }
-
-  - cmdCode: 0x2406
-    operation: "物理端口查询记录"
-    response:
-      className: "PortQueryRecord"
-      listRecord: true
-      fields:
-        - { name: subcaseNo,     type: BYTE }
-        - { name: slotId,        type: BYTE }
-        - { name: portType,      type: BYTE }
-        - { name: portSubType,   type: BYTE }
-        - { name: portId,        type: SHORT }
-        - { name: reqPortType,   type: BYTE }
-        - { name: reqPortSubType, type: BYTE }
-        - { name: realPortType,  type: BYTE }
-        - { name: realPortSubType, type: BYTE }
-        - { name: adminState,    type: BYTE }
-        - { name: runState,      type: BYTE }
+        - { name: subcaseNo,      type: BYTE, desc: "子架序号" }
+        - { name: slotId,         type: BYTE, desc: "槽位序号" }
+        - { name: portType,       type: BYTE, desc: "端口类型" }
+        - { name: portSubType,    type: BYTE, desc: "端口子类型" }
+        - { name: portId,         type: SHORT, desc: "端口号" }
+        - { name: reqPortType,    type: BYTE, desc: "应安装端口类型" }
+        - { name: reqPortSubType, type: BYTE, desc: "应安装端口子类型" }
+        - { name: realPortType,   type: BYTE, desc: "实安装端口类型" }
+        - { name: realPortSubType, type: BYTE, desc: "实安装端口子类型" }
+        - { name: adminState,     type: BYTE, desc: "管理状态（0x01=正常工作）" }
+        - { name: runState,       type: BYTE, desc: "运行状态（0x01=正常, 0x10=未安装, 0x11=安装错误）" }

@@ -2,8 +2,8 @@ package com.optel.qxinspection.service;
 
 import com.optel.qxinspection.entity.sqlite.InspectionRound;
 import com.optel.qxinspection.entity.sqlite.LinkInspectionResult;
-import com.optel.qxinspection.laser.LaserAttributeAckData;
-import com.optel.qxinspection.laser.LaserAttributeGetData;
+import com.optel.qxinspection.laser.LaserAttributeGetReq;
+import com.optel.qxinspection.laser.LaserAttributeGetRsp;
 import com.optel.qxinspection.laser.service.ILaserService;
 import com.optel.qxinspection.repository.sqlite.InspectionRoundRepository;
 import com.optel.qxinspection.repository.sqlite.LinkInspectionResultRepository;
@@ -648,7 +648,7 @@ public class InspectionService {
     /** 采集单个端口的光功率，失败只记录该端口的 error_info */
     private LaserSample collectPort(String neId, String portOid, Map<String, Integer> portTypes) {
         try {
-            LaserAttributeGetData req = LaserAttributeGetData.builder()
+            LaserAttributeGetReq req = LaserAttributeGetReq.builder()
                     .subcaseNo(OidUtil.getSubrackId(portOid))
                     .slotId(OidUtil.getSlotId(portOid))
                     .portType(portTypes.getOrDefault(portOid, DEFAULT_PORT_TYPE))
@@ -926,10 +926,12 @@ public class InspectionService {
     /** 单端口采集结果 */
     private record LaserSample(String moduleType, Double txPower, Double rxPower, String errorInfo) {
 
-        static LaserSample of(LaserAttributeAckData ack) {
-            if (ack == null) {
+        /** 单端口查询按记录列表返回；精确到端口的查询只会有一条，取首元素即可。 */
+        static LaserSample of(List<LaserAttributeGetRsp> rsps) {
+            if (rsps == null || rsps.isEmpty()) {
                 return error("激光器查询无响应");
             }
+            LaserAttributeGetRsp ack = rsps.get(0);
             if ((ack.getSupportFlag() & LASER_SUPPORT_BIT) != 1) {
                 return error("端口不支持光功率采集");
             }

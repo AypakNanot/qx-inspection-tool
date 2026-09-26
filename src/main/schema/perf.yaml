@@ -6,10 +6,10 @@ schema:
 messages:
 
   - cmdCode: 0x0C07
+    className: "PerfCurrent24HGet"
+    listRecord: true
     operation: "查询当前24小时性能"
     request:
-      className: "PerfCurrent24HGetData"
-      listRecord: true
       fields:
         - { name: subcaseNo,       type: BYTE,  desc: "子架序号" }
         - { name: slotId,          type: BYTE,  desc: "槽位序号" }
@@ -20,8 +20,6 @@ messages:
         - { name: tsAttribute,     type: SHORT, desc: "时隙带宽（0xFFFF=包括物理端口号, 0=物理端口, 非0非0xFFFF=指定时隙）" }
         - { name: performanceCode, type: SHORT, desc: "性能代码" }
     response:
-      className: "PerfCurrent24HQueryResult"
-      listRecord: true
       fields:
         - { name: subcaseNo,       type: BYTE,  desc: "子架序号（bit7=Invalid PM, 0=有效/1=无效; bit6=高/低32位指示, 0=低32位/1=高32位）" }
         - { name: slotId,          type: BYTE,  desc: "槽位序号" }
@@ -42,10 +40,10 @@ messages:
   # C 请求: STRU_PEF_Qx_History_Get (20 bytes)
   # C 响应: STRU_PEF_Qx_Active_Rpt (复用 trap 结构体)
   - cmdCode: 0x0C08
+    className: "PerfHistory15MGet"
+    listRecord: true
     operation: "查询历史15分钟性能"
     request:
-      className: "PerfHistory15MGetData"
-      listRecord: true
       fields:
         - { name: subcaseNo,       type: BYTE,  desc: "子架序号" }
         - { name: slotId,          type: BYTE,  desc: "槽位序号" }
@@ -58,8 +56,6 @@ messages:
         - { name: startTime,       type: INT,   desc: "查询起始时间（Unix时间戳）" }
         - { name: stopTime,        type: INT,   desc: "查询结束时间（Unix时间戳）" }
     response:
-      className: "PerfHistory15MQueryResult"
-      listRecord: true
       fields:
         - { name: subcaseNo,       type: BYTE,  desc: "子架序号（bit7=Invalid PM, 0=有效/1=无效; bit6=高/低32位指示, 0=低32位/1=高32位）" }
         - { name: slotId,          type: BYTE,  desc: "槽位序号" }
@@ -75,10 +71,10 @@ messages:
   # 0x0C09 — 查询历史24小时性能
   # 结构体同 0x0C08
   - cmdCode: 0x0C09
+    className: "PerfHistory24HGet"
+    listRecord: true
     operation: "查询历史24小时性能"
     request:
-      className: "PerfHistory24HGetData"
-      listRecord: true
       fields:
         - { name: subcaseNo,       type: BYTE,  desc: "子架序号" }
         - { name: slotId,          type: BYTE,  desc: "槽位序号" }
@@ -91,8 +87,6 @@ messages:
         - { name: startTime,       type: INT,   desc: "查询起始时间（Unix时间戳）" }
         - { name: stopTime,        type: INT,   desc: "查询结束时间（Unix时间戳）" }
     response:
-      className: "PerfHistory24HQueryResult"
-      listRecord: true
       fields:
         - { name: subcaseNo,       type: BYTE,  desc: "子架序号（bit7=Invalid PM, 0=有效/1=无效; bit6=高/低32位指示, 0=低32位/1=高32位）" }
         - { name: slotId,          type: BYTE,  desc: "槽位序号" }

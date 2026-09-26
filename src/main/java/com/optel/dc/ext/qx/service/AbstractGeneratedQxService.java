@@ -3,9 +3,9 @@ package com.optel.dc.ext.qx.service;
 import com.optel.dc.ext.qx.service.impl.QxSendResult;
 import com.optel.qx.cci.payload.QxPayloadCodec;
 import com.optel.qxinspection.qx.error.QxErrorCode;
+import jakarta.annotation.Resource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.context.ApplicationEventPublisher;
 
 import java.util.Arrays;
 
@@ -14,19 +14,16 @@ import java.util.Arrays;
  *
  * <p>提供编码/解码、发送、COMM 日志记录能力。
  * 子类由 codec 插件按 YAML namespace 生成，每个 namespace 一个实现类。</p>
+ *
+ * <p>生成的子类不声明构造器，因此本类必须保留无参构造；
+ * 设备通信依赖通过 {@link Resource} 字段注入。</p>
  */
 public abstract class AbstractGeneratedQxService extends AbstractQxService {
 
     protected final Logger log = LoggerFactory.getLogger(getClass());
 
-    private final IQxDeviceService qxDeviceService;
-    private final ApplicationEventPublisher eventPublisher;
-
-    protected AbstractGeneratedQxService(IQxDeviceService qxDeviceService,
-                                         ApplicationEventPublisher eventPublisher) {
-        this.qxDeviceService = qxDeviceService;
-        this.eventPublisher = eventPublisher;
-    }
+    @Resource
+    private IQxDeviceService qxDeviceService;
 
     // ==================== 公开 API（生成代码直接调用） ====================
 
@@ -53,7 +50,7 @@ public abstract class AbstractGeneratedQxService extends AbstractQxService {
      */
     @SafeVarargs
     protected final <T> void sendAndCheck(String neId, int cmdCode, String operation, T... records) {
-        doSend(neId, cmdCode, operation, encodePayload(records), resolveReqLog(records));
+        doSend(neId, cmdCode, operation, encodePayload(cmdCode, records), resolveReqLog(records));
     }
 
     /**
@@ -99,8 +96,8 @@ public abstract class AbstractGeneratedQxService extends AbstractQxService {
      */
     @SafeVarargs
     protected final <T> Object sendAndDecodeRaw(String neId, int cmdCode, String operation, T... records) {
-        QxPayloadCodec<?> codec = getResponseCodec(cmdCode, neId);
-        byte[] payload = encodePayload(records);
+        QxPayloadCodec<?, ?> codec = getMergedCodec(cmdCode, neId);
+        byte[] payload = encodePayload(cmdCode, records);
         Object reqLog = resolveReqLog(records);
 
         QxSendResult result = doSend(neId, cmdCode, operation, payload, reqLog);
@@ -131,25 +128,19 @@ public abstract class AbstractGeneratedQxService extends AbstractQxService {
 
     // ==================== 编码 ====================
 
-    @SuppressWarnings("unchecked")
-    private <T> byte[] encodeSingle(T data) {
-        return codecRegistry.getByType(
-                (Class<T>) data.getClass()).encode(data);
-    }
-
     /**
      * 将一个或多个 POJO 记录编码为单个字节数组。
-     * 单条记录直接编码；多条记录各自编码后拼接。
+     * 编码走该 cmdCode 的合并 codec；单条记录直接编码，多条记录各自编码后拼接。
      */
     @SafeVarargs
-    private final <T> byte[] encodePayload(T... records) {
+    private final <T> byte[] encodePayload(int cmdCode, T... records) {
         if (records.length == 1) {
-            return encodeSingle(records[0]);
+            return codecRegistry.encode((short) cmdCode, records[0]);
         }
         byte[][] chunks = new byte[records.length][];
         int totalLen = 0;
         for (int i = 0; i < records.length; i++) {
-            chunks[i] = encodeSingle(records[i]);
+            chunks[i] = codecRegistry.encode((short) cmdCode, records[i]);
             totalLen += chunks[i].length;
         }
         byte[] payload = new byte[totalLen];
@@ -214,7 +205,7 @@ public abstract class AbstractGeneratedQxService extends AbstractQxService {
 
     private String resolveNamespace(int cmdCode) {
         try {
-            QxPayloadCodec<?> codec = codecRegistry.get((short) cmdCode);
+            QxPayloadCodec<?, ?> codec = codecRegistry.get((short) cmdCode);
             return codec != null ? codec.namespace() : null;
         } catch (Exception e) {
             log.warn("Failed to resolve namespace for cmdCode=0x{}", hexCmdCode(cmdCode), e);
@@ -222,13 +213,14 @@ public abstract class AbstractGeneratedQxService extends AbstractQxService {
         }
     }
 
-    private QxPayloadCodec<?> getResponseCodec(int cmdCode, String neId) {
-        QxPayloadCodec<?> codec = codecRegistry.getResponse((short) cmdCode);
+    /** 按 cmdCode 查合并 codec（encode/decode 同体），未注册则视为调用方 bug。 */
+    private QxPayloadCodec<?, ?> getMergedCodec(int cmdCode, String neId) {
+        QxPayloadCodec<?, ?> codec = codecRegistry.get((short) cmdCode);
         if (codec == null) {
-            log.error("No response codec registered for cmdCode=0x{} (neId={})",
+            log.error("No codec registered for cmdCode=0x{} (neId={})",
                     hexCmdCode(cmdCode), neId);
             throw new QxCommandException(QxErrorCode.OTHER_ERROR,
-                    "No response codec registered for cmdCode: 0x" + hexCmdCode(cmdCode));
+                    "No codec registered for cmdCode: 0x" + hexCmdCode(cmdCode));
         }
         return codec;
     }

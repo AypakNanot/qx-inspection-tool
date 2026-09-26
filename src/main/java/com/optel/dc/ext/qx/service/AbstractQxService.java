@@ -19,15 +19,15 @@ import java.util.TreeMap;
  * Qx 协议服务基类，提供 codec 自动扫描注册。
  *
  * <h3>Registry key space</h3>
- * {@code cmdCode + direction} must be globally unique within this module.
+ * 合并 codec（encode/decode 同体）按 {@code cmdCode} 全局唯一注册，一个 cmdCode 对应一个 codec。
  * The YAML {@code namespace} is a code-organization dimension (Java package),
  * not a runtime isolation boundary — the Qx protocol header has no namespace field.
  *
  * <h3>Registration rules</h3>
  * <ul>
  *   <li>{@code 0x0000} 模板已废弃（Set 成败在 Qx 报文头），防御性跳过。</li>
- *   <li>listRecord 编解码器与父 cmdCode 共享，跳过注册。</li>
- *   <li>跨包 cmdCode+direction 碰撞 → 启动时抛 {@link IllegalStateException}。</li>
+ *   <li>listRecord codec 即该 cmdCode 的合并 codec，正常注册（解码走 decodeList）。</li>
+ *   <li>跨包 cmdCode 碰撞 → 启动时抛 {@link IllegalStateException}。</li>
  * </ul>
  */
 public abstract class AbstractQxService {
@@ -53,7 +53,6 @@ public abstract class AbstractQxService {
         List<String> registered = new ArrayList<>();
         List<String> skipped = new ArrayList<>();
         List<String> skippedTemplates = new ArrayList<>();
-        List<String> skippedRecords = new ArrayList<>();
         Map<Integer, String> cmdIndex = new TreeMap<>();
         Map<String, String[]> seen = new TreeMap<>();
 
@@ -78,23 +77,16 @@ public abstract class AbstractQxService {
                 String fullClassName = reader.getClassMetadata().getClassName();
                 try {
                     Class<?> clazz = Class.forName(fullClassName);
-                    QxPayloadCodec<?> codec =
-                            (QxPayloadCodec<?>) clazz.getDeclaredConstructor().newInstance();
+                    QxPayloadCodec<?, ?> codec =
+                            (QxPayloadCodec<?, ?>) clazz.getDeclaredConstructor().newInstance();
 
                     int cmd = codec.cmdCode() & 0xFFFF;
-                    String dir = codec.direction();
                     String simpleName = codec.getClass().getSimpleName();
                     String ns = codec.namespace();
-                    String collisionKey = String.format("0x%04X:%s", cmd, dir);
+                    String collisionKey = String.format("0x%04X", cmd);
 
                     if (cmd == 0) {
-                        skippedTemplates.add(String.format("  %s (0x0000:%s)", simpleName, dir));
-                        continue;
-                    }
-
-                    if (codec.isListRecord()) {
-                        skippedRecords.add(String.format(
-                                "  %s (listRecord, %s)", simpleName, collisionKey));
+                        skippedTemplates.add(String.format("  %s (0x0000)", simpleName));
                         continue;
                     }
 
@@ -105,7 +97,7 @@ public abstract class AbstractQxService {
                         String msg = String.format(
                                 "cmdCode %s conflict: %s (ns=%s) vs %s (ns=%s)",
                                 collisionKey, prevName, prevNs, simpleName, ns);
-                        SCAN_LOG.error("=== cmdCode+direction conflict === {}", msg);
+                        SCAN_LOG.error("=== cmdCode conflict === {}", msg);
                         throw new IllegalStateException("Startup abort: " + msg);
                     }
 
@@ -114,8 +106,7 @@ public abstract class AbstractQxService {
                     registered.add(String.format("  %-45s cmdCode=0x%04X", simpleName, cmd));
 
                     String idxPrev = cmdIndex.get(cmd);
-                    cmdIndex.put(cmd, (idxPrev != null ? idxPrev + ", " : "")
-                            + simpleName + "(" + dir + ")");
+                    cmdIndex.put(cmd, (idxPrev != null ? idxPrev + ", " : "") + simpleName);
 
                 } catch (NoSuchMethodException e) {
                     skipped.add(fullClassName.substring(fullClassName.lastIndexOf('.') + 1));
@@ -132,17 +123,13 @@ public abstract class AbstractQxService {
             SCAN_LOG.error("Failed to scan package: {}", basePackage, e);
         }
 
-        SCAN_LOG.info("=== codec registration: {} registered, {} template skipped, {} record skipped, {} manual-required ===",
-                registered.size(), skippedTemplates.size(), skippedRecords.size(), skipped.size());
+        SCAN_LOG.info("=== codec registration: {} registered, {} template skipped, {} manual-required ===",
+                registered.size(), skippedTemplates.size(), skipped.size());
         registered.forEach(SCAN_LOG::info);
 
         if (!skippedTemplates.isEmpty()) {
             SCAN_LOG.info("--- skipped 0x0000 template codecs ---");
             skippedTemplates.forEach(SCAN_LOG::info);
-        }
-        if (!skippedRecords.isEmpty()) {
-            SCAN_LOG.info("--- skipped listOf record codecs ---");
-            skippedRecords.forEach(SCAN_LOG::info);
         }
         if (!skipped.isEmpty()) {
             SCAN_LOG.warn("--- codecs requiring manual registration ---");
