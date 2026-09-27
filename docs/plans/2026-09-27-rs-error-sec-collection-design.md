@@ -45,7 +45,9 @@ collectPort(neId, portOid, portTypes)
   3. 组装 LaserSample（光功率字段 + rsErrorSec + errorInfo）
 ```
 
-请求参数与激光器请求同源：`subcaseNo/slotId/portId` 从 `portOid` 解析，`portType` 查 `portTypes`，`portSubType` 用现有默认值；`tsOrderId=0`、`tsAttribute=0`（物理端口本身，schema 注释口径，待真机验证）。
+请求参数与激光器请求同源：`subcaseNo/slotId/portId` 从 `portOid` 解析，`portType/portSubType` 查 `portTypes`；`tsOrderId=0`、`tsAttribute=0`（物理端口本身，schema 注释口径，待真机验证）。
+
+端口类型口径：dmeo 的 `type`（如 20008）经 Uniview `defobject(cid=5).deviceType` 拆分为 `(portType, portSubType)`（高位字节/低位字节，如 20008 → deviceType 515=0x0203 → `2/3`），兜底 `0xFF/0xFF`（defobject 查询失败、type 缺失对应行、deviceType 为 -1/0 时全量兜底，不中断巡检）。
 
 `IPerfService` / `PerfServiceImpl` 已由 codec 插件从 `perf.yaml` 自动生成，直接注入 `InspectionService` 使用。
 
@@ -78,6 +80,7 @@ collectPort(neId, portOid, portTypes)
 | `PerfCodes`（新增） | 三个性能编码常量 + 来源注释 |
 | `LaserSample` | 加 `rsErrorSec` 字段，工厂方法适配 |
 | `InspectionService.collectPort` | 追加性能查询段（超行数/复杂度则把回包解析拆私有静态方法） |
+| `DynamicSyncService.loadPortDeviceTypes`（新增） | 从 MySQL `defobject(cid=5)` 查 type→deviceType 映射（不吞异常，方法内归还连接池） |
 | `InspectionService.isCollected` / `sideAbnormal` | 采集成功判定由 error_info 改为 `sideCollected(moduleType, errorInfo)`（性能失败不再丢链路、不再计入异常） |
 | `InspectionService.buildSide` | `null` → `sample.rsErrorSec()` |
 

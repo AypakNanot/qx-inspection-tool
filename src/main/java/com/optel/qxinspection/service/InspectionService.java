@@ -53,8 +53,8 @@ public class InspectionService {
     private static final String KEY_AUTO_DISCONNECT = "inspect.autoDisconnect";
     private static final String KEY_SAVE_INVALID = "inspect.saveInvalid";
 
-    private static final int DEFAULT_PORT_TYPE = 0xFF;
-    private static final int DEFAULT_PORT_SUB_TYPE = 0xFF;
+    /** 端口类型兜底对 {portType, portSubType}：deviceType 缺失/非法或端口不在映射表时使用 */
+    private static final int[] DEFAULT_PORT_TYPE_PAIR = {0xFF, 0xFF};
     private static final int LASER_SUPPORT_BIT = 0x01;
     private static final int TOP_ANOMALY_LIMIT = 20;
 
@@ -529,7 +529,7 @@ public class InspectionService {
                 }
             }
 
-            Map<String, Integer> portTypes = loadPortTypes();
+            Map<String, int[]> portTypes = loadPortTypes();
             Map<String, LaserSample> samples = new ConcurrentHashMap<>();
             AtomicInteger failCount = new AtomicInteger();
 
@@ -604,7 +604,7 @@ public class InspectionService {
     }
 
     /** 采集单台网元：连接一次，逐个端口采集光功率 */
-    private void collectNe(String neId, Set<String> ports, Map<String, Integer> portTypes,
+    private void collectNe(String neId, Set<String> ports, Map<String, int[]> portTypes,
                            Map<String, LaserSample> samples, AtomicInteger failCount,
                            Map<String, List<String>> neLinks, Map<String, AtomicInteger> linkPending) {
         progressCurrentNe = nameOr(roundNeNames, neId);
@@ -661,14 +661,15 @@ public class InspectionService {
      * 采集单个端口：先查光功率，成功后追加 0x0C07 性能查询。
      * 光功率失败只记录该端口的 error_info；性能失败只影响 rsErrorSec 与 error_info，端口仍为成功态。
      */
-    LaserSample collectPort(String neId, String portOid, Map<String, Integer> portTypes) {
+    LaserSample collectPort(String neId, String portOid, Map<String, int[]> portTypes) {
         LaserSample sample;
         try {
+            int[] pair = portTypes.getOrDefault(portOid, DEFAULT_PORT_TYPE_PAIR);
             LaserAttributeGetReq req = LaserAttributeGetReq.builder()
                     .subcaseNo(OidUtil.getSubrackId(portOid))
                     .slotId(OidUtil.getSlotId(portOid))
-                    .portType(portTypes.getOrDefault(portOid, DEFAULT_PORT_TYPE))
-                    .portSubType(DEFAULT_PORT_SUB_TYPE)
+                    .portType(pair[0])
+                    .portSubType(pair[1])
                     .portId(OidUtil.getPortId(portOid))
                     .backup(0)
                     .build();
@@ -684,7 +685,7 @@ public class InspectionService {
     }
 
     /** RS错误秒采集：失败分级见设计文档，任何情况不改变端口成功态 */
-    private LaserSample collectRsErrorSec(String neId, String portOid, Map<String, Integer> portTypes,
+    private LaserSample collectRsErrorSec(String neId, String portOid, Map<String, int[]> portTypes,
                                            LaserSample sample) {
         try {
             PerfOutcome outcome = parsePerfResponses(perfService.current24HGet(neId,
@@ -707,13 +708,14 @@ public class InspectionService {
     }
 
     /** 0x0C07 单指标请求记录：端口坐标取自 OID，性能编码逐条指定 */
-    private PerfCurrent24HGetReq perfReq(String portOid, Map<String, Integer> portTypes,
+    private PerfCurrent24HGetReq perfReq(String portOid, Map<String, int[]> portTypes,
                                           int performanceCode) {
+        int[] pair = portTypes.getOrDefault(portOid, DEFAULT_PORT_TYPE_PAIR);
         return PerfCurrent24HGetReq.builder()
                 .subcaseNo(OidUtil.getSubrackId(portOid))
                 .slotId(OidUtil.getSlotId(portOid))
-                .portType(portTypes.getOrDefault(portOid, DEFAULT_PORT_TYPE))
-                .portSubType(DEFAULT_PORT_SUB_TYPE)
+                .portType(pair[0])
+                .portSubType(pair[1])
                 .portId(OidUtil.getPortId(portOid))
                 .tsOrderId(TS_ORDER_PHYSICAL_PORT)
                 .tsAttribute(TS_ATTR_PHYSICAL_PORT)
@@ -736,17 +738,41 @@ public class InspectionService {
         log.info("巡检完成，已断开 {} 台设备连接", disconnected);
     }
 
-    /** 端口 OID → dmeo.type（采集报文需要） */
-    private Map<String, Integer> loadPortTypes() {
-        Map<String, Integer> map = new HashMap<>();
+    /**
+     * 端口 OID → [portType, portSubType]：dmeo.type 经 defobject.deviceType 高低位拆分。
+     * deviceType 缺失或非正数（-1/0 脏数据）兜底 {0xFF, 0xFF}。
+     */
+    Map<String, int[]> loadPortTypes() {
+        Map<Integer, Integer> deviceTypes = loadDeviceTypes();
+        Map<String, int[]> map = new HashMap<>();
         for (Map<String, Object> row : sqliteJdbc.queryForList(
                 "SELECT \"oid\", \"type\" FROM \"dmeo\" WHERE \"cid\" = 5 AND \"type\" IS NOT NULL")) {
             Object type = row.get("type");
             if (type instanceof Number number) {
-                map.put((String) row.get("oid"), number.intValue());
+                Integer deviceType = deviceTypes.get(number.intValue());
+                map.put((String) row.get("oid"),
+                        deviceType != null && deviceType > 0
+                                ? splitPortType(deviceType)
+                                : DEFAULT_PORT_TYPE_PAIR);
             }
         }
         return map;
+    }
+
+    /** defobject 查询失败 → log.warn + 空 map，全端口兜底 0xFF/0xFF，不中断巡检 */
+    private Map<Integer, Integer> loadDeviceTypes() {
+        try {
+            Map<Integer, Integer> deviceTypes = dynamicSyncService.loadPortDeviceTypes();
+            return deviceTypes != null ? deviceTypes : Map.of();
+        } catch (Exception e) {
+            log.warn("defobject deviceType 查询失败，端口类型兜底 0xFF/0xFF: {}", e.getMessage());
+            return Map.of();
+        }
+    }
+
+    /** deviceType 高低位拆分：portType = 高字节，portSubType = 低字节（如 515=0x0203 → {2, 3}） */
+    static int[] splitPortType(int deviceType) {
+        return new int[]{(deviceType >> 8) & 0xFF, deviceType & 0xFF};
     }
 
     private List<LinkInspectionResult> assembleLinks(InspectionRound round, List<Map<String, Object>> links,

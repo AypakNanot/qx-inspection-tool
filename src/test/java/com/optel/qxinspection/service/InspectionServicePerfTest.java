@@ -1,6 +1,7 @@
 package com.optel.qxinspection.service;
 
 import com.optel.dc.ext.qx.service.QxCommandException;
+import com.optel.qxinspection.laser.LaserAttributeGetReq;
 import com.optel.qxinspection.laser.LaserAttributeGetRsp;
 import com.optel.qxinspection.laser.service.ILaserService;
 import com.optel.qxinspection.perf.PerfCurrent24HGetReq;
@@ -12,10 +13,12 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -38,6 +41,10 @@ class InspectionServicePerfTest {
     private ILaserService laserService;
     @Mock
     private IPerfService perfService;
+    @Mock
+    private JdbcTemplate sqliteJdbc;
+    @Mock
+    private DynamicSyncService dynamicSyncService;
     @InjectMocks
     private InspectionService inspectionService;
 
@@ -255,6 +262,7 @@ class InspectionServicePerfTest {
         inspectionService.collectPort(NE_ID, PORT_OID, Map.of());
 
         // varargs 整体按数组捕获：单元素 captor 在 verify 时与展开后的 3 个实参不匹配
+        // 端口不在 portTypes map → 兜底 {0xFF, 0xFF}
         ArgumentCaptor<PerfCurrent24HGetReq[]> captor = ArgumentCaptor.forClass(PerfCurrent24HGetReq[].class);
         verify(perfService).current24HGet(eq(NE_ID), captor.capture());
         PerfCurrent24HGetReq[] reqs = captor.getValue();
@@ -340,18 +348,108 @@ class InspectionServicePerfTest {
     }
 
     @Test
-    void collectPort_PerfRequestUsesPortTypeFromMap() {
+    void collectPort_PortTypePairUsedByLaserAndPerfRequests() {
         when(laserService.attributeGet(anyString(), any())).thenReturn(List.of(laserOk()));
         when(perfService.current24HGet(anyString(), any(PerfCurrent24HGetReq[].class)))
                 .thenReturn(perfOk(0, 0, 0));
 
-        inspectionService.collectPort(NE_ID, PORT_OID, Map.of(PORT_OID, 7));
+        inspectionService.collectPort(NE_ID, PORT_OID, Map.of(PORT_OID, new int[]{2, 3}));
+
+        ArgumentCaptor<LaserAttributeGetReq> laserCaptor =
+                ArgumentCaptor.forClass(LaserAttributeGetReq.class);
+        verify(laserService).attributeGet(eq(NE_ID), laserCaptor.capture());
+        assertEquals(2, laserCaptor.getValue().getPortType());
+        assertEquals(3, laserCaptor.getValue().getPortSubType());
 
         ArgumentCaptor<PerfCurrent24HGetReq[]> captor = ArgumentCaptor.forClass(PerfCurrent24HGetReq[].class);
         verify(perfService).current24HGet(eq(NE_ID), captor.capture());
         for (PerfCurrent24HGetReq req : captor.getValue()) {
-            assertEquals(7, req.getPortType());
+            assertEquals(2, req.getPortType());
+            assertEquals(3, req.getPortSubType());
         }
+    }
+
+    // ========== portType/portSubType 拆分（defobject.deviceType 高低位） ==========
+
+    @Test
+    void splitPortType_SplitsDeviceTypeIntoHighLowBytes() {
+        // 验证数据来自真库 defobject(cid=5)
+        assertArrayEquals(new int[]{2, 1}, InspectionService.splitPortType(513));    // STM1_O 0x0201
+        assertArrayEquals(new int[]{2, 3}, InspectionService.splitPortType(515));    // STM4_O 0x0203
+        assertArrayEquals(new int[]{2, 4}, InspectionService.splitPortType(516));    // STM16_O 0x0204
+        assertArrayEquals(new int[]{2, 5}, InspectionService.splitPortType(517));    // STM64_O 0x0205
+        assertArrayEquals(new int[]{12, 5}, InspectionService.splitPortType(3077));  // 100BT_LAN 0x0C05
+        assertArrayEquals(new int[]{255, 255}, InspectionService.splitPortType(-1)); // 0xFFFFFFFF
+    }
+
+    @Test
+    void loadPortTypes_KnownType_SplitsDeviceTypeHighLowBytes() {
+        when(dynamicSyncService.loadPortDeviceTypes())
+                .thenReturn(Map.of(20008, 515, 20021, 3077));
+        when(sqliteJdbc.queryForList(anyString())).thenReturn(List.of(
+                dmeoPortRow("p1", 20008),
+                dmeoPortRow("p2", 20021)));
+
+        Map<String, int[]> portTypes = inspectionService.loadPortTypes();
+
+        assertArrayEquals(new int[]{2, 3}, portTypes.get("p1"));
+        assertArrayEquals(new int[]{12, 5}, portTypes.get("p2"));
+    }
+
+    @Test
+    void loadPortTypes_MySqlFails_FallsBackToDefaultPair() {
+        when(dynamicSyncService.loadPortDeviceTypes())
+                .thenThrow(new IllegalStateException("MySQL 不可达"));
+        when(sqliteJdbc.queryForList(anyString()))
+                .thenReturn(List.of(dmeoPortRow("p1", 20008)));
+
+        Map<String, int[]> portTypes = inspectionService.loadPortTypes();
+
+        assertArrayEquals(new int[]{0xFF, 0xFF}, portTypes.get("p1"));
+    }
+
+    @Test
+    void loadPortTypes_DeviceTypeMapNull_FallsBackToDefaultPair() {
+        when(dynamicSyncService.loadPortDeviceTypes()).thenReturn(null);
+        when(sqliteJdbc.queryForList(anyString()))
+                .thenReturn(List.of(dmeoPortRow("p1", 20008)));
+
+        Map<String, int[]> portTypes = inspectionService.loadPortTypes();
+
+        assertArrayEquals(new int[]{0xFF, 0xFF}, portTypes.get("p1"));
+    }
+
+    @Test
+    void loadPortTypes_UnknownOrNonPositiveDeviceType_FallsBackToDefaultPair() {
+        when(dynamicSyncService.loadPortDeviceTypes()).thenReturn(Map.of(20006, -1, 20007, 0));
+        when(sqliteJdbc.queryForList(anyString())).thenReturn(List.of(
+                dmeoPortRow("p1", 20006),   // defobject.deviceType = -1
+                dmeoPortRow("p2", 20007),   // defobject.deviceType = 0
+                dmeoPortRow("p3", 99999)));  // defobject 无此 type 行
+
+        Map<String, int[]> portTypes = inspectionService.loadPortTypes();
+
+        assertArrayEquals(new int[]{0xFF, 0xFF}, portTypes.get("p1"));
+        assertArrayEquals(new int[]{0xFF, 0xFF}, portTypes.get("p2"));
+        assertArrayEquals(new int[]{0xFF, 0xFF}, portTypes.get("p3"));
+    }
+
+    @Test
+    void loadPortTypes_NullTypeRow_Skipped_NotInMap() {
+        when(dynamicSyncService.loadPortDeviceTypes()).thenReturn(Map.of());
+        when(sqliteJdbc.queryForList(anyString())).thenReturn(List.of(dmeoPortRow("p1", null)));
+
+        Map<String, int[]> portTypes = inspectionService.loadPortTypes();
+
+        assertFalse(portTypes.containsKey("p1"));
+    }
+
+    /** dmeo(cid=5) 行：oid + type */
+    private static Map<String, Object> dmeoPortRow(String oid, Integer type) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("oid", oid);
+        row.put("type", type);
+        return row;
     }
 
     /** 三处 buildSide 用例共用的端静态信息 */

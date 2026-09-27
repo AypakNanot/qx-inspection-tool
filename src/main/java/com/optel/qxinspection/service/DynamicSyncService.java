@@ -39,6 +39,9 @@ public class DynamicSyncService {
     /** dmconnection cid：链路（其余 cid 为交叉连接/路径/路径段/以太路径，巡检不使用） */
     private static final int CID_LINK = 100;
 
+    /** dmeo/defobject cid：端口 */
+    private static final int CID_PORT = 5;
+
     private static final String KEY_NETWORK_IDS = "sync.networkIds";
     private static final String KEY_NETWORK_NAMES = "sync.networkNames";
     private static final String KEY_SYNC_TIME = "sync.time";
@@ -123,6 +126,33 @@ public class DynamicSyncService {
         try {
             return mysqlJdbc.queryForList(
                     "SELECT oid, name FROM dmeo WHERE cid = 1 ORDER BY name");
+        } finally {
+            mysqlConnectionManager.close();
+        }
+    }
+
+    // ==================== defobject 映射 ====================
+
+    /**
+     * 从 MySQL defobject 读取端口类型定义（cid=5）：dmeo.type → deviceType。
+     * <p>defobject 未同步进 SQLite，巡检前按需查询；本方法不吞异常，由调用方决定兜底。</p>
+     *
+     * @return type → deviceType 映射（deviceType 非数值的行不入 map）
+     */
+    public Map<Integer, Integer> loadPortDeviceTypes() {
+        JdbcTemplate mysqlJdbc = mysqlConnectionManager.getJdbcTemplate();
+        try {
+            List<Map<String, Object>> rows = mysqlJdbc.queryForList(
+                    "SELECT type, deviceType FROM defobject WHERE cid = ?", CID_PORT);
+            Map<Integer, Integer> map = new HashMap<>();
+            for (Map<String, Object> row : rows) {
+                Object type = row.get("type");
+                Object deviceType = row.get("deviceType");
+                if (type instanceof Number typeNo && deviceType instanceof Number devNo) {
+                    map.put(typeNo.intValue(), devNo.intValue());
+                }
+            }
+            return map;
         } finally {
             mysqlConnectionManager.close();
         }

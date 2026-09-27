@@ -337,4 +337,43 @@ class DynamicSyncServiceTest {
 
         verify(mysqlConnectionManager).close();
     }
+
+    // ========== loadPortDeviceTypes（defobject type→deviceType） ==========
+
+    private static Map<String, Object> defObjectRow(int type, Object deviceType) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("type", type);
+        row.put("deviceType", deviceType);
+        return row;
+    }
+
+    @Test
+    void testLoadPortDeviceTypes_MapsTypeToDeviceTypeAndClosesPool() {
+        when(mysqlJdbc.queryForList("SELECT type, deviceType FROM defobject WHERE cid = ?", 5))
+                .thenReturn(List.of(
+                        defObjectRow(20008, 515),
+                        defObjectRow(20021, 3077),
+                        defObjectRow(20006, -1),
+                        defObjectRow(20007, "not-a-number")));
+
+        Map<Integer, Integer> map = dynamicSyncService.loadPortDeviceTypes();
+
+        assertEquals(515, map.get(20008));
+        assertEquals(3077, map.get(20021));
+        assertEquals(-1, map.get(20006));
+        assertFalse(map.containsKey(20007));   // 非数值 deviceType 不入 map
+        verify(mysqlConnectionManager).close();
+    }
+
+    @Test
+    void testLoadPortDeviceTypes_QueryFails_RethrowsAndClosesPool() {
+        when(mysqlJdbc.queryForList(anyString(), eq(5)))
+                .thenThrow(new IllegalStateException("MySQL 不可达"));
+
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> dynamicSyncService.loadPortDeviceTypes());
+
+        assertEquals("MySQL 不可达", ex.getMessage());
+        verify(mysqlConnectionManager).close();
+    }
 }
