@@ -111,6 +111,20 @@ public class InspectionController {
     }
 
     /**
+     * 单设备采集测试（真机联调用）：绕开链路，对指定网元/端口做真实激光器+性能采集，不落库。
+     * 用法: POST /api/inspection/test-collect?neId=101[&portOids=101:1:11:1&portOids=...]
+     */
+    @PostMapping("/test-collect")
+    public List<InspectionService.PortCollectResult> testCollect(
+            @RequestParam String neId,
+            @RequestParam(required = false) List<String> portOids) {
+        List<InspectionService.PortCollectResult> results = inspectionService.testCollect(neId, portOids);
+        auditService.record("INSPECTION", "test-collect neId=" + neId, "SUCCESS",
+                results.size() + "个端口");
+        return results;
+    }
+
+    /**
      * 查询巡检进度
      */
     @GetMapping("/progress")

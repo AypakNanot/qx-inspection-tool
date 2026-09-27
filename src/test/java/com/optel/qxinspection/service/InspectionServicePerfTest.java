@@ -1,6 +1,7 @@
 package com.optel.qxinspection.service;
 
 import com.optel.dc.ext.qx.service.QxCommandException;
+import com.optel.qxinspection.entity.sqlite.InspectionRound;
 import com.optel.qxinspection.laser.LaserAttributeGetReq;
 import com.optel.qxinspection.laser.LaserAttributeGetRsp;
 import com.optel.qxinspection.laser.service.ILaserService;
@@ -14,6 +15,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -24,7 +26,9 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -41,6 +45,10 @@ class InspectionServicePerfTest {
     private IPerfService perfService;
     @Mock
     private JdbcTemplate sqliteJdbc;
+    @Mock
+    private QxConnectionService qxConnectionService;
+    @Mock
+    private ThresholdService thresholdService;
     @InjectMocks
     private InspectionService inspectionService;
 
@@ -448,6 +456,137 @@ class InspectionServicePerfTest {
         Map<String, PortTarget> targets = inspectionService.loadPortTargets();
 
         assertFalse(targets.containsKey("p1"));
+    }
+
+    // ========== 单设备采集测试（test-collect） ==========
+
+    /** 单设备测试的通用桩：NE 端口装载 + 显示名 + 连接 + 门限 + 采集双成功 */
+    private void stubTestCollectHappyPath() {
+        when(sqliteJdbc.queryForList(contains("deviceType"), eq(NE_ID + ":%")))
+                .thenReturn(List.of(dmeoPortRow("101:1:11:1", 20008, 515)));
+        when(sqliteJdbc.queryForList(contains("\"name\""), eq(NE_ID + ":%")))
+                .thenReturn(List.of(Map.of("oid", "101:1:11:1", "name", "P1")));
+        when(qxConnectionService.isConnected(NE_ID)).thenReturn(false);
+        when(qxConnectionService.connectSingle(NE_ID)).thenReturn(Map.of("success", true));
+        when(thresholdService.loadRangeMap()).thenReturn(Map.of());
+        when(laserService.attributeGet(anyString(), any())).thenReturn(List.of(laserOk()));
+        when(perfService.current24HGet(anyString(), any(PerfCurrent24HGetReq[].class)))
+                .thenReturn(perfOk(10, 2, 1));
+    }
+
+    @Test
+    void testCollect_AllPorts_ReturnsResultsAndRestoresConnection() {
+        stubTestCollectHappyPath();
+
+        List<InspectionService.PortCollectResult> results =
+                inspectionService.testCollect(NE_ID, null);
+
+        assertEquals(1, results.size());
+        InspectionService.PortCollectResult r = results.get(0);
+        assertEquals("101:1:11:1", r.oid());
+        assertEquals("P1", r.portName());
+        assertEquals(2, r.portType());
+        assertEquals(3, r.portSubType());
+        assertEquals(1.5, r.txPower(), 1e-9);
+        assertEquals(-2.0, r.rxPower(), 1e-9);
+        assertNotNull(r.txStatus());
+        assertNotNull(r.rxStatus());
+        assertEquals(13, r.rsErrorSec());
+        assertNull(r.errorInfo());
+        assertTrue(r.elapsedMs() >= 0);
+        // 我方建立的连接，测试结束恢复（断开）
+        verify(qxConnectionService).disconnectSingle(NE_ID);
+    }
+
+    @Test
+    void testCollect_ExplicitOids_UnknownOidUsesFallback() {
+        when(sqliteJdbc.queryForList(contains("deviceType"), eq(NE_ID + ":%")))
+                .thenReturn(List.of(dmeoPortRow("101:1:11:1", 20008, 515)));
+        when(sqliteJdbc.queryForList(contains("\"name\""), eq(NE_ID + ":%")))
+                .thenReturn(List.of(Map.of("oid", "101:1:11:1", "name", "P1")));
+        when(qxConnectionService.isConnected(NE_ID)).thenReturn(true);
+        when(thresholdService.loadRangeMap()).thenReturn(Map.of());
+        when(laserService.attributeGet(anyString(), any())).thenReturn(List.of(laserOk()));
+        when(perfService.current24HGet(anyString(), any(PerfCurrent24HGetReq[].class)))
+                .thenReturn(perfOk(0, 0, 0));
+
+        List<InspectionService.PortCollectResult> results = inspectionService.testCollect(
+                NE_ID, List.of("101:1:11:1", "999:1:1:1"));
+
+        assertEquals(2, results.size());
+        // dmeo 已知端口：deviceType 拆分 + dmeo 显示名
+        assertEquals(2, results.get(0).portType());
+        assertEquals(3, results.get(0).portSubType());
+        assertEquals("P1", results.get(0).portName());
+        // dmeo 未知端口：兜底 0xFF/0xFF，端口名回退为 OID
+        assertEquals(0xFF, results.get(1).portType());
+        assertEquals(0xFF, results.get(1).portSubType());
+        assertEquals("999:1:1:1", results.get(1).portName());
+        // 已连接的设备，测试结束不代为断开
+        verify(qxConnectionService, never()).disconnectSingle(anyString());
+        verify(qxConnectionService, never()).connectSingle(anyString());
+    }
+
+    @Test
+    void testCollect_LaserFails_ResultCarriesErrorAndSkipsPerf() {
+        when(sqliteJdbc.queryForList(contains("deviceType"), eq(NE_ID + ":%")))
+                .thenReturn(List.of(dmeoPortRow("101:1:11:1", 20008, 515)));
+        when(sqliteJdbc.queryForList(contains("\"name\""), eq(NE_ID + ":%")))
+                .thenReturn(List.of(Map.of("oid", "101:1:11:1", "name", "P1")));
+        when(qxConnectionService.isConnected(NE_ID)).thenReturn(true);
+        when(thresholdService.loadRangeMap()).thenReturn(Map.of());
+        when(laserService.attributeGet(anyString(), any())).thenThrow(new RuntimeException("boom"));
+
+        List<InspectionService.PortCollectResult> results =
+                inspectionService.testCollect(NE_ID, null);
+
+        assertEquals(1, results.size());
+        InspectionService.PortCollectResult r = results.get(0);
+        assertNull(r.rsErrorSec());
+        assertNull(r.moduleType());
+        assertNotNull(r.errorInfo());
+        assertTrue(r.errorInfo().contains("采集失败"));
+        verifyNoInteractions(perfService);
+    }
+
+    @Test
+    void testCollect_NoPorts_Throws() {
+        when(sqliteJdbc.queryForList(contains("deviceType"), eq(NE_ID + ":%")))
+                .thenReturn(Collections.emptyList());
+
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> inspectionService.testCollect(NE_ID, null));
+
+        assertTrue(ex.getMessage().contains("未找到网元"));
+        verifyNoInteractions(qxConnectionService);
+    }
+
+    @Test
+    void testCollect_InspectionRunning_RefusedBeforeAnyDeviceCall() {
+        InspectionRound running = new InspectionRound();
+        running.setStatus(InspectionRound.STATUS_RUNNING);
+        ReflectionTestUtils.setField(inspectionService, "currentRound", running);
+
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> inspectionService.testCollect(NE_ID, null));
+
+        assertTrue(ex.getMessage().contains("正在运行"));
+        verifyNoInteractions(qxConnectionService, laserService, perfService);
+    }
+
+    @Test
+    void testCollect_ConnectFails_ThrowsWithDeviceMessage() {
+        when(sqliteJdbc.queryForList(contains("deviceType"), eq(NE_ID + ":%")))
+                .thenReturn(List.of(dmeoPortRow("101:1:11:1", 20008, 515)));
+        when(qxConnectionService.isConnected(NE_ID)).thenReturn(false);
+        when(qxConnectionService.connectSingle(NE_ID))
+                .thenReturn(Map.of("success", false, "message", "拒绝连接"));
+
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> inspectionService.testCollect(NE_ID, null));
+
+        assertTrue(ex.getMessage().contains("拒绝连接"));
+        verifyNoInteractions(perfService);
     }
 
     /** dmeo(cid=5) 行：oid + type + deviceType（deviceType 随同步冗余入库） */

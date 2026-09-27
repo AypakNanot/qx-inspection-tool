@@ -102,6 +102,19 @@ collectPort(neId, target: PortTarget)          ← 端口对象贯穿采集链
 
 坏味道自查：错误文案提取 `static final`（S1192）；`collectPort` 控制在方法体 ≤30 行。
 
+## 单设备采集测试工具（真机联调用）
+
+只有一台设备、没有链路时，巡检流程无法触发（SINGLE scope 也从 dmconnection 过滤）。提供绕开链路的测试口：
+
+```
+POST /api/inspection/test-collect?neId=101[&portOids=101:1:11:1&portOids=...]
+```
+
+- 从 dmeo 取该网元端口 → PortTarget → 真连设备 → 激光器 + 0x0C07 逐端口采集 → 返回 JSON（**不落库、不建轮次**）
+- 返回字段：oid / portName / moduleType / portType / portSubType / tx、rx 功率与状态 / rsErrorSec / errorInfo / elapsedMs
+- portOids 可选：不传 = 该网元全部端口；指定端口不在 dmeo 时按兜底坐标采集
+- 连接管理：测试时自动连接，结束断开（本就在线则不代断）；巡检进行中拒绝；结果记审计日志
+
 ## 真机联调验收清单
 
 1. 请求三选择器 `0xFFFF` 发 0x0C07，回包 RS-ES 编码应为 **8194**（defpmattr 18194−10000）且 `performanceValue` 为合理秒数；确认回包 subcaseNo 低位子架号 < 0x40（bit6/bit7 与子架号同字节）；确认回包是否存在同编码的多 `tsOrderId` 记录（存在时评估取舍）
@@ -124,4 +137,4 @@ collectPort(neId, target: PortTarget)          ← 端口对象贯穿采集链
 - [x] deviceType 改同步冗余列（dmeo.deviceType），巡检不再直查 MySQL（原则修复，2026-09-27）
 - [x] 端口对象化：`PortTarget` bean 替代 Map<String,int[]>（坐标预解析、请求自组装，2026-09-27）
 - [x] 全量回归 211 绿
-- [ ] 真机联调验收（performanceCode=18194 回包核对、tsOrderId/tsAttribute、bit6、端到端一轮巡检、验收清单第 5 项超时行为）
+- [ ] 真机联调（可用 test-collect 接口执行；performanceCode=8194 回包核对、tsOrderId/tsAttribute、bit6、端到端一轮巡检、验收清单第 5 项超时行为）

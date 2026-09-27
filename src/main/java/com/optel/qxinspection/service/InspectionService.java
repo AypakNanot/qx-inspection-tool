@@ -137,6 +137,92 @@ public class InspectionService {
         return triggerInspection(scopeType, scopeParam, "SCHEDULED");
     }
 
+    // ========== 单设备采集测试（真机联调用） ==========
+
+    /**
+     * 单设备采集测试：绕开链路，对指定网元的端口做真实激光器 + 0x0C07 性能采集，逐端口返回结果。
+     * portOids 为空 → 采集该网元在 dmeo 中的全部端口；指定端口不在 dmeo 时按兜底坐标采集。
+     * 不写库、不建巡检轮次；测试期间自动连接设备，结束后恢复原连接状态。
+     */
+    public List<PortCollectResult> testCollect(String neId, List<String> portOids) {
+        if (neId == null || neId.isBlank()) {
+            throw new IllegalArgumentException("neId 不能为空");
+        }
+        if (currentRound != null && InspectionRound.STATUS_RUNNING.equals(currentRound.getStatus())) {
+            throw new IllegalStateException("已有巡检任务正在运行，单设备测试请等待完成");
+        }
+
+        Map<String, PortTarget> targets = loadPortTargets(neId);
+        List<PortTarget> ports = new ArrayList<>();
+        if (portOids == null || portOids.isEmpty()) {
+            if (targets.isEmpty()) {
+                throw new IllegalStateException("未找到网元 " + neId + " 的端口（dmeo 无数据，请先同步网络数据）");
+            }
+            ports.addAll(targets.values());
+        } else {
+            for (String portOid : portOids) {
+                PortTarget target = targets.get(portOid);
+                ports.add(target != null ? target : PortTarget.fallback(portOid));
+            }
+        }
+
+        Map<String, String> portNames = loadPortNames(neId);
+        Map<String, ThresholdService.Range> ranges = thresholdService.loadRangeMap();
+        boolean wasConnected = qxConnectionService.isConnected(neId);
+        try {
+            if (!wasConnected) {
+                Map<String, Object> conn = qxConnectionService.connectSingle(neId);
+                if (!Boolean.TRUE.equals(conn.get("success"))) {
+                    throw new IllegalStateException(
+                            String.valueOf(conn.getOrDefault("message", "设备连接失败")));
+                }
+            }
+            List<PortCollectResult> results = new ArrayList<>(ports.size());
+            for (PortTarget target : ports) {
+                long start = System.currentTimeMillis();
+                LaserSample sample = collectPort(neId, target);
+                results.add(toResult(target, sample, portNames, ranges,
+                        System.currentTimeMillis() - start));
+            }
+            return results;
+        } finally {
+            if (!wasConnected) {
+                try {
+                    qxConnectionService.disconnectSingle(neId);
+                } catch (Exception e) {
+                    log.debug("测试采集后断开连接失败: {}", neId, e);
+                }
+            }
+        }
+    }
+
+    /** dmeo 端口显示名（仅测试结果展示用） */
+    private Map<String, String> loadPortNames(String neId) {
+        Map<String, String> names = new HashMap<>();
+        for (Map<String, Object> row : sqliteJdbc.queryForList(
+                "SELECT \"oid\", \"name\" FROM \"dmeo\" WHERE \"cid\" = 5 AND \"oid\" LIKE ?",
+                neId + ":%")) {
+            putName(names, str(row, "oid"), str(row, "name"));
+        }
+        return names;
+    }
+
+    private static PortCollectResult toResult(PortTarget target, LaserSample sample,
+                                              Map<String, String> portNames,
+                                              Map<String, ThresholdService.Range> ranges,
+                                              long elapsedMs) {
+        ThresholdService.Range range = ThresholdService.rangeFor(ranges, sample.moduleType());
+        return new PortCollectResult(
+                target.oid(),
+                portNames.getOrDefault(target.oid(), target.oid()),
+                sample.moduleType(),
+                target.portType(), target.portSubType(),
+                sample.txPower(), sample.rxPower(),
+                ThresholdService.evaluateStatus(sample.txPower(), range.txLow(), range.txHigh()),
+                ThresholdService.evaluateStatus(sample.rxPower(), range.rxLow(), range.rxHigh()),
+                sample.rsErrorSec(), sample.errorInfo(), elapsedMs);
+    }
+
     /** 获取当前巡检进度（按链路数统计） */
     public synchronized Map<String, Object> getProgress() {
         Map<String, Object> progress = new LinkedHashMap<>();
@@ -712,9 +798,19 @@ public class InspectionService {
      * <p>只读 SQLite，不查 MySQL——除同步外不碰 MySQL 是本项目原则。</p>
      */
     Map<String, PortTarget> loadPortTargets() {
+        return loadPortTargets(null);
+    }
+
+    /** 按网元前缀装载端口对象（单设备测试用）：neOid 如 "101" → 匹配 "101:%" */
+    Map<String, PortTarget> loadPortTargets(String neOid) {
+        boolean byNe = neOid != null && !neOid.isEmpty();
+        String sql = "SELECT \"oid\", \"type\", \"deviceType\" FROM \"dmeo\" "
+                + "WHERE \"cid\" = 5 AND \"type\" IS NOT NULL" + (byNe ? " AND \"oid\" LIKE ?" : "");
+        List<Map<String, Object>> rows = byNe
+                ? sqliteJdbc.queryForList(sql, neOid + ":%")
+                : sqliteJdbc.queryForList(sql);
         Map<String, PortTarget> targets = new HashMap<>();
-        for (Map<String, Object> row : sqliteJdbc.queryForList(
-                "SELECT \"oid\", \"type\", \"deviceType\" FROM \"dmeo\" WHERE \"cid\" = 5 AND \"type\" IS NOT NULL")) {
+        for (Map<String, Object> row : rows) {
             if (row.get("type") instanceof Number) {
                 String oid = (String) row.get("oid");
                 Object deviceType = row.get("deviceType");
@@ -1018,6 +1114,14 @@ public class InspectionService {
 
     private static String neIdOf(String portOid) {
         return portOid != null ? OidUtil.getNeOid(portOid) : null;
+    }
+
+    /** 单设备采集测试结果（不落库，仅供真机联调查看） */
+    public record PortCollectResult(String oid, String portName, String moduleType,
+                                    int portType, int portSubType,
+                                    Double txPower, Double rxPower,
+                                    String txStatus, String rxStatus,
+                                    Integer rsErrorSec, String errorInfo, long elapsedMs) {
     }
 
     /** 链路某一端的静态信息 */
