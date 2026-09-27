@@ -47,7 +47,7 @@ collectPort(neId, portOid, portTypes)
 
 请求参数与激光器请求同源：`subcaseNo/slotId/portId` 从 `portOid` 解析，`portType/portSubType` 查 `portTypes`；`tsOrderId=0`、`tsAttribute=0`（物理端口本身，schema 注释口径，待真机验证）。
 
-端口类型口径：dmeo 的 `type`（如 20008）经 Uniview `defobject(cid=5).deviceType` 拆分为 `(portType, portSubType)`（高位字节/低位字节，如 20008 → deviceType 515=0x0203 → `2/3`），兜底 `0xFF/0xFF`（defobject 查询失败、type 缺失对应行、deviceType 为 -1/0 时全量兜底，不中断巡检）。
+端口类型口径：dmeo 的 `type`（如 20008）经 Uniview `defobject(cid=5).deviceType` 拆分为 `(portType, portSubType)`（高位字节/低位字节，如 20008 → deviceType 515=0x0203 → `2/3`），兜底 `0xFF/0xFF`（defobject 查询失败时全量兜底、不中断巡检；单个类型 deviceType 为 -1/0 或缺行时该端口兜底）。
 
 `IPerfService` / `PerfServiceImpl` 已由 codec 插件从 `perf.yaml` 自动生成，直接注入 `InspectionService` 使用。
 
@@ -81,6 +81,7 @@ collectPort(neId, portOid, portTypes)
 | `LaserSample` | 加 `rsErrorSec` 字段，工厂方法适配 |
 | `InspectionService.collectPort` | 追加性能查询段（超行数/复杂度则把回包解析拆私有静态方法） |
 | `DynamicSyncService.loadPortDeviceTypes`（新增） | 从 MySQL `defobject(cid=5)` 查 type→deviceType 映射（不吞异常，方法内归还连接池） |
+| `InspectionService.loadPortTypes` / `loadDeviceTypes` / `splitPortType` | `portTypes` 签名 `Map<String,Integer>` → `Map<String,int[]>`；dmeo.type 经 defobject.deviceType 拆成 (portType, portSubType)，查询失败/非法值兜底 `{0xFF, 0xFF}`（兜底数组每次新建） |
 | `InspectionService.isCollected` / `sideAbnormal` | 采集成功判定由 error_info 改为 `sideCollected(moduleType, errorInfo)`（性能失败不再丢链路、不再计入异常） |
 | `InspectionService.buildSide` | `null` → `sample.rsErrorSec()` |
 
@@ -104,6 +105,7 @@ collectPort(neId, portOid, portTypes)
 3. bit6 是否实际出现（不出现则拼接分支仅为防御）
 4. 巡检跑一轮 → query 页 RS 列有数 → 导出 `RS(错误秒)` 列有数 → "仅看误码"筛选生效
 5. 确认设备对不支持/未知的 0x0C07 是立即回错误码还是 10s 静默超时；若存在静默场景，评估连续失败熔断或 `qx.perf.enabled` 开关
+6. 抓包核对激光器与 0x0C07 请求的 portType/portSubType 与 defobject.deviceType 拆分一致（如 20008 → `02 03`）
 
 **验收标准：** 巡检一轮后 `a_rs_error_sec/z_rs_error_sec` 有真实数值（或失败时 null 且 error_info 有原因），全量测试通过、新代码覆盖率 ≥80%。
 
@@ -113,5 +115,6 @@ collectPort(neId, portOid, portTypes)
 - [x] collectPort 集成 0x0C07（10 测试）
 - [x] 读取端适配：isCollected/sideAbnormal 改 sideCollected 口径（4 测试）
 - [x] buildSide 透传（3 测试）
-- [x] 全量回归 197 绿
+- [x] portType/portSubType defobject.deviceType 拆分（8 测试）
+- [x] 全量回归 205 绿
 - [ ] 真机联调验收（performanceCode=18194 回包核对、tsOrderId/tsAttribute、bit6、端到端一轮巡检、验收清单第 5 项超时行为）

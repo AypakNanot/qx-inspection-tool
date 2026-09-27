@@ -53,8 +53,6 @@ public class InspectionService {
     private static final String KEY_AUTO_DISCONNECT = "inspect.autoDisconnect";
     private static final String KEY_SAVE_INVALID = "inspect.saveInvalid";
 
-    /** 端口类型兜底对 {portType, portSubType}：deviceType 缺失/非法或端口不在映射表时使用 */
-    private static final int[] DEFAULT_PORT_TYPE_PAIR = {0xFF, 0xFF};
     private static final int LASER_SUPPORT_BIT = 0x01;
     private static final int TOP_ANOMALY_LIMIT = 20;
 
@@ -664,7 +662,7 @@ public class InspectionService {
     LaserSample collectPort(String neId, String portOid, Map<String, int[]> portTypes) {
         LaserSample sample;
         try {
-            int[] pair = portTypes.getOrDefault(portOid, DEFAULT_PORT_TYPE_PAIR);
+            int[] pair = portTypes.getOrDefault(portOid, defaultPortPair());
             LaserAttributeGetReq req = LaserAttributeGetReq.builder()
                     .subcaseNo(OidUtil.getSubrackId(portOid))
                     .slotId(OidUtil.getSlotId(portOid))
@@ -710,7 +708,7 @@ public class InspectionService {
     /** 0x0C07 单指标请求记录：端口坐标取自 OID，性能编码逐条指定 */
     private PerfCurrent24HGetReq perfReq(String portOid, Map<String, int[]> portTypes,
                                           int performanceCode) {
-        int[] pair = portTypes.getOrDefault(portOid, DEFAULT_PORT_TYPE_PAIR);
+        int[] pair = portTypes.getOrDefault(portOid, defaultPortPair());
         return PerfCurrent24HGetReq.builder()
                 .subcaseNo(OidUtil.getSubrackId(portOid))
                 .slotId(OidUtil.getSlotId(portOid))
@@ -753,7 +751,7 @@ public class InspectionService {
                 map.put((String) row.get("oid"),
                         deviceType != null && deviceType > 0
                                 ? splitPortType(deviceType)
-                                : DEFAULT_PORT_TYPE_PAIR);
+                                : defaultPortPair());
             }
         }
         return map;
@@ -773,6 +771,14 @@ public class InspectionService {
     /** deviceType 高低位拆分：portType = 高字节，portSubType = 低字节（如 515=0x0203 → {2, 3}） */
     static int[] splitPortType(int deviceType) {
         return new int[]{(deviceType >> 8) & 0xFF, deviceType & 0xFF};
+    }
+
+    /**
+     * 端口类型兜底对 {portType, portSubType}：deviceType 缺失/非法或端口不在映射表时使用。
+     * 每次新建数组，避免共享可变数组被多处引用后遭外部改写。
+     */
+    private static int[] defaultPortPair() {
+        return new int[]{0xFF, 0xFF};
     }
 
     private List<LinkInspectionResult> assembleLinks(InspectionRound round, List<Map<String, Object>> links,

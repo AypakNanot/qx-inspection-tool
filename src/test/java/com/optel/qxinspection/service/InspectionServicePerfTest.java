@@ -432,6 +432,11 @@ class InspectionServicePerfTest {
         assertArrayEquals(new int[]{0xFF, 0xFF}, portTypes.get("p1"));
         assertArrayEquals(new int[]{0xFF, 0xFF}, portTypes.get("p2"));
         assertArrayEquals(new int[]{0xFF, 0xFF}, portTypes.get("p3"));
+
+        // 兜底数组不可被外部改写：各端口独立实例，改一个不影响其他端口
+        assertNotSame(portTypes.get("p1"), portTypes.get("p2"));
+        portTypes.get("p1")[0] = 0x42;
+        assertEquals(0xFF, portTypes.get("p2")[0]);
     }
 
     @Test

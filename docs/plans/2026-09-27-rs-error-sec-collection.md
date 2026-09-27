@@ -617,24 +617,6 @@ git commit -m "feat: buildSide 透传 RS错误秒（替换预留 null）"
 
 ---
 
-### Task 5: portType/portSubType 转换（用户口述规则，2026-09-27 追加）
-
-**规则（已抓包验证）：** 取 `dmeo(cid, type)` → 查 Uniview `defobject(cid, type).deviceType` → `portType = (deviceType >> 8) & 0xFF`，`portSubType = deviceType & 0xFF`。
-验证：20008(STM4_O) → deviceType 515 = 0x0203 → 报文 `02 03`（用户抓包 `02030001`）；20021 → 0xC05 → `0C 05`。
-**背景 bug：** 现 `loadPortTypes` 把 dmeo.type 原值塞 BYTE，codec `(byte)` 强转截断（20008 → 0x28），激光器与 0x0C07 查询都错。`defobject` 未同步进 SQLite。
-
-**Files:**
-- Modify: `DynamicSyncService` — 新增 `public Map<Integer, Integer> loadPortDeviceTypes()`：`mysqlJdbc.queryForList("SELECT type, deviceType FROM defobject WHERE cid = 5")` → type→deviceType（异常抛出由调用方兜底）
-- Modify: `InspectionService`
-  - `loadPortTypes()` → `loadPortTypePairs()`：SQLite 查 oid+type（SQL 不变），逐行经 deviceType map 拆成 `Map<String, int[]>`（oid → [portType, portSubType]）；deviceType 缺失/负数 → `[0xFF, 0xFF]`（现默认值）
-  - deviceType map 在巡检启动处一次性加载（`dynamicSyncService.loadPortDeviceTypes()`），**查询失败 → log.warn + 空 map 全量兜底 0xFF/0xFF，不中断巡检**
-  - `collectPort` / `perfReq` 的 portType/portSubType 全部改取 pair；删除 `DEFAULT_PORT_TYPE/DEFAULT_PORT_SUB_TYPE` 的独立使用（保留 0xFF 作为兜底常量）
-  - `collectNe`/调用链参数类型 `Map<String,Integer>` → `Map<String,int[]>`（或小值类型，参数数不变）
-- Test: `DynamicSyncServiceTest`（loadPortDeviceTypes：正常映射 / mysql 异常抛出）+ `InspectionServicePerfTest`（拆分数学：515→(2,3)、3077→(12,5)、-1→(255,255)、缺失→兜底；collectPort/perfReq 捕获断言 portType=2/portSubType=3 —— **既有 `collectPort_PerfRequest...` 用例的 0xFF 断言按新语义更新**）
-- Modify: 设计文档 — 采集流程/改动文件表补 Task 5 条目
-
-**Step 1-6:** TDD 照旧（先失败测试 → 实现 → 定向绿 → `mvn test` 全量绿 → commit → 自查）。
-
 ### Task 4: 全量回归 + 自查清单
 
 **Files:**
@@ -675,3 +657,23 @@ git commit -m "docs: RS错误秒采集实现状态（真机联调待办）"
 **Step 5: 汇报**
 
 向用户汇报：改动文件清单、测试结果（真实数字）、真机联调清单待执行。**不推送**（除非用户明确要求）。
+
+---
+
+### Task 5: portType/portSubType 转换（用户口述规则，2026-09-27 追加）
+
+**规则（已抓包验证）：** 取 `dmeo(cid, type)` → 查 Uniview `defobject(cid, type).deviceType` → `portType = (deviceType >> 8) & 0xFF`，`portSubType = deviceType & 0xFF`。
+验证：20008(STM4_O) → deviceType 515 = 0x0203 → 报文 `02 03`（用户抓包 `02030001`）；20021 → 0xC05 → `0C 05`。
+**背景 bug：** 现 `loadPortTypes` 把 dmeo.type 原值塞 BYTE，codec `(byte)` 强转截断（20008 → 0x28），激光器与 0x0C07 查询都错。`defobject` 未同步进 SQLite。
+
+**Files:**
+- Modify: `DynamicSyncService` — 新增 `public Map<Integer, Integer> loadPortDeviceTypes()`：`mysqlJdbc.queryForList("SELECT type, deviceType FROM defobject WHERE cid = 5")` → type→deviceType（异常抛出由调用方兜底）
+- Modify: `InspectionService`
+  - `loadPortTypes()` 改造（方法名不变）：SQLite 查 oid+type（SQL 不变），逐行经 deviceType map 拆成 `Map<String, int[]>`（oid → [portType, portSubType]）；deviceType 缺失/负数 → `[0xFF, 0xFF]`（兜底值，每次新建数组不共享）
+  - deviceType map 在巡检启动处一次性加载（`dynamicSyncService.loadPortDeviceTypes()`），**查询失败 → log.warn + 空 map 全量兜底 0xFF/0xFF，不中断巡检**
+  - `collectPort` / `perfReq` 的 portType/portSubType 全部改取 pair；删除 `DEFAULT_PORT_TYPE/DEFAULT_PORT_SUB_TYPE` 常量，兜底收敛为 `defaultPortPair()`
+  - `collectNe`/调用链参数类型 `Map<String,Integer>` → `Map<String,int[]>`（或小值类型，参数数不变）
+- Test: `DynamicSyncServiceTest`（loadPortDeviceTypes：正常映射 / mysql 异常抛出）+ `InspectionServicePerfTest`（拆分数学：515→(2,3)、3077→(12,5)、-1→(255,255)、缺失→兜底；collectPort/perfReq 捕获断言 portType=2/portSubType=3 —— **既有 `collectPort_PerfRequest...` 用例的 0xFF 断言按新语义更新**）
+- Modify: 设计文档 — 采集流程/改动文件表补 Task 5 条目
+
+**Step 1-6:** TDD 照旧（先失败测试 → 实现 → 定向绿 → `mvn test` 全量绿 → commit → 自查）。
