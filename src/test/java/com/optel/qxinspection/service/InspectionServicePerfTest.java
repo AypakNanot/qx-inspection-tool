@@ -130,6 +130,21 @@ class InspectionServicePerfTest {
     }
 
     @Test
+    void parse_UasMissing_ReportsRsUasName() {
+        // 缺 RS-UAS（ES/SES 在场）→ 求和已有两项，issue 标出 nameOf(RS_UAS) 分支
+        InspectionService.PerfOutcome outcome = InspectionService.parsePerfResponses(List.of(
+                rsp(0, PerfCodes.RS_ES, 10),
+                rsp(0, PerfCodes.RS_SES, 2)));
+
+        assertEquals(12, outcome.rsErrorSec());
+        assertNotNull(outcome.issue());
+        // 只缺 UAS 一项：括号内仅 RS-UAS，ES/SES 不出现在缺失列表
+        assertTrue(outcome.issue().contains("(RS-UAS)"));
+        assertFalse(outcome.issue().contains("RS-ES"));
+        assertFalse(outcome.issue().contains("RS-SES"));
+    }
+
+    @Test
     void parse_NegativeHighWord_TreatedAsUnsigned() {
         // 高 32 位按有符号解码为负值（脏数据）时须按无符号处理：-1 → 0xFFFFFFFF
         InspectionService.PerfOutcome outcome = InspectionService.parsePerfResponses(List.of(
