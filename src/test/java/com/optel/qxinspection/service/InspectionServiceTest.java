@@ -45,6 +45,8 @@ import static org.mockito.Mockito.when;
  */
 @ExtendWith(MockitoExtension.class)
 class InspectionServiceTest {
+    private static final String MODULE_LX = "1000BASE-LX";
+    private static final String DEV_REJECT = "设备拒绝";
 
     @Mock
     private ILaserService laserService;
@@ -403,7 +405,7 @@ class InspectionServiceTest {
         noLight.setARxStatus(ThresholdService.STATUS_NORMAL);
         noLight.setZTxStatus(ThresholdService.STATUS_NORMAL);
         noLight.setZRxStatus(ThresholdService.STATUS_NORMAL);
-        noLight.setZModuleType("1000BASE-LX");
+        noLight.setZModuleType(MODULE_LX);
         noLight.setANeTypeName("1650");
         noLight.setZNeTypeName("1830");
         noLight.setANeId("1.4");
@@ -424,7 +426,7 @@ class InspectionServiceTest {
         Map<String, Map<String, Object>> byModule = (Map<String, Map<String, Object>>) result.get("byModuleType");
         assertEquals(3L, byModule.get("S16.1").get("count"));
         assertEquals(1L, byModule.get("S16.1").get("abnormal"));
-        assertEquals(1L, byModule.get("1000BASE-LX").get("count"));
+        assertEquals(1L, byModule.get(MODULE_LX).get("count"));
 
         @SuppressWarnings("unchecked")
         Map<String, Map<String, Object>> byNeType = (Map<String, Map<String, Object>>) result.get("byNeType");
@@ -520,7 +522,7 @@ class InspectionServiceTest {
         when(qxConnectionService.isConnected(anyString())).thenReturn(true);
         when(laserService.attributeGet(anyString(), any())).thenReturn(List.of(laserOk()));
         when(perfService.current24HGet(anyString(), any(PerfCurrent24HGetReq[].class)))
-                .thenThrow(new QxCommandException(1, "设备拒绝"));
+                .thenThrow(new QxCommandException(1, DEV_REJECT));
 
         InspectionRound round = runExecuteInspection(List.of(linkRow()));
 
@@ -537,7 +539,8 @@ class InspectionServiceTest {
 
     @Test
     void testExecuteInspection_LaserFailBothEnds_NotSaved() {
-        // 不 stub isConnected → connectSingle 返回 success=false → 网元采集失败，moduleType=null
+        // isConnected 未 stub 默认 false，autoConnect 默认 true → connectSingle（setUp 统一 stub）
+        // 返回 success=false → ensureConnected 抛异常走网元失败路径，moduleType=null
         InspectionRound round = runExecuteInspection(List.of(linkRow()));
 
         verify(linkResultRepository, never()).saveAll(any());
@@ -551,12 +554,12 @@ class InspectionServiceTest {
         when(inspectionRoundRepository.findFirstByOrderByStartTimeDesc()).thenReturn(Optional.of(latest));
 
         LinkInspectionResult perfFailed = new LinkInspectionResult();
-        perfFailed.setAModuleType("1000BASE-LX");
-        perfFailed.setAErrorInfo(InspectionService.PERF_FAIL_PREFIX + "设备拒绝");
+        perfFailed.setAModuleType(MODULE_LX);
+        perfFailed.setAErrorInfo(InspectionService.PERF_FAIL_PREFIX + DEV_REJECT);
         perfFailed.setATxStatus(ThresholdService.STATUS_NORMAL);
         perfFailed.setARxStatus(ThresholdService.STATUS_NORMAL);
-        perfFailed.setZModuleType("1000BASE-LX");
-        perfFailed.setZErrorInfo(InspectionService.PERF_FAIL_PREFIX + "设备拒绝");
+        perfFailed.setZModuleType(MODULE_LX);
+        perfFailed.setZErrorInfo(InspectionService.PERF_FAIL_PREFIX + DEV_REJECT);
         perfFailed.setZTxStatus(ThresholdService.STATUS_NORMAL);
         perfFailed.setZRxStatus(ThresholdService.STATUS_NORMAL);
         when(linkResultRepository.findByRoundId(7L)).thenReturn(List.of(perfFailed));
@@ -569,8 +572,8 @@ class InspectionServiceTest {
         assertTrue(((List<?>) result.get("topAnomalies")).isEmpty());
         @SuppressWarnings("unchecked")
         Map<String, Map<String, Object>> byModule = (Map<String, Map<String, Object>>) result.get("byModuleType");
-        assertEquals(2L, byModule.get("1000BASE-LX").get("count"));
-        assertEquals(0L, byModule.get("1000BASE-LX").get("abnormal"));
+        assertEquals(2L, byModule.get(MODULE_LX).get("count"));
+        assertEquals(0L, byModule.get(MODULE_LX).get("abnormal"));
     }
 
     // ========== 静态工具 ==========
@@ -586,7 +589,7 @@ class InspectionServiceTest {
     @Test
     void testToModuleTypeName() {
         assertEquals("1000BASE-SX", InspectionService.toModuleTypeName(0x10, 0x10));
-        assertEquals("1000BASE-LX", InspectionService.toModuleTypeName(0x10, 0x11));
+        assertEquals(MODULE_LX, InspectionService.toModuleTypeName(0x10, 0x11));
         assertTrue(InspectionService.toModuleTypeName(0x10, 0x99).startsWith("GE-Unknown"));
         assertEquals("I16.1", InspectionService.toModuleTypeName(1, 1));
         assertEquals("S16.1", InspectionService.toModuleTypeName(1, 2));

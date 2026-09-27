@@ -59,7 +59,7 @@ collectPort(neId, portOid, portTypes)
 
 ## 失败分级
 
-"端口成败"按 **moduleType 是否采到**（`sideCollected(moduleType, errorInfo)`，落库数据等价于 moduleType 非空）判定：光功率采到即成功，error_info 只记原因。
+"端口成败"按 **该端是否采到**（`sideCollected(moduleType, errorInfo)`：光功率失败路径必写 error_info 判未采集；无 error_info 的侧视为已采集——与旧口径一致，也覆盖两侧字段全 null 的退化行）判定：光功率采到即成功，error_info 只记原因。
 
 | 场景 | rsErrorSec | error_info | 端口成败（moduleType 判定） |
 |---|---|---|---|
@@ -100,5 +100,15 @@ collectPort(neId, portOid, portTypes)
 2. `tsOrderId/tsAttribute=0` 是否命中物理端口
 3. bit6 是否实际出现（不出现则拼接分支仅为防御）
 4. 巡检跑一轮 → query 页 RS 列有数 → 导出 `RS(错误秒)` 列有数 → "仅看误码"筛选生效
+5. 确认设备对不支持/未知的 0x0C07 是立即回错误码还是 10s 静默超时；若存在静默场景，评估连续失败熔断或 `qx.perf.enabled` 开关
 
 **验收标准：** 巡检一轮后 `a_rs_error_sec/z_rs_error_sec` 有真实数值（或失败时 null 且 error_info 有原因），全量测试通过、新代码覆盖率 ≥80%。
+
+## 实现状态（2026-09-27）
+
+- [x] PerfCodes 常量 + parsePerfResponses（11 测试）
+- [x] collectPort 集成 0x0C07（9 测试）
+- [x] 读取端适配：isCollected/sideAbnormal 改 sideCollected 口径（3 测试）
+- [x] buildSide 透传（2 测试）
+- [x] 全量回归 194+ 绿
+- [ ] 真机联调验收（performanceCode=18194 回包核对、tsOrderId/tsAttribute、bit6、端到端一轮巡检、验收清单第 5 项超时行为）

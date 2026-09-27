@@ -819,7 +819,7 @@ public class InspectionService {
     }
 
     static SideData buildSide(LinkEnd end, Map<String, LaserSample> samples,
-                                      Map<String, ThresholdService.Range> ranges) {
+                              Map<String, ThresholdService.Range> ranges) {
         if (end == null) {
             return null;
         }
@@ -867,8 +867,8 @@ public class InspectionService {
 
     /**
      * 该端光功率是否采到——保存过滤（isCollected）与异常统计（sideAbnormal）共用的唯一口径。
-     * moduleType 非空即采到（toModuleTypeName 不会返回空）；error_info 为空兜底也视为采到。
-     * 落库数据中 moduleType 为空必有 error_info 原因，故该式等价于 moduleType 非空。
+     * 光功率失败路径必写 error_info（据此判未采集）；无 error_info 的侧视为已采集——与旧口径一致，
+     * 覆盖 endOf 返回 null 等两侧字段全 null 落库的退化行。
      */
     private static boolean sideCollected(String moduleType, String errorInfo) {
         return !isNullOrEmpty(moduleType) || isNullOrEmpty(errorInfo);
@@ -1036,14 +1036,14 @@ public class InspectionService {
 
     /** 链路某一端的静态信息 */
     record LinkEnd(String portOid, String neId, String neName, String neTypeName, String portName,
-                           Integer capacity, Integer used) {
+                   Integer capacity, Integer used) {
     }
 
     /** 组装后写入 link_inspection_result 的某一端数据 */
     record SideData(String neId, String neName, String neTypeName, String portOid, String portName,
-                            String moduleType, Double txPower, Double rxPower, String txStatus, String rxStatus,
-                            Integer rsErrorSec, Integer totalBandwidth, Integer usedBandwidth,
-                            Double bandwidthUsage, String errorInfo) {
+                    String moduleType, Double txPower, Double rxPower, String txStatus, String rxStatus,
+                    Integer rsErrorSec, Integer totalBandwidth, Integer usedBandwidth,
+                    Double bandwidthUsage, String errorInfo) {
     }
 
     /** 单端口采集结果。rsErrorSec=null 表示性能未采到（失败原因在 errorInfo） */

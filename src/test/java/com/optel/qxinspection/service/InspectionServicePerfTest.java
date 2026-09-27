@@ -53,6 +53,9 @@ class InspectionServicePerfTest {
     }
 
     private static final String PORT_OID = "101:1:11:2:1";
+    private static final String NE_ID = "ne1";
+    private static final String NAME_ES = "RS-ES";
+    private static final String NAME_SES = "RS-SES";
 
     /** 一次 0x0C07 的正常回包：三项各一条 */
     private static List<PerfCurrent24HGetRsp> perfOk(int es, int ses, int uas) {
@@ -92,7 +95,7 @@ class InspectionServicePerfTest {
 
         assertEquals(3, outcome.rsErrorSec());
         assertNotNull(outcome.issue());
-        assertTrue(outcome.issue().contains("RS-ES"));
+        assertTrue(outcome.issue().contains(NAME_ES));
         assertTrue(outcome.issue().contains("性能采集缺失"));
     }
 
@@ -103,7 +106,7 @@ class InspectionServicePerfTest {
                 rsp(0, PerfCodes.RS_UAS, 1)));
 
         assertEquals(11, outcome.rsErrorSec());
-        assertTrue(outcome.issue().contains("RS-SES"));
+        assertTrue(outcome.issue().contains(NAME_SES));
     }
 
     @Test
@@ -149,7 +152,7 @@ class InspectionServicePerfTest {
                 rsp(0, PerfCodes.RS_UAS, 3)));
 
         assertEquals(5, outcome.rsErrorSec());
-        assertTrue(outcome.issue().contains("RS-ES"));
+        assertTrue(outcome.issue().contains(NAME_ES));
     }
 
     @Test
@@ -160,7 +163,7 @@ class InspectionServicePerfTest {
 
         assertEquals(7, outcome.rsErrorSec());
         assertNotNull(outcome.issue());
-        assertTrue(outcome.issue().contains("RS-ES/RS-SES"));
+        assertTrue(outcome.issue().contains(NAME_ES + "/" + NAME_SES));
         assertTrue(outcome.issue().startsWith("性能采集缺失"));
     }
 
@@ -189,8 +192,8 @@ class InspectionServicePerfTest {
         assertNotNull(outcome.issue());
         // 只缺 UAS 一项：括号内仅 RS-UAS，ES/SES 不出现在缺失列表
         assertTrue(outcome.issue().contains("(RS-UAS)"));
-        assertFalse(outcome.issue().contains("RS-ES"));
-        assertFalse(outcome.issue().contains("RS-SES"));
+        assertFalse(outcome.issue().contains(NAME_ES));
+        assertFalse(outcome.issue().contains(NAME_SES));
     }
 
     @Test
@@ -212,7 +215,7 @@ class InspectionServicePerfTest {
     void collectPort_LaserFails_PerfNeverQueried() {
         when(laserService.attributeGet(anyString(), any())).thenThrow(new RuntimeException("boom"));
 
-        InspectionService.LaserSample sample = inspectionService.collectPort("ne1", PORT_OID, Map.of());
+        InspectionService.LaserSample sample = inspectionService.collectPort(NE_ID, PORT_OID, Map.of());
 
         assertNotNull(sample.errorInfo());
         assertTrue(sample.errorInfo().contains("采集失败"));
@@ -224,7 +227,7 @@ class InspectionServicePerfTest {
     void collectPort_LaserNoResponse_PerfNeverQueried() {
         when(laserService.attributeGet(anyString(), any())).thenReturn(Collections.emptyList());
 
-        InspectionService.LaserSample sample = inspectionService.collectPort("ne1", PORT_OID, Map.of());
+        InspectionService.LaserSample sample = inspectionService.collectPort(NE_ID, PORT_OID, Map.of());
 
         assertEquals("激光器查询无响应", sample.errorInfo());
         verifyNoInteractions(perfService);
@@ -236,7 +239,7 @@ class InspectionServicePerfTest {
         when(perfService.current24HGet(anyString(), any(PerfCurrent24HGetReq[].class)))
                 .thenReturn(perfOk(10, 2, 1));
 
-        InspectionService.LaserSample sample = inspectionService.collectPort("ne1", PORT_OID, Map.of());
+        InspectionService.LaserSample sample = inspectionService.collectPort(NE_ID, PORT_OID, Map.of());
 
         assertNull(sample.errorInfo());
         assertEquals(13, sample.rsErrorSec());
@@ -249,11 +252,11 @@ class InspectionServicePerfTest {
         when(perfService.current24HGet(anyString(), any(PerfCurrent24HGetReq[].class)))
                 .thenReturn(perfOk(0, 0, 0));
 
-        inspectionService.collectPort("ne1", PORT_OID, Map.of());
+        inspectionService.collectPort(NE_ID, PORT_OID, Map.of());
 
         // varargs 整体按数组捕获：单元素 captor 在 verify 时与展开后的 3 个实参不匹配
         ArgumentCaptor<PerfCurrent24HGetReq[]> captor = ArgumentCaptor.forClass(PerfCurrent24HGetReq[].class);
-        verify(perfService).current24HGet(eq("ne1"), captor.capture());
+        verify(perfService).current24HGet(eq(NE_ID), captor.capture());
         PerfCurrent24HGetReq[] reqs = captor.getValue();
         assertEquals(3, reqs.length);
         assertThat(Arrays.stream(reqs).map(PerfCurrent24HGetReq::getPerformanceCode).toList())
@@ -275,7 +278,7 @@ class InspectionServicePerfTest {
         when(perfService.current24HGet(anyString(), any(PerfCurrent24HGetReq[].class)))
                 .thenThrow(new QxCommandException(1, "设备拒绝"));
 
-        InspectionService.LaserSample sample = inspectionService.collectPort("ne1", PORT_OID, Map.of());
+        InspectionService.LaserSample sample = inspectionService.collectPort(NE_ID, PORT_OID, Map.of());
 
         assertNull(sample.rsErrorSec());
         assertTrue(sample.errorInfo().startsWith(InspectionService.PERF_FAIL_PREFIX));
@@ -291,10 +294,10 @@ class InspectionServicePerfTest {
                         rsp(0, PerfCodes.RS_ES, 10),
                         rsp(0, PerfCodes.RS_UAS, 1)));   // 缺 RS-SES
 
-        InspectionService.LaserSample sample = inspectionService.collectPort("ne1", PORT_OID, Map.of());
+        InspectionService.LaserSample sample = inspectionService.collectPort(NE_ID, PORT_OID, Map.of());
 
         assertEquals(11, sample.rsErrorSec());
-        assertTrue(sample.errorInfo().contains("RS-SES"));
+        assertTrue(sample.errorInfo().contains(NAME_SES));
     }
 
     @Test
@@ -302,7 +305,7 @@ class InspectionServicePerfTest {
         when(laserService.attributeGet(anyString(), any()))
                 .thenReturn(List.of(LaserAttributeGetRsp.builder().supportFlag(0).build()));
 
-        InspectionService.LaserSample sample = inspectionService.collectPort("ne1", PORT_OID, Map.of());
+        InspectionService.LaserSample sample = inspectionService.collectPort(NE_ID, PORT_OID, Map.of());
 
         assertEquals("端口不支持光功率采集", sample.errorInfo());
         assertNull(sample.rsErrorSec());
@@ -315,7 +318,7 @@ class InspectionServicePerfTest {
         when(perfService.current24HGet(anyString(), any(PerfCurrent24HGetReq[].class)))
                 .thenReturn(Collections.emptyList());
 
-        InspectionService.LaserSample sample = inspectionService.collectPort("ne1", PORT_OID, Map.of());
+        InspectionService.LaserSample sample = inspectionService.collectPort(NE_ID, PORT_OID, Map.of());
 
         assertNull(sample.rsErrorSec());
         assertEquals(InspectionService.PERF_NO_DATA, sample.errorInfo());
@@ -328,21 +331,25 @@ class InspectionServicePerfTest {
         when(perfService.current24HGet(anyString(), any(PerfCurrent24HGetReq[].class)))
                 .thenReturn(perfOk(0, 0, 0));
 
-        inspectionService.collectPort("ne1", PORT_OID, Map.of(PORT_OID, 7));
+        inspectionService.collectPort(NE_ID, PORT_OID, Map.of(PORT_OID, 7));
 
         ArgumentCaptor<PerfCurrent24HGetReq[]> captor = ArgumentCaptor.forClass(PerfCurrent24HGetReq[].class);
-        verify(perfService).current24HGet(eq("ne1"), captor.capture());
+        verify(perfService).current24HGet(eq(NE_ID), captor.capture());
         for (PerfCurrent24HGetReq req : captor.getValue()) {
             assertEquals(7, req.getPortType());
         }
+    }
+
+    /** 三处 buildSide 用例共用的端静态信息 */
+    private static InspectionService.LinkEnd linkEnd() {
+        return new InspectionService.LinkEnd(PORT_OID, NE_ID, "NE-001", "Type", "P1(1/11/2)", 63, 10);
     }
 
     @Test
     void buildSide_PassesRsErrorSecThrough() {
         Map<String, InspectionService.LaserSample> samples = Map.of(PORT_OID,
                 new InspectionService.LaserSample("1000BASE-SX", 1.5, -2.0, 13, null));
-        InspectionService.LinkEnd end = new InspectionService.LinkEnd(
-                PORT_OID, "ne1", "NE-001", "Type", "P1(1/11/2)", 63, 10);
+        InspectionService.LinkEnd end = linkEnd();
 
         InspectionService.SideData side = InspectionService.buildSide(end, samples, Map.of());
 
@@ -357,12 +364,23 @@ class InspectionServicePerfTest {
     void buildSide_NullRsErrorSecStaysNull() {
         Map<String, InspectionService.LaserSample> samples = Map.of(PORT_OID,
                 new InspectionService.LaserSample("1000BASE-SX", 1.5, -2.0, null, null));
-        InspectionService.LinkEnd end = new InspectionService.LinkEnd(
-                PORT_OID, "ne1", "NE-001", "Type", "P1(1/11/2)", 63, 10);
+        InspectionService.LinkEnd end = linkEnd();
 
         InspectionService.SideData side = InspectionService.buildSide(end, samples, Map.of());
 
         assertNotNull(side);
         assertNull(side.rsErrorSec());
+    }
+
+    @Test
+    void buildSide_SampleAbsent_FallsBackToNoDataErrorInfo() {
+        InspectionService.LinkEnd end = linkEnd();
+
+        InspectionService.SideData side = InspectionService.buildSide(end, Map.of(), Map.of());
+
+        assertNotNull(side);
+        assertNull(side.rsErrorSec());
+        assertEquals("未采集到端口数据", side.errorInfo());
+        assertNull(side.moduleType());
     }
 }
