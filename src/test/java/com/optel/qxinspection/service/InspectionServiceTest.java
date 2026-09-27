@@ -576,6 +576,17 @@ class InspectionServiceTest {
         assertEquals(0L, byModule.get(MODULE_LX).get("abnormal"));
     }
 
+    @Test
+    void testIsCollected_BothSidesAllNullDegenerateRow_ReturnsTrue() {
+        // 退化行：endOf 返回 null 等导致 moduleType 与 error_info 两侧全 null —— sideCollected
+        // 的"无 error_info 视为已采集"分支保证它仍按旧口径保存（见 sideCollected javadoc）
+        LinkInspectionResult degenerate = new LinkInspectionResult();
+
+        Boolean collected = ReflectionTestUtils.invokeMethod(inspectionService, "isCollected", degenerate);
+
+        assertEquals(Boolean.TRUE, collected);
+    }
+
     // ========== 静态工具 ==========
 
     @Test

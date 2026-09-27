@@ -96,7 +96,7 @@ collectPort(neId, portOid, portTypes)
 
 ## 真机联调验收清单
 
-1. `performanceCode=18194` 发 0x0C07，回包编码一致、`performanceValue` 为合理秒数
+1. `performanceCode=18194` 发 0x0C07，回包编码一致、`performanceValue` 为合理秒数；确认回包 subcaseNo 低位子架号 < 0x40（bit6/bit7 与子架号同字节）
 2. `tsOrderId/tsAttribute=0` 是否命中物理端口
 3. bit6 是否实际出现（不出现则拼接分支仅为防御）
 4. 巡检跑一轮 → query 页 RS 列有数 → 导出 `RS(错误秒)` 列有数 → "仅看误码"筛选生效
@@ -107,8 +107,8 @@ collectPort(neId, portOid, portTypes)
 ## 实现状态（2026-09-27）
 
 - [x] PerfCodes 常量 + parsePerfResponses（11 测试）
-- [x] collectPort 集成 0x0C07（9 测试）
-- [x] 读取端适配：isCollected/sideAbnormal 改 sideCollected 口径（3 测试）
-- [x] buildSide 透传（2 测试）
-- [x] 全量回归 194+ 绿
+- [x] collectPort 集成 0x0C07（10 测试）
+- [x] 读取端适配：isCollected/sideAbnormal 改 sideCollected 口径（4 测试）
+- [x] buildSide 透传（3 测试）
+- [x] 全量回归 197 绿
 - [ ] 真机联调验收（performanceCode=18194 回包核对、tsOrderId/tsAttribute、bit6、端到端一轮巡检、验收清单第 5 项超时行为）

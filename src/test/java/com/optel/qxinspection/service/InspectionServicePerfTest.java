@@ -287,6 +287,20 @@ class InspectionServicePerfTest {
     }
 
     @Test
+    void collectPort_PerfThrowsWithoutMessage_FallsBackToExceptionClassName() {
+        when(laserService.attributeGet(anyString(), any())).thenReturn(List.of(laserOk()));
+        when(perfService.current24HGet(anyString(), any(PerfCurrent24HGetReq[].class)))
+                .thenThrow(new RuntimeException());   // getMessage() = null
+
+        InspectionService.LaserSample sample = inspectionService.collectPort(NE_ID, PORT_OID, Map.of());
+
+        assertNull(sample.rsErrorSec());
+        assertTrue(sample.errorInfo().startsWith(InspectionService.PERF_FAIL_PREFIX));
+        assertTrue(sample.errorInfo().contains("RuntimeException"));
+        assertFalse(sample.errorInfo().contains("null"));
+    }
+
+    @Test
     void collectPort_PerfReturnsMissingMetric_StillOkWithIssue() {
         when(laserService.attributeGet(anyString(), any())).thenReturn(List.of(laserOk()));
         when(perfService.current24HGet(anyString(), any(PerfCurrent24HGetReq[].class)))

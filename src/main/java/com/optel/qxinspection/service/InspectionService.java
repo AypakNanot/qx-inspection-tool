@@ -378,7 +378,7 @@ public class InspectionService {
 
     /**
      * 光功率未采到，或门限判定为过高/过低/无光，均视为异常。
-     * 光功率已采到、error_info 里只有性能类原因时不算异常（原因已落库并在日志中体现）。
+     * 光功率已采到、error_info 里只有性能类原因时不算异常（原因已落库；异常路径另见日志）。
      */
     private static boolean sideAbnormal(String txStatus, String rxStatus, String moduleType, String errorInfo) {
         return !sideCollected(moduleType, errorInfo) || isBadStatus(txStatus) || isBadStatus(rxStatus);
@@ -691,11 +691,19 @@ public class InspectionService {
                     perfReq(portOid, portTypes, PerfCodes.RS_ES),
                     perfReq(portOid, portTypes, PerfCodes.RS_SES),
                     perfReq(portOid, portTypes, PerfCodes.RS_UAS)));
+            if (outcome.issue() != null) {
+                log.debug("性能采集部分失败: ne={}, port={}, {}", neId, portOid, outcome.issue());
+            }
             return sample.withPerf(outcome.rsErrorSec(), outcome.issue());
         } catch (Exception e) {
             log.debug("性能采集失败: ne={}, port={}", neId, portOid, e);
-            return sample.withPerf(null, PERF_FAIL_PREFIX + e.getMessage());
+            return sample.withPerf(null, PERF_FAIL_PREFIX + reasonOf(e));
         }
+    }
+
+    /** 异常原因落 error_info：message 为 null（如 new RuntimeException()）时回退异常类名，避免拼出 "null" */
+    private static String reasonOf(Exception e) {
+        return e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
     }
 
     /** 0x0C07 单指标请求记录：端口坐标取自 OID，性能编码逐条指定 */
@@ -964,6 +972,7 @@ public class InspectionService {
      * 解析 0x0C07 回包列表：跳过 bit7 无效记录，按 performanceCode 归桶，
      * bit6 高 32 位与低 32 位拼接，RS错误秒 = RS-ES + RS-SES + RS-UAS。
      * 缺某指标时相加已有项并在 issue 中标明；三项全缺/空列表为整体失败。
+     * 同 performanceCode + 同位桶的重复记录取末条（last-wins），真机联调观测项。
      */
     static PerfOutcome parsePerfResponses(List<PerfCurrent24HGetRsp> rsps) {
         if (rsps == null || rsps.isEmpty()) {
