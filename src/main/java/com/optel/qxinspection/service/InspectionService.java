@@ -912,6 +912,35 @@ public class InspectionService {
         }
         Map<Integer, Integer> low = new HashMap<>();
         Map<Integer, Integer> high = new HashMap<>();
+        bucketValidRecords(rsps, low, high);
+        long total = 0;
+        boolean anyPresent = false;
+        List<String> missing = new ArrayList<>();
+        for (int code : new int[]{PerfCodes.RS_ES, PerfCodes.RS_SES, PerfCodes.RS_UAS}) {
+            Integer lo = low.get(code);
+            if (lo == null) {
+                missing.add(PerfCodes.nameOf(code));
+                continue;
+            }
+            long hi = high.getOrDefault(code, 0) & 0xFFFFFFFFL;
+            long part = (lo & 0xFFFFFFFFL) + (hi << 32);
+            // part 为负说明 64 位符号位被置位（无符号值 >= 2^63），必超 int 上限，就地饱和
+            total = (part < 0 || part > Integer.MAX_VALUE - total) ? Integer.MAX_VALUE : total + part;
+            anyPresent = true;
+        }
+        if (!anyPresent) {
+            return new PerfOutcome(null, PERF_ALL_INVALID);
+        }
+        int sum = (int) total;
+        String issue = missing.isEmpty() ? null
+                : String.format(PERF_MISSING_FMT, String.join("/", missing));
+        return new PerfOutcome(sum, issue);
+    }
+
+    /** 跳过 null / 缺字段 / bit7 无效记录，按 bit6 把有效记录分桶到高、低 32 位 map（按 performanceCode 归键） */
+    private static void bucketValidRecords(List<PerfCurrent24HGetRsp> rsps,
+                                           Map<Integer, Integer> low,
+                                           Map<Integer, Integer> high) {
         for (PerfCurrent24HGetRsp rsp : rsps) {
             if (rsp == null || rsp.getSubcaseNo() == null || rsp.getPerformanceCode() == null) {
                 continue;
@@ -926,26 +955,6 @@ public class InspectionService {
                 low.put(rsp.getPerformanceCode(), value);
             }
         }
-        long total = 0;
-        boolean anyPresent = false;
-        List<String> missing = new ArrayList<>();
-        for (int code : new int[]{PerfCodes.RS_ES, PerfCodes.RS_SES, PerfCodes.RS_UAS}) {
-            Integer lo = low.get(code);
-            if (lo == null) {
-                missing.add(PerfCodes.nameOf(code));
-                continue;
-            }
-            long hi = high.getOrDefault(code, 0);
-            total += (lo & 0xFFFFFFFFL) + (hi << 32);
-            anyPresent = true;
-        }
-        if (!anyPresent) {
-            return new PerfOutcome(null, PERF_ALL_INVALID);
-        }
-        int sum = total > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) total;
-        String issue = missing.isEmpty() ? null
-                : String.format(PERF_MISSING_FMT, String.join("/", missing));
-        return new PerfOutcome(sum, issue);
     }
 
     // ========== 小工具 ==========

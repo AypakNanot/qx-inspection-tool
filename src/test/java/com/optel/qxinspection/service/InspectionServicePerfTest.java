@@ -3,6 +3,7 @@ package com.optel.qxinspection.service;
 import com.optel.qxinspection.perf.PerfCurrent24HGetRsp;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -100,5 +101,44 @@ class InspectionServicePerfTest {
 
         assertEquals(5, outcome.rsErrorSec());
         assertTrue(outcome.issue().contains("RS-ES"));
+    }
+
+    @Test
+    void parse_TwoCodesMissing_ReportsJoinedInOrder() {
+        // 只返回 RS-UAS 一条有效记录 → 缺失两项按 ES/SES 顺序用 "/" 拼接
+        InspectionService.PerfOutcome outcome = InspectionService.parsePerfResponses(List.of(
+                rsp(0, PerfCodes.RS_UAS, 7)));
+
+        assertEquals(7, outcome.rsErrorSec());
+        assertNotNull(outcome.issue());
+        assertTrue(outcome.issue().contains("RS-ES/RS-SES"));
+        assertTrue(outcome.issue().startsWith("性能采集缺失"));
+    }
+
+    @Test
+    void parse_NullElementInList_Skipped() {
+        List<PerfCurrent24HGetRsp> rsps = new ArrayList<>();
+        rsps.add(null);
+        rsps.add(rsp(0, PerfCodes.RS_ES, 10));
+        rsps.add(rsp(0, PerfCodes.RS_SES, 2));
+        rsps.add(rsp(0, PerfCodes.RS_UAS, 1));
+
+        InspectionService.PerfOutcome outcome = InspectionService.parsePerfResponses(rsps);
+
+        assertEquals(13, outcome.rsErrorSec());
+        assertNull(outcome.issue());
+    }
+
+    @Test
+    void parse_NegativeHighWord_TreatedAsUnsigned() {
+        // 高 32 位按有符号解码为负值（脏数据）时须按无符号处理：-1 → 0xFFFFFFFF
+        InspectionService.PerfOutcome outcome = InspectionService.parsePerfResponses(List.of(
+                rsp(0, PerfCodes.RS_ES, 0),
+                rsp(0x40, PerfCodes.RS_ES, -1),
+                rsp(0, PerfCodes.RS_SES, 0),
+                rsp(0, PerfCodes.RS_UAS, 0)));
+
+        assertEquals(Integer.MAX_VALUE, outcome.rsErrorSec());
+        assertNull(outcome.issue());
     }
 }
