@@ -131,8 +131,12 @@ class DynamicSyncServiceTest {
                 dmeoRow("101", 2, 6301, "NE101"),
                 dmeoRow("102", 2, 6301, "NE102"),
                 dmeoRow("1026", 2, 6302, "NE1026"),
-                dmeoRow("101:1:11:1", 5, 0, "P1"),
-                dmeoRow("102:1:11:2", 5, 0, "P2")));
+                dmeoRow("101:1:11:1", 5, 20008, "P1"),
+                dmeoRow("102:1:11:2", 5, 20008, "P2")));
+        when(mysqlJdbc.queryForList("SELECT cid, type, cName FROM defobject WHERE cid IN (?, ?)", 4, 5))
+                .thenReturn(List.of(
+                        Map.of("cid", 5, "type", 20008, "cName", "STM4_O"),
+                        Map.of("cid", 4, "type", 2001, "cName", "MCP")));
         when(mysqlJdbc.queryForList("SELECT * FROM dmrelation")).thenReturn(List.of(
                 relRow("101", NET_71),
                 relRow("102", NET_71),
@@ -208,8 +212,8 @@ class DynamicSyncServiceTest {
         assertEquals(NET_NAME_71, result.get("networks"));
 
         List<List<Object>> dmeoRows = capturedRows(
-                "INSERT INTO dmeo (oid, cid, type, name, defName, networkOid, networkName, neName, neTypeName, ipAddr) "
-                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                "INSERT INTO dmeo (oid, cid, type, name, defName, networkOid, networkName, neName, neTypeName, ipAddr, typeName) "
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
         assertEquals(5, dmeoRows.size());
 
         // NE 行：网元名/网元类型(defdmne.neType 映射)/IP(emnecomm.oid 映射) 必须都填上
@@ -222,6 +226,12 @@ class DynamicSyncServiceTest {
         assertEquals("NE101", ne101.get(7));
         assertEquals("MatrixEdge2050", ne101.get(8));
         assertEquals("195.12.3.1", ne101.get(9));
+        // cid=2 不在 defobject(cid 4/5) 映射范围 → typeName 为空
+        assertNull(ne101.get(10));
+
+        // 端口行：dmeo.type 经 defobject(cid=5,type) 映射出 typeName
+        List<Object> port1 = rowByOid(dmeoRows, "101:1:11:1");
+        assertEquals("STM4_O", port1.get(10));
 
         // 未选中网络的 NE 不应出现
         assertTrue(dmeoRows.stream().noneMatch(r -> "1026".equals(r.get(0))));
@@ -285,8 +295,8 @@ class DynamicSyncServiceTest {
         dynamicSyncService.syncNetworks(List.of(NET_484));
 
         List<List<Object>> dmeoRows = capturedRows(
-                "INSERT INTO dmeo (oid, cid, type, name, defName, networkOid, networkName, neName, neTypeName, ipAddr) "
-                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                "INSERT INTO dmeo (oid, cid, type, name, defName, networkOid, networkName, neName, neTypeName, ipAddr, typeName) "
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
         assertEquals(2, dmeoRows.size());
 
         List<Object> ne1026 = rowByOid(dmeoRows, "1026");

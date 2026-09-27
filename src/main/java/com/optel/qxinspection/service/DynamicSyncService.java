@@ -39,6 +39,9 @@ public class DynamicSyncService {
     /** dmconnection cid：链路（其余 cid 为交叉连接/路径/路径段/以太路径，巡检不使用） */
     private static final int CID_LINK = 100;
 
+    /** dmeo/defobject cid：盘 */
+    private static final int CID_SLOT = 4;
+
     /** dmeo/defobject cid：端口 */
     private static final int CID_PORT = 5;
 
@@ -48,8 +51,8 @@ public class DynamicSyncService {
     private static final String KEY_SYNC_STATUS = "sync.status";
 
     private static final String INSERT_DMEO_SQL =
-            "INSERT INTO dmeo (oid, cid, type, name, defName, networkOid, networkName, neName, neTypeName, ipAddr) "
-                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+            "INSERT INTO dmeo (oid, cid, type, name, defName, networkOid, networkName, neName, neTypeName, ipAddr, typeName) "
+                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
     private static final String INSERT_DMCONNECTION_SQL =
             "INSERT INTO dmconnection (oid, cid, name, aEnd, zEnd, createTime, creator, additionInfo, "
@@ -215,7 +218,9 @@ public class DynamicSyncService {
                     mysqlJdbc.queryForList("SELECT * FROM defdmne"),
                     mysqlJdbc.queryForList("SELECT * FROM emnecomm"),
                     mysqlJdbc.queryForList("SELECT * FROM portbandwidth"),
-                    mysqlJdbc.queryForList("SELECT * FROM linkbandwidth WHERE dir = 1"));
+                    mysqlJdbc.queryForList("SELECT * FROM linkbandwidth WHERE dir = 1"),
+                    mysqlJdbc.queryForList("SELECT cid, type, cName FROM defobject WHERE cid IN (?, ?)",
+                            CID_SLOT, CID_PORT));
 
             Set<String> targetNetworks = new HashSet<>(networkOids);
             Set<String> targetNeOids = index.neOidsIn(targetNetworks);
@@ -278,7 +283,8 @@ public class DynamicSyncService {
                                  List<Map<String, Object>> allDefdmne,
                                  List<Map<String, Object>> allEmnecomm,
                                  List<Map<String, Object>> allPortbandwidth,
-                                 List<Map<String, Object>> allLinkbandwidth) {
+                                 List<Map<String, Object>> allLinkbandwidth,
+                                 List<Map<String, Object>> allDefobject) {
         SyncIndex index = new SyncIndex();
 
         for (Map<String, Object> row : allDmeo) {
@@ -303,6 +309,12 @@ public class DynamicSyncService {
         // neType → neTypeName (defdmne)
         for (Map<String, Object> row : allDefdmne) {
             index.neTypeNameMap.put(toStr(row.get("neType")), toStr(row.get("cName")));
+        }
+
+        // (cid, type) → typeName（defobject 权威名，盘/端口类型统计展示用）
+        for (Map<String, Object> row : allDefobject) {
+            index.typeNameMap.put(toStr(row.get("cid")) + ":" + toStr(row.get("type")),
+                    toStr(row.get("cName")));
         }
 
         // neOid(oid) → ipAddr (emnecomm state=1)
@@ -347,7 +359,8 @@ public class DynamicSyncService {
                     networkOid, index.networkNameOf(networkOid),
                     neOid == null ? null : index.neNameMap.get(neOid),
                     index.neTypeNameOf(neOid),
-                    neOid == null ? null : index.ipAddrMap.get(neOid)
+                    neOid == null ? null : index.ipAddrMap.get(neOid),
+                    index.typeNameOf(cid, row.get("type"))
             });
         }
         return rows;
@@ -451,6 +464,8 @@ public class DynamicSyncService {
         private final Map<String, String> neNetworkMap = new HashMap<>();
         private final Map<String, String> neTypeNameMap = new HashMap<>();
         private final Map<String, String> neTypeCache = new HashMap<>();
+        /** (cid:type) → defobject 权威名（盘 cid=4 / 端口 cid=5） */
+        private final Map<String, String> typeNameMap = new HashMap<>();
         private final Map<String, String> ipAddrMap = new HashMap<>();
         private final Map<String, String> portNameMap = new HashMap<>();
         private final Map<String, Map<String, Object>> bandwidthMap = new HashMap<>();
@@ -471,6 +486,11 @@ public class DynamicSyncService {
             if (neOid == null) return null;
             String type = neTypeCache.get(neOid);
             return type == null ? null : neTypeNameMap.get(type);
+        }
+
+        /** (cid, type) → defobject 类型名（盘/端口），无映射返回 null 由统计侧回退 */
+        String typeNameOf(int cid, Object type) {
+            return type == null ? null : typeNameMap.get(cid + ":" + toStr(type));
         }
 
         /**

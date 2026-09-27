@@ -96,14 +96,22 @@ public class InventoryStatsService {
     private Map<String, Object> getDmeoStats(int cid, String network) {
         List<Object> params = new ArrayList<>();
         params.add(cid);
-        StringBuilder sql = new StringBuilder("SELECT type FROM dmeo WHERE cid = ?");
+        StringBuilder sql = new StringBuilder("SELECT type, typeName FROM dmeo WHERE cid = ?");
         appendNetworkFilter(sql, params, network);
 
         Map<String, Long> byType = new LinkedHashMap<>();
         for (Map<String, Object> row : sqliteJdbc.queryForList(sql.toString(), params.toArray())) {
-            byType.merge(labelOf(row.get("type")), 1L, Long::sum);
+            byType.merge(typeLabel(row), 1L, Long::sum);
         }
         return Map.of("byTypeName", toSortedList(byType));
+    }
+
+    /** 类型标签：优先 defobject 权威名 typeName，缺失（未重新同步）回退原始 type 编码 */
+    private static String typeLabel(Map<String, Object> row) {
+        Object typeName = row.get("typeName");
+        return typeName != null && !typeName.toString().isBlank()
+                ? typeName.toString()
+                : labelOf(row.get("type"));
     }
 
     private static void appendNetworkFilter(StringBuilder sql, List<Object> params, String network) {

@@ -119,6 +119,7 @@ public class SQLiteSchemaInitializer {
                 neName TEXT,
                 neTypeName TEXT,
                 ipAddr TEXT,
+                typeName TEXT,
                 PRIMARY KEY (oid)
             )
         """);
@@ -128,6 +129,7 @@ public class SQLiteSchemaInitializer {
         addColumnIfNotExists("dmeo", "neName", "TEXT");
         addColumnIfNotExists("dmeo", "neTypeName", "TEXT");
         addColumnIfNotExists("dmeo", "ipAddr", "TEXT");
+        addColumnIfNotExists("dmeo", "typeName", "TEXT");
 
         // dmconnection：旧结构镜像 MySQL 原表（type/signaldm/direct/aChs/zChs 均为 NOT NULL），
         // 新结构不再写这些列，会触发 NOT NULL 约束失败，故检测到即一次性重建。
