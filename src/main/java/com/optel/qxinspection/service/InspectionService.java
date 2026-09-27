@@ -5,7 +5,9 @@ import com.optel.qxinspection.entity.sqlite.LinkInspectionResult;
 import com.optel.qxinspection.laser.LaserAttributeGetReq;
 import com.optel.qxinspection.laser.LaserAttributeGetRsp;
 import com.optel.qxinspection.laser.service.ILaserService;
+import com.optel.qxinspection.perf.PerfCurrent24HGetReq;
 import com.optel.qxinspection.perf.PerfCurrent24HGetRsp;
+import com.optel.qxinspection.perf.service.IPerfService;
 import com.optel.qxinspection.repository.sqlite.InspectionRoundRepository;
 import com.optel.qxinspection.repository.sqlite.LinkInspectionResultRepository;
 import com.optel.qxinspection.util.OidUtil;
@@ -56,6 +58,11 @@ public class InspectionService {
     private static final int LASER_SUPPORT_BIT = 0x01;
     private static final int TOP_ANOMALY_LIMIT = 20;
 
+    /** 0x0C07 tsOrderId：0 = 物理端口本身（perf.yaml 注释，待真机验证） */
+    private static final int TS_ORDER_PHYSICAL_PORT = 0;
+    /** 0x0C07 tsAttribute：0 = 物理端口（perf.yaml 注释，待真机验证） */
+    private static final int TS_ATTR_PHYSICAL_PORT = 0;
+
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     /** 每个 VC-12 折算的 Mbps 数：VC-12 承载 E1 = 2.048 Mbps */
@@ -72,6 +79,7 @@ public class InspectionService {
             """;
 
     private final ILaserService laserService;
+    private final IPerfService perfService;
     private final QxConnectionService qxConnectionService;
     private final InspectionRoundRepository inspectionRoundRepository;
     private final LinkInspectionResultRepository linkResultRepository;
@@ -646,8 +654,12 @@ public class InspectionService {
         }
     }
 
-    /** 采集单个端口的光功率，失败只记录该端口的 error_info */
-    private LaserSample collectPort(String neId, String portOid, Map<String, Integer> portTypes) {
+    /**
+     * 采集单个端口：先查光功率，成功后追加 0x0C07 性能查询。
+     * 光功率失败只记录该端口的 error_info；性能失败只影响 rsErrorSec 与 error_info，端口仍为成功态。
+     */
+    LaserSample collectPort(String neId, String portOid, Map<String, Integer> portTypes) {
+        LaserSample sample;
         try {
             LaserAttributeGetReq req = LaserAttributeGetReq.builder()
                     .subcaseNo(OidUtil.getSubrackId(portOid))
@@ -657,11 +669,47 @@ public class InspectionService {
                     .portId(OidUtil.getPortId(portOid))
                     .backup(0)
                     .build();
-            return LaserSample.of(laserService.attributeGet(neId, req));
+            sample = LaserSample.of(laserService.attributeGet(neId, req));
         } catch (Exception e) {
             log.debug("端口采集失败: ne={}, port={}, {}", neId, portOid, e.getMessage());
             return LaserSample.error("采集失败: " + e.getMessage());
         }
+        if (sample.errorInfo() != null) {
+            return sample;
+        }
+        return collectRsErrorSec(neId, portOid, portTypes, sample);
+    }
+
+    /** RS错误秒采集：失败分级见设计文档，任何情况不改变端口成功态 */
+    private LaserSample collectRsErrorSec(String neId, String portOid, Map<String, Integer> portTypes,
+                                           LaserSample sample) {
+        try {
+            PerfOutcome outcome = parsePerfResponses(perfService.current24HGet(neId,
+                    perfReq(portOid, portTypes, PerfCodes.RS_ES),
+                    perfReq(portOid, portTypes, PerfCodes.RS_SES),
+                    perfReq(portOid, portTypes, PerfCodes.RS_UAS)));
+            return new LaserSample(sample.moduleType(), sample.txPower(), sample.rxPower(),
+                    outcome.rsErrorSec(), outcome.issue());
+        } catch (Exception e) {
+            log.debug("性能采集失败: ne={}, port={}, {}", neId, portOid, e.getMessage());
+            return new LaserSample(sample.moduleType(), sample.txPower(), sample.rxPower(),
+                    null, PERF_FAIL_PREFIX + e.getMessage());
+        }
+    }
+
+    /** 0x0C07 单指标请求记录：端口坐标取自 OID，性能编码逐条指定 */
+    private PerfCurrent24HGetReq perfReq(String portOid, Map<String, Integer> portTypes,
+                                          int performanceCode) {
+        return PerfCurrent24HGetReq.builder()
+                .subcaseNo(OidUtil.getSubrackId(portOid))
+                .slotId(OidUtil.getSlotId(portOid))
+                .portType(portTypes.getOrDefault(portOid, DEFAULT_PORT_TYPE))
+                .portSubType(DEFAULT_PORT_SUB_TYPE)
+                .portId(OidUtil.getPortId(portOid))
+                .tsOrderId(TS_ORDER_PHYSICAL_PORT)
+                .tsAttribute(TS_ATTR_PHYSICAL_PORT)
+                .performanceCode(performanceCode)
+                .build();
     }
 
     private void disconnectTargets(Set<String> neIds) {
@@ -987,8 +1035,9 @@ public class InspectionService {
                             Double bandwidthUsage, String errorInfo) {
     }
 
-    /** 单端口采集结果 */
-    private record LaserSample(String moduleType, Double txPower, Double rxPower, String errorInfo) {
+    /** 单端口采集结果。rsErrorSec=null 表示性能未采到（失败原因在 errorInfo） */
+    record LaserSample(String moduleType, Double txPower, Double rxPower,
+                       Integer rsErrorSec, String errorInfo) {
 
         /** 单端口查询按记录列表返回；精确到端口的查询只会有一条，取首元素即可。 */
         static LaserSample of(List<LaserAttributeGetRsp> rsps) {
@@ -1003,11 +1052,12 @@ public class InspectionService {
                     toModuleTypeName(ack.getLaserType(), ack.getDistance()),
                     toOpticalPower(ack.getTranLaserPower()),
                     toOpticalPower(ack.getRecvLaserPower()),
+                    null,
                     null);
         }
 
         static LaserSample error(String message) {
-            return new LaserSample(null, null, null, message);
+            return new LaserSample(null, null, null, null, message);
         }
     }
 }

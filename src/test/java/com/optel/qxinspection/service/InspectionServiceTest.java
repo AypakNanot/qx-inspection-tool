@@ -3,6 +3,7 @@ package com.optel.qxinspection.service;
 import com.optel.qxinspection.entity.sqlite.InspectionRound;
 import com.optel.qxinspection.entity.sqlite.LinkInspectionResult;
 import com.optel.qxinspection.laser.service.ILaserService;
+import com.optel.qxinspection.perf.service.IPerfService;
 import com.optel.qxinspection.repository.sqlite.InspectionRoundRepository;
 import com.optel.qxinspection.repository.sqlite.LinkInspectionResultRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -41,6 +42,9 @@ class InspectionServiceTest {
 
     @Mock
     private ILaserService laserService;
+
+    @Mock
+    private IPerfService perfService;
 
     @Mock
     private QxConnectionService qxConnectionService;
