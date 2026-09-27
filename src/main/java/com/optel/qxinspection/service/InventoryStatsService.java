@@ -27,6 +27,14 @@ public class InventoryStatsService {
     /** dmconnection cid：链路 */
     public static final int CID_LINK = 100;
 
+    /**
+     * 空槽位/空端口位占位类型（defobject cName=NULL / NULL_PORT，即"未安装"对象）。
+     * 类型分布与总览盘/端口计数按实装口径排除，避免 NULL 占据分布大头。
+     */
+    private static final Map<Integer, List<Integer>> EMPTY_PLACEHOLDER_TYPES = Map.of(
+            CID_SLOT, List.of(2000, 5079),
+            CID_PORT, List.of(20000, 50100));
+
     private final JdbcTemplate sqliteJdbc;
 
     /**
@@ -59,8 +67,26 @@ public class InventoryStatsService {
     }
 
     private long countByCid(int cid) {
-        Long value = sqliteJdbc.queryForObject("SELECT COUNT(*) FROM dmeo WHERE cid = ?", Long.class, cid);
+        List<Object> params = new ArrayList<>();
+        params.add(cid);
+        StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM dmeo WHERE cid = ?");
+        appendEmptyPlaceholderFilter(sql, params, cid);
+        Long value = sqliteJdbc.queryForObject(sql.toString(), Long.class, params.toArray());
         return value != null ? value : 0L;
+    }
+
+    /** 实装口径：排除空槽位/空端口位占位类型（网络/网元 cid 无占位定义，不受影响） */
+    private static void appendEmptyPlaceholderFilter(StringBuilder sql, List<Object> params, int cid) {
+        List<Integer> emptyTypes = EMPTY_PLACEHOLDER_TYPES.get(cid);
+        if (emptyTypes == null) {
+            return;
+        }
+        sql.append(" AND type NOT IN (");
+        for (int i = 0; i < emptyTypes.size(); i++) {
+            sql.append(i > 0 ? ", ?" : "?");
+            params.add(emptyTypes.get(i));
+        }
+        sql.append(")");
     }
 
     /**
@@ -97,6 +123,7 @@ public class InventoryStatsService {
         List<Object> params = new ArrayList<>();
         params.add(cid);
         StringBuilder sql = new StringBuilder("SELECT type, typeName FROM dmeo WHERE cid = ?");
+        appendEmptyPlaceholderFilter(sql, params, cid);
         appendNetworkFilter(sql, params, network);
 
         Map<String, Long> byType = new LinkedHashMap<>();

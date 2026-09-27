@@ -2,6 +2,7 @@ package com.optel.qxinspection.service;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -12,8 +13,10 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.contains;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -94,5 +97,53 @@ class InventoryStatsServiceTest {
 
         assertEquals(1, list.size());
         assertEquals("MatrixEdge2050", list.get(0).get("name"));
+
+        // 网元统计不带空槽位过滤（EMPTY_PLACEHOLDER_TYPES 无 cid=2）
+        ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
+        verify(sqliteJdbc).queryForList(sqlCaptor.capture(), any(Object[].class));
+        assertFalse(sqlCaptor.getValue().contains("type NOT IN"));
+    }
+
+    @Test
+    void getSlotStats_SqlExcludesEmptyPlaceholderTypes() {
+        // 桩只在 SQL 含 type NOT IN 时命中——实现回退则 queryForList 返回 null → NPE 红灯
+        when(sqliteJdbc.queryForList(
+                argThat((String sql) -> sql != null && sql.contains("FROM dmeo") && sql.contains("type NOT IN")),
+                any(Object[].class)))
+                .thenReturn(List.of(Map.of("type", 2007, "typeName", "STM_1/4B")));
+
+        List<Map<String, Object>> list = byTypeName(inventoryStatsService.getSlotStats(null));
+
+        assertEquals(1, list.size());
+        assertEquals("STM_1/4B", list.get(0).get("name"));
+    }
+
+    @Test
+    void getOverview_ExcludesPlaceholdersFromSlotAndPortCounts() {
+        // 网络/网元：无 NOT IN 过滤
+        when(sqliteJdbc.queryForObject(
+                argThat((String sql) -> sql != null && sql.contains("COUNT(*) FROM dmeo") && !sql.contains("type NOT IN")),
+                eq(Long.class), eq(1))).thenReturn(3L);
+        when(sqliteJdbc.queryForObject(
+                argThat((String sql) -> sql != null && sql.contains("COUNT(*) FROM dmeo") && !sql.contains("type NOT IN")),
+                eq(Long.class), eq(2))).thenReturn(10L);
+        // 盘/端口：带 NOT IN（参数值钉死排除的占位类型）
+        when(sqliteJdbc.queryForObject(contains("COUNT(*) FROM dmeo"),
+                eq(Long.class), eq(4), eq(2000), eq(5079))).thenReturn(21636L);
+        when(sqliteJdbc.queryForObject(contains("COUNT(*) FROM dmeo"),
+                eq(Long.class), eq(5), eq(20000), eq(50100))).thenReturn(174082L);
+        // 链路/需巡检端口：口径不变
+        when(sqliteJdbc.queryForObject(contains("FROM dmconnection WHERE cid"),
+                eq(Long.class), eq(100))).thenReturn(5L);
+        when(sqliteJdbc.queryForObject(contains("DISTINCT port"), eq(Long.class))).thenReturn(7L);
+
+        Map<String, Object> overview = inventoryStatsService.getOverview();
+
+        assertEquals(3L, overview.get("networkCount"));
+        assertEquals(10L, overview.get("neCount"));
+        assertEquals(21636L, overview.get("slotCount"));
+        assertEquals(174082L, overview.get("portCount"));
+        assertEquals(5L, overview.get("linkCount"));
+        assertEquals(7L, overview.get("inspectionPortCount"));
     }
 }
