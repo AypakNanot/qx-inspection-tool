@@ -2,10 +2,8 @@ package com.optel.qxinspection.service;
 
 import com.optel.qxinspection.entity.sqlite.InspectionRound;
 import com.optel.qxinspection.entity.sqlite.LinkInspectionResult;
-import com.optel.qxinspection.laser.LaserAttributeGetReq;
 import com.optel.qxinspection.laser.LaserAttributeGetRsp;
 import com.optel.qxinspection.laser.service.ILaserService;
-import com.optel.qxinspection.perf.PerfCurrent24HGetReq;
 import com.optel.qxinspection.perf.PerfCurrent24HGetRsp;
 import com.optel.qxinspection.perf.service.IPerfService;
 import com.optel.qxinspection.repository.sqlite.InspectionRoundRepository;
@@ -55,11 +53,6 @@ public class InspectionService {
 
     private static final int LASER_SUPPORT_BIT = 0x01;
     private static final int TOP_ANOMALY_LIMIT = 20;
-
-    /** 0x0C07 tsOrderId：0 = 物理端口本身（perf.yaml 注释，待真机验证） */
-    private static final int TS_ORDER_PHYSICAL_PORT = 0;
-    /** 0x0C07 tsAttribute：0 = 物理端口（perf.yaml 注释，待真机验证） */
-    private static final int TS_ATTR_PHYSICAL_PORT = 0;
 
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
@@ -507,15 +500,16 @@ public class InspectionService {
         ExecutorService pool = Executors.newFixedThreadPool(concurrency);
         try {
             // 网元 → 需要采集的端口；链路 → 未完成端数（用于按链路统计进度）
-            Map<String, Set<String>> nePorts = new LinkedHashMap<>();
+            Map<String, PortTarget> targets = loadPortTargets();
+            Map<String, Set<PortTarget>> nePorts = new LinkedHashMap<>();
             Map<String, List<String>> neLinks = new HashMap<>();
             Map<String, AtomicInteger> linkPending = new HashMap<>();
             for (Map<String, Object> link : links) {
                 String linkOid = str(link, "oid");
                 String aNeId = neIdOf(str(link, "aEnd"));
                 String zNeId = neIdOf(str(link, "zEnd"));
-                addPort(nePorts, aNeId, str(link, "aEnd"));
-                addPort(nePorts, zNeId, str(link, "zEnd"));
+                addPort(nePorts, aNeId, str(link, "aEnd"), targets);
+                addPort(nePorts, zNeId, str(link, "zEnd"), targets);
                 recordNames(link);
                 Set<String> distinctNes = new LinkedHashSet<>();
                 distinctNes.add(aNeId);
@@ -527,16 +521,15 @@ public class InspectionService {
                 }
             }
 
-            Map<String, int[]> portTypes = loadPortTypes();
             Map<String, LaserSample> samples = new ConcurrentHashMap<>();
             AtomicInteger failCount = new AtomicInteger();
 
             List<CompletableFuture<Void>> futures = new ArrayList<>();
-            for (Map.Entry<String, Set<String>> entry : nePorts.entrySet()) {
+            for (Map.Entry<String, Set<PortTarget>> entry : nePorts.entrySet()) {
                 String neId = entry.getKey();
-                Set<String> ports = entry.getValue();
+                Set<PortTarget> ports = entry.getValue();
                 futures.add(CompletableFuture.runAsync(
-                        () -> collectNe(neId, ports, portTypes, samples, failCount, neLinks, linkPending), pool));
+                        () -> collectNe(neId, ports, samples, failCount, neLinks, linkPending), pool));
             }
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
 
@@ -574,11 +567,15 @@ public class InspectionService {
         }
     }
 
-    private static void addPort(Map<String, Set<String>> nePorts, String neId, String portOid) {
+    /** 收集要巡检的端口对象：优先取装载期建好的 PortTarget，未同步的端口兜底构造 */
+    private static void addPort(Map<String, Set<PortTarget>> nePorts, String neId, String portOid,
+                                Map<String, PortTarget> targets) {
         if (neId == null || portOid == null) {
             return;
         }
-        nePorts.computeIfAbsent(neId, k -> new LinkedHashSet<>()).add(portOid);
+        PortTarget target = targets.get(portOid);
+        nePorts.computeIfAbsent(neId, k -> new LinkedHashSet<>())
+                .add(target != null ? target : PortTarget.fallback(portOid));
     }
 
     /** 记录链路两端的网元名/端口名：进度条显示名称，没采集成功也能看出正在处理哪台设备 */
@@ -601,16 +598,16 @@ public class InspectionService {
         return name != null ? name : oid;
     }
 
-    /** 采集单台网元：连接一次，逐个端口采集光功率 */
-    private void collectNe(String neId, Set<String> ports, Map<String, int[]> portTypes,
+    /** 采集单台网元：连接一次，逐个端口对象采集光功率与性能 */
+    private void collectNe(String neId, Set<PortTarget> ports,
                            Map<String, LaserSample> samples, AtomicInteger failCount,
                            Map<String, List<String>> neLinks, Map<String, AtomicInteger> linkPending) {
         progressCurrentNe = nameOr(roundNeNames, neId);
         try {
             ensureConnected(neId);
-            for (String portOid : ports) {
-                progressCurrentPort = nameOr(roundPortNames, portOid);
-                samples.put(portOid, collectPort(neId, portOid, portTypes));
+            for (PortTarget target : ports) {
+                progressCurrentPort = nameOr(roundPortNames, target.oid());
+                samples.put(target.oid(), collectPort(neId, target));
             }
         } catch (Exception e) {
             failCount.incrementAndGet();
@@ -621,8 +618,8 @@ public class InspectionService {
             progressFailures.add(failInfo);
             log.error("网元采集失败: {}, {}", neId, e.getMessage());
             String reason = "网元采集失败: " + e.getMessage();
-            for (String portOid : ports) {
-                samples.putIfAbsent(portOid, LaserSample.error(reason));
+            for (PortTarget target : ports) {
+                samples.putIfAbsent(target.oid(), LaserSample.error(reason));
             }
         } finally {
             markLinksDone(neLinks.get(neId), linkPending);
@@ -659,43 +656,31 @@ public class InspectionService {
      * 采集单个端口：先查光功率，成功后追加 0x0C07 性能查询。
      * 光功率失败只记录该端口的 error_info；性能失败只影响 rsErrorSec 与 error_info，端口仍为成功态。
      */
-    LaserSample collectPort(String neId, String portOid, Map<String, int[]> portTypes) {
+    LaserSample collectPort(String neId, PortTarget target) {
         LaserSample sample;
         try {
-            int[] pair = portTypes.getOrDefault(portOid, defaultPortPair());
-            LaserAttributeGetReq req = LaserAttributeGetReq.builder()
-                    .subcaseNo(OidUtil.getSubrackId(portOid))
-                    .slotId(OidUtil.getSlotId(portOid))
-                    .portType(pair[0])
-                    .portSubType(pair[1])
-                    .portId(OidUtil.getPortId(portOid))
-                    .backup(0)
-                    .build();
-            sample = LaserSample.of(laserService.attributeGet(neId, req));
+            sample = LaserSample.of(laserService.attributeGet(neId, target.laserRequest()));
         } catch (Exception e) {
-            log.debug("端口采集失败: ne={}, port={}, {}", neId, portOid, e.getMessage());
+            log.debug("端口采集失败: ne={}, port={}, {}", neId, target.oid(), e.getMessage());
             return LaserSample.error("采集失败: " + e.getMessage());
         }
         if (sample.errorInfo() != null) {
             return sample;
         }
-        return collectRsErrorSec(neId, portOid, portTypes, sample);
+        return collectRsErrorSec(neId, target, sample);
     }
 
     /** RS错误秒采集：失败分级见设计文档，任何情况不改变端口成功态 */
-    private LaserSample collectRsErrorSec(String neId, String portOid, Map<String, int[]> portTypes,
-                                           LaserSample sample) {
+    private LaserSample collectRsErrorSec(String neId, PortTarget target, LaserSample sample) {
         try {
-            PerfOutcome outcome = parsePerfResponses(perfService.current24HGet(neId,
-                    perfReq(portOid, portTypes, PerfCodes.RS_ES),
-                    perfReq(portOid, portTypes, PerfCodes.RS_SES),
-                    perfReq(portOid, portTypes, PerfCodes.RS_UAS)));
+            PerfOutcome outcome = parsePerfResponses(
+                    perfService.current24HGet(neId, target.perfRequest()));
             if (outcome.issue() != null) {
-                log.debug("性能采集部分失败: ne={}, port={}, {}", neId, portOid, outcome.issue());
+                log.debug("性能采集部分失败: ne={}, port={}, {}", neId, target.oid(), outcome.issue());
             }
             return sample.withPerf(outcome.rsErrorSec(), outcome.issue());
         } catch (Exception e) {
-            log.debug("性能采集失败: ne={}, port={}", neId, portOid, e);
+            log.debug("性能采集失败: ne={}, port={}", neId, target.oid(), e);
             return sample.withPerf(null, PERF_FAIL_PREFIX + reasonOf(e));
         }
     }
@@ -703,22 +688,6 @@ public class InspectionService {
     /** 异常原因落 error_info：message 为 null（如 new RuntimeException()）时回退异常类名，避免拼出 "null" */
     private static String reasonOf(Exception e) {
         return e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
-    }
-
-    /** 0x0C07 单指标请求记录：端口坐标取自 OID，性能编码逐条指定 */
-    private PerfCurrent24HGetReq perfReq(String portOid, Map<String, int[]> portTypes,
-                                          int performanceCode) {
-        int[] pair = portTypes.getOrDefault(portOid, defaultPortPair());
-        return PerfCurrent24HGetReq.builder()
-                .subcaseNo(OidUtil.getSubrackId(portOid))
-                .slotId(OidUtil.getSlotId(portOid))
-                .portType(pair[0])
-                .portSubType(pair[1])
-                .portId(OidUtil.getPortId(portOid))
-                .tsOrderId(TS_ORDER_PHYSICAL_PORT)
-                .tsAttribute(TS_ATTR_PHYSICAL_PORT)
-                .performanceCode(performanceCode)
-                .build();
     }
 
     private void disconnectTargets(Set<String> neIds) {
@@ -737,48 +706,24 @@ public class InspectionService {
     }
 
     /**
-     * 端口 OID → [portType, portSubType]：dmeo.type 经 defobject.deviceType 高低位拆分。
-     * deviceType 缺失或非正数（-1/0 脏数据）兜底 {0xFF, 0xFF}。
+     * 装载要巡检的端口对象：dmeo.deviceType（同步时从 defobject 冗余写入）高低位拆分，
+     * OID 坐标一并解析进 {@link PortTarget}，采集时直接取对象组装请求。
+     * deviceType 缺失（未重新同步）或非正数（-1/0 脏数据）兜底 0xFF/0xFF。
+     * <p>只读 SQLite，不查 MySQL——除同步外不碰 MySQL 是本项目原则。</p>
      */
-    Map<String, int[]> loadPortTypes() {
-        Map<Integer, Integer> deviceTypes = loadDeviceTypes();
-        Map<String, int[]> map = new HashMap<>();
+    Map<String, PortTarget> loadPortTargets() {
+        Map<String, PortTarget> targets = new HashMap<>();
         for (Map<String, Object> row : sqliteJdbc.queryForList(
-                "SELECT \"oid\", \"type\" FROM \"dmeo\" WHERE \"cid\" = 5 AND \"type\" IS NOT NULL")) {
-            Object type = row.get("type");
-            if (type instanceof Number number) {
-                Integer deviceType = deviceTypes.get(number.intValue());
-                map.put((String) row.get("oid"),
-                        deviceType != null && deviceType > 0
-                                ? splitPortType(deviceType)
-                                : defaultPortPair());
+                "SELECT \"oid\", \"type\", \"deviceType\" FROM \"dmeo\" WHERE \"cid\" = 5 AND \"type\" IS NOT NULL")) {
+            if (row.get("type") instanceof Number) {
+                String oid = (String) row.get("oid");
+                Object deviceType = row.get("deviceType");
+                targets.put(oid, deviceType instanceof Number number && number.intValue() > 0
+                        ? PortTarget.fromDeviceType(oid, number.intValue())
+                        : PortTarget.fallback(oid));
             }
         }
-        return map;
-    }
-
-    /** defobject 查询失败 → log.warn + 空 map，全端口兜底 0xFF/0xFF，不中断巡检 */
-    private Map<Integer, Integer> loadDeviceTypes() {
-        try {
-            Map<Integer, Integer> deviceTypes = dynamicSyncService.loadPortDeviceTypes();
-            return deviceTypes != null ? deviceTypes : Map.of();
-        } catch (Exception e) {
-            log.warn("defobject deviceType 查询失败，端口类型兜底 0xFF/0xFF: {}", e.getMessage());
-            return Map.of();
-        }
-    }
-
-    /** deviceType 高低位拆分：portType = 高字节，portSubType = 低字节（如 515=0x0203 → {2, 3}） */
-    static int[] splitPortType(int deviceType) {
-        return new int[]{(deviceType >> 8) & 0xFF, deviceType & 0xFF};
-    }
-
-    /**
-     * 端口类型兜底对 {portType, portSubType}：deviceType 缺失/非法或端口不在映射表时使用。
-     * 每次新建数组，避免共享可变数组被多处引用后遭外部改写。
-     */
-    private static int[] defaultPortPair() {
-        return new int[]{0xFF, 0xFF};
+        return targets;
     }
 
     private List<LinkInspectionResult> assembleLinks(InspectionRound round, List<Map<String, Object>> links,

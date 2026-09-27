@@ -16,13 +16,11 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -43,8 +41,6 @@ class InspectionServicePerfTest {
     private IPerfService perfService;
     @Mock
     private JdbcTemplate sqliteJdbc;
-    @Mock
-    private DynamicSyncService dynamicSyncService;
     @InjectMocks
     private InspectionService inspectionService;
 
@@ -222,7 +218,7 @@ class InspectionServicePerfTest {
     void collectPort_LaserFails_PerfNeverQueried() {
         when(laserService.attributeGet(anyString(), any())).thenThrow(new RuntimeException("boom"));
 
-        InspectionService.LaserSample sample = inspectionService.collectPort(NE_ID, PORT_OID, Map.of());
+        InspectionService.LaserSample sample = inspectionService.collectPort(NE_ID, PortTarget.fallback(PORT_OID));
 
         assertNotNull(sample.errorInfo());
         assertTrue(sample.errorInfo().contains("采集失败"));
@@ -234,7 +230,7 @@ class InspectionServicePerfTest {
     void collectPort_LaserNoResponse_PerfNeverQueried() {
         when(laserService.attributeGet(anyString(), any())).thenReturn(Collections.emptyList());
 
-        InspectionService.LaserSample sample = inspectionService.collectPort(NE_ID, PORT_OID, Map.of());
+        InspectionService.LaserSample sample = inspectionService.collectPort(NE_ID, PortTarget.fallback(PORT_OID));
 
         assertEquals("激光器查询无响应", sample.errorInfo());
         verifyNoInteractions(perfService);
@@ -246,7 +242,7 @@ class InspectionServicePerfTest {
         when(perfService.current24HGet(anyString(), any(PerfCurrent24HGetReq[].class)))
                 .thenReturn(perfOk(10, 2, 1));
 
-        InspectionService.LaserSample sample = inspectionService.collectPort(NE_ID, PORT_OID, Map.of());
+        InspectionService.LaserSample sample = inspectionService.collectPort(NE_ID, PortTarget.fallback(PORT_OID));
 
         assertNull(sample.errorInfo());
         assertEquals(13, sample.rsErrorSec());
@@ -254,30 +250,36 @@ class InspectionServicePerfTest {
     }
 
     @Test
-    void collectPort_PerfRequestHasThreeCodesAndPhysicalPortParams() {
+    void collectPort_PerfRequestSelectsAllWithFfff() {
         when(laserService.attributeGet(anyString(), any())).thenReturn(List.of(laserOk()));
         when(perfService.current24HGet(anyString(), any(PerfCurrent24HGetReq[].class)))
                 .thenReturn(perfOk(0, 0, 0));
 
-        inspectionService.collectPort(NE_ID, PORT_OID, Map.of());
+        inspectionService.collectPort(NE_ID, PortTarget.fallback(PORT_OID));
 
-        // varargs 整体按数组捕获：单元素 captor 在 verify 时与展开后的 3 个实参不匹配
-        // 端口不在 portTypes map → 兜底 {0xFF, 0xFF}
+        // 单条请求全查：三个选择器字段均为 0xFFFF（全部时隙 + 全部性能码）
+        // PortTarget.fallback → 类型兜底 0xFF/0xFF
         ArgumentCaptor<PerfCurrent24HGetReq[]> captor = ArgumentCaptor.forClass(PerfCurrent24HGetReq[].class);
         verify(perfService).current24HGet(eq(NE_ID), captor.capture());
         PerfCurrent24HGetReq[] reqs = captor.getValue();
-        assertEquals(3, reqs.length);
-        assertThat(Arrays.stream(reqs).map(PerfCurrent24HGetReq::getPerformanceCode).toList())
-                .containsExactlyInAnyOrder(PerfCodes.RS_ES, PerfCodes.RS_SES, PerfCodes.RS_UAS);
-        for (PerfCurrent24HGetReq req : reqs) {
-            assertEquals(0, req.getTsOrderId());
-            assertEquals(0, req.getTsAttribute());
-            assertEquals(0xFF, req.getPortType());
-            assertEquals(0xFF, req.getPortSubType());
-            assertEquals(1, req.getSubcaseNo());
-            assertEquals(11, req.getSlotId());
-            assertEquals(2, req.getPortId());
-        }
+        assertEquals(1, reqs.length);
+        PerfCurrent24HGetReq req = reqs[0];
+        assertEquals(0xFFFF, req.getPerformanceCode());
+        assertEquals(0xFFFF, req.getTsOrderId());
+        assertEquals(0xFFFF, req.getTsAttribute());
+        assertEquals(0xFF, req.getPortType());
+        assertEquals(0xFF, req.getPortSubType());
+        assertEquals(1, req.getSubcaseNo());
+        assertEquals(11, req.getSlotId());
+        assertEquals(2, req.getPortId());
+    }
+
+    @Test
+    void perfCodes_AreDefpmattrTypeMinus10000() {
+        // 钉死"设备真实编码 = defpmattr.type − 10000"，防止回退成库中原值
+        assertEquals(8194, PerfCodes.RS_ES);
+        assertEquals(8195, PerfCodes.RS_SES);
+        assertEquals(8196, PerfCodes.RS_UAS);
     }
 
     @Test
@@ -286,7 +288,7 @@ class InspectionServicePerfTest {
         when(perfService.current24HGet(anyString(), any(PerfCurrent24HGetReq[].class)))
                 .thenThrow(new QxCommandException(1, "设备拒绝"));
 
-        InspectionService.LaserSample sample = inspectionService.collectPort(NE_ID, PORT_OID, Map.of());
+        InspectionService.LaserSample sample = inspectionService.collectPort(NE_ID, PortTarget.fallback(PORT_OID));
 
         assertNull(sample.rsErrorSec());
         assertTrue(sample.errorInfo().startsWith(InspectionService.PERF_FAIL_PREFIX));
@@ -300,7 +302,7 @@ class InspectionServicePerfTest {
         when(perfService.current24HGet(anyString(), any(PerfCurrent24HGetReq[].class)))
                 .thenThrow(new RuntimeException());   // getMessage() = null
 
-        InspectionService.LaserSample sample = inspectionService.collectPort(NE_ID, PORT_OID, Map.of());
+        InspectionService.LaserSample sample = inspectionService.collectPort(NE_ID, PortTarget.fallback(PORT_OID));
 
         assertNull(sample.rsErrorSec());
         assertTrue(sample.errorInfo().startsWith(InspectionService.PERF_FAIL_PREFIX));
@@ -316,7 +318,7 @@ class InspectionServicePerfTest {
                         rsp(0, PerfCodes.RS_ES, 10),
                         rsp(0, PerfCodes.RS_UAS, 1)));   // 缺 RS-SES
 
-        InspectionService.LaserSample sample = inspectionService.collectPort(NE_ID, PORT_OID, Map.of());
+        InspectionService.LaserSample sample = inspectionService.collectPort(NE_ID, PortTarget.fallback(PORT_OID));
 
         assertEquals(11, sample.rsErrorSec());
         assertTrue(sample.errorInfo().contains(NAME_SES));
@@ -327,7 +329,7 @@ class InspectionServicePerfTest {
         when(laserService.attributeGet(anyString(), any()))
                 .thenReturn(List.of(LaserAttributeGetRsp.builder().supportFlag(0).build()));
 
-        InspectionService.LaserSample sample = inspectionService.collectPort(NE_ID, PORT_OID, Map.of());
+        InspectionService.LaserSample sample = inspectionService.collectPort(NE_ID, PortTarget.fallback(PORT_OID));
 
         assertEquals("端口不支持光功率采集", sample.errorInfo());
         assertNull(sample.rsErrorSec());
@@ -340,7 +342,7 @@ class InspectionServicePerfTest {
         when(perfService.current24HGet(anyString(), any(PerfCurrent24HGetReq[].class)))
                 .thenReturn(Collections.emptyList());
 
-        InspectionService.LaserSample sample = inspectionService.collectPort(NE_ID, PORT_OID, Map.of());
+        InspectionService.LaserSample sample = inspectionService.collectPort(NE_ID, PortTarget.fallback(PORT_OID));
 
         assertNull(sample.rsErrorSec());
         assertEquals(InspectionService.PERF_NO_DATA, sample.errorInfo());
@@ -353,7 +355,7 @@ class InspectionServicePerfTest {
         when(perfService.current24HGet(anyString(), any(PerfCurrent24HGetReq[].class)))
                 .thenReturn(perfOk(0, 0, 0));
 
-        inspectionService.collectPort(NE_ID, PORT_OID, Map.of(PORT_OID, new int[]{2, 3}));
+        inspectionService.collectPort(NE_ID, PortTarget.of(PORT_OID, 2, 3));
 
         ArgumentCaptor<LaserAttributeGetReq> laserCaptor =
                 ArgumentCaptor.forClass(LaserAttributeGetReq.class);
@@ -372,88 +374,88 @@ class InspectionServicePerfTest {
     // ========== portType/portSubType 拆分（defobject.deviceType 高低位） ==========
 
     @Test
-    void splitPortType_SplitsDeviceTypeIntoHighLowBytes() {
-        // 验证数据来自真库 defobject(cid=5)
-        assertArrayEquals(new int[]{2, 1}, InspectionService.splitPortType(513));    // STM1_O 0x0201
-        assertArrayEquals(new int[]{2, 3}, InspectionService.splitPortType(515));    // STM4_O 0x0203
-        assertArrayEquals(new int[]{2, 4}, InspectionService.splitPortType(516));    // STM16_O 0x0204
-        assertArrayEquals(new int[]{2, 5}, InspectionService.splitPortType(517));    // STM64_O 0x0205
-        assertArrayEquals(new int[]{12, 5}, InspectionService.splitPortType(3077));  // 100BT_LAN 0x0C05
-        assertArrayEquals(new int[]{255, 255}, InspectionService.splitPortType(-1)); // 0xFFFFFFFF
+    void portTarget_FromDeviceType_SplitsHighLowBytes() {
+        assertSplit(513, 2, 1);      // STM1_O 0x0201
+        assertSplit(515, 2, 3);      // STM4_O 0x0203
+        assertSplit(516, 2, 4);      // STM16_O 0x0204
+        assertSplit(517, 2, 5);      // STM64_O 0x0205
+        assertSplit(3077, 12, 5);    // 100BT_LAN 0x0C05
+        assertSplit(-1, 255, 255);   // 0xFFFFFFFF
+    }
+
+    private static void assertSplit(int deviceType, int portType, int portSubType) {
+        PortTarget target = PortTarget.fromDeviceType(PORT_OID, deviceType);
+        assertEquals(portType, target.portType());
+        assertEquals(portSubType, target.portSubType());
+        // 坐标一次性解析进对象
+        assertEquals(1, target.subcaseNo());
+        assertEquals(11, target.slotId());
+        assertEquals(2, target.portId());
     }
 
     @Test
-    void loadPortTypes_KnownType_SplitsDeviceTypeHighLowBytes() {
-        when(dynamicSyncService.loadPortDeviceTypes())
-                .thenReturn(Map.of(20008, 515, 20021, 3077));
+    void loadPortTargets_KnownType_BuildsBeanWithSplitTypes() {
+        // deviceType 由同步冗余写入 dmeo.deviceType —— 只读 SQLite，不查 MySQL
         when(sqliteJdbc.queryForList(anyString())).thenReturn(List.of(
-                dmeoPortRow("p1", 20008),
-                dmeoPortRow("p2", 20021)));
+                dmeoPortRow("101:1:11:1", 20008, 515),
+                dmeoPortRow("101:1:12:1", 20021, 3077)));
 
-        Map<String, int[]> portTypes = inspectionService.loadPortTypes();
+        Map<String, PortTarget> targets = inspectionService.loadPortTargets();
 
-        assertArrayEquals(new int[]{2, 3}, portTypes.get("p1"));
-        assertArrayEquals(new int[]{12, 5}, portTypes.get("p2"));
+        PortTarget p1 = targets.get("101:1:11:1");
+        assertEquals(2, p1.portType());
+        assertEquals(3, p1.portSubType());
+        assertEquals(11, p1.slotId());
+
+        PortTarget p2 = targets.get("101:1:12:1");
+        assertEquals(12, p2.portType());
+        assertEquals(5, p2.portSubType());
+        assertEquals(12, p2.slotId());
     }
 
     @Test
-    void loadPortTypes_MySqlFails_FallsBackToDefaultPair() {
-        when(dynamicSyncService.loadPortDeviceTypes())
-                .thenThrow(new IllegalStateException("MySQL 不可达"));
+    void loadPortTargets_DeviceTypeColumnNull_BuildsFallbackBean() {
+        // 未重新同步的旧数据：deviceType 列为空 → 类型兜底，不查 MySQL
         when(sqliteJdbc.queryForList(anyString()))
-                .thenReturn(List.of(dmeoPortRow("p1", 20008)));
+                .thenReturn(List.of(dmeoPortRow("101:1:11:1", 20008, null)));
 
-        Map<String, int[]> portTypes = inspectionService.loadPortTypes();
+        Map<String, PortTarget> targets = inspectionService.loadPortTargets();
 
-        assertArrayEquals(new int[]{0xFF, 0xFF}, portTypes.get("p1"));
+        PortTarget p1 = targets.get("101:1:11:1");
+        assertEquals(0xFF, p1.portType());
+        assertEquals(0xFF, p1.portSubType());
     }
 
     @Test
-    void loadPortTypes_DeviceTypeMapNull_FallsBackToDefaultPair() {
-        when(dynamicSyncService.loadPortDeviceTypes()).thenReturn(null);
-        when(sqliteJdbc.queryForList(anyString()))
-                .thenReturn(List.of(dmeoPortRow("p1", 20008)));
-
-        Map<String, int[]> portTypes = inspectionService.loadPortTypes();
-
-        assertArrayEquals(new int[]{0xFF, 0xFF}, portTypes.get("p1"));
-    }
-
-    @Test
-    void loadPortTypes_UnknownOrNonPositiveDeviceType_FallsBackToDefaultPair() {
-        when(dynamicSyncService.loadPortDeviceTypes()).thenReturn(Map.of(20006, -1, 20007, 0));
+    void loadPortTargets_NonPositiveDeviceType_BuildsFallbackBean() {
         when(sqliteJdbc.queryForList(anyString())).thenReturn(List.of(
-                dmeoPortRow("p1", 20006),   // defobject.deviceType = -1
-                dmeoPortRow("p2", 20007),   // defobject.deviceType = 0
-                dmeoPortRow("p3", 99999)));  // defobject 无此 type 行
+                dmeoPortRow("101:1:11:1", 20006, -1),   // defobject.deviceType = -1
+                dmeoPortRow("101:1:11:2", 20007, 0),    // defobject.deviceType = 0
+                dmeoPortRow("101:1:11:3", 99999, null))); // defobject 无此行 → 冗余列为 null
 
-        Map<String, int[]> portTypes = inspectionService.loadPortTypes();
+        Map<String, PortTarget> targets = inspectionService.loadPortTargets();
 
-        assertArrayEquals(new int[]{0xFF, 0xFF}, portTypes.get("p1"));
-        assertArrayEquals(new int[]{0xFF, 0xFF}, portTypes.get("p2"));
-        assertArrayEquals(new int[]{0xFF, 0xFF}, portTypes.get("p3"));
-
-        // 兜底数组不可被外部改写：各端口独立实例，改一个不影响其他端口
-        assertNotSame(portTypes.get("p1"), portTypes.get("p2"));
-        portTypes.get("p1")[0] = 0x42;
-        assertEquals(0xFF, portTypes.get("p2")[0]);
+        for (String oid : List.of("101:1:11:1", "101:1:11:2", "101:1:11:3")) {
+            assertEquals(0xFF, targets.get(oid).portType(), oid);
+            assertEquals(0xFF, targets.get(oid).portSubType(), oid);
+        }
     }
 
     @Test
-    void loadPortTypes_NullTypeRow_Skipped_NotInMap() {
-        when(dynamicSyncService.loadPortDeviceTypes()).thenReturn(Map.of());
-        when(sqliteJdbc.queryForList(anyString())).thenReturn(List.of(dmeoPortRow("p1", null)));
+    void loadPortTargets_NullTypeRow_Skipped() {
+        when(sqliteJdbc.queryForList(anyString())).thenReturn(List.of(dmeoPortRow("p1", null, 515)));
 
-        Map<String, int[]> portTypes = inspectionService.loadPortTypes();
+        Map<String, PortTarget> targets = inspectionService.loadPortTargets();
 
-        assertFalse(portTypes.containsKey("p1"));
+        assertFalse(targets.containsKey("p1"));
     }
 
-    /** dmeo(cid=5) 行：oid + type */
-    private static Map<String, Object> dmeoPortRow(String oid, Integer type) {
+    /** dmeo(cid=5) 行：oid + type + deviceType（deviceType 随同步冗余入库） */
+    private static Map<String, Object> dmeoPortRow(String oid, Integer type, Integer deviceType) {
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("oid", oid);
         row.put("type", type);
+        row.put("deviceType", deviceType);
         return row;
     }
 

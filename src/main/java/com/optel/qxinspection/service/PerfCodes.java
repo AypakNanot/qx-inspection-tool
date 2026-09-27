@@ -1,18 +1,19 @@
 package com.optel.qxinspection.service;
 
 /**
- * QX 0x0C07 性能代码常量。
- * <p>来源：Uniview 库 defpmattr 表（eName → type），网管与设备同一编号体系。
- * 真机联调时需确认回包 performanceCode 与此一致。</p>
+ * QX 0x0C07 性能代码常量（**设备真实编码**）。
+ * <p>来源：Uniview 库 defpmattr.type **减 10000** 才是设备侧编码——
+ * RS-ES 18194→8194、RS-SES 18195→8195、RS-UAS 18196→8196。
+ * 请求侧三个选择器字段传 0xFFFF 全查，本常量仅用于回包 performanceCode 匹配。</p>
  */
 final class PerfCodes {
 
-    /** RS误码秒 */
-    static final int RS_ES = 18194;
-    /** RS严重误码秒 */
-    static final int RS_SES = 18195;
-    /** RS不可用秒 */
-    static final int RS_UAS = 18196;
+    /** RS误码秒（defpmattr 18194 − 10000） */
+    static final int RS_ES = 8194;
+    /** RS严重误码秒（defpmattr 18195 − 10000） */
+    static final int RS_SES = 8195;
+    /** RS不可用秒（defpmattr 18196 − 10000） */
+    static final int RS_UAS = 8196;
 
     private PerfCodes() {
     }

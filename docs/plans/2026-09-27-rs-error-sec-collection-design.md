@@ -21,33 +21,35 @@
 
 ## 性能编码常量
 
-来源：`Uniview.defpmattr`（`SELECT eName, type FROM defpmattr`）。
+来源：`Uniview.defpmattr`（`SELECT eName, type FROM defpmattr`），**设备真实编码 = defpmattr.type − 10000**（实测口径，2026-09-27）。
 
-| 指标 | eName | performanceCode |
-|---|---|---|
-| RS误码秒 | RS-ES | 18194 |
-| RS严重误码秒 | RS-SES | 18195 |
-| RS不可用秒 | RS-UAS | 18196 |
+| 指标 | eName | defpmattr.type | 设备编码（−10000） |
+|---|---|---|---|
+| RS误码秒 | RS-ES | 18194 | **8194** |
+| RS严重误码秒 | RS-SES | 18195 | **8195** |
+| RS不可用秒 | RS-UAS | 18196 | **8196** |
 
-编码定义进新增常量类 `PerfCodes`，注释标明来源表。**待真机验证**：`defpmattr.type` 与 QX 协议 0x0C07 `performanceCode` 为同一编号体系（回包 `performanceCode` 对得上即闭环，对不上以回包为准反推）。
+编码定义进常量类 `PerfCodes`（存**设备编码**，注释标明来源与偏移）。**请求侧不指定性能码**：`performanceCode/tsOrderId/tsAttribute` 均传 `0xFFFF` = 全部时隙 + 全部性能码，单条请求查回该端口全部性能，`PerfCodes` 仅用于回包 `performanceCode` 匹配。
 
 ## 采集流程
 
 ```
-collectPort(neId, portOid, portTypes)
-  1. 查光功率（现有 LaserAttributeGetReq → laserService.attributeGet）
+collectPort(neId, target: PortTarget)          ← 端口对象贯穿采集链
+  0. PortTarget 装载期构建：OID 坐标解析 + deviceType 高低位拆分一次算好（loadPortTargets，只读 SQLite）
+  1. 查光功率（target.laserRequest() → laserService.attributeGet）
      ├─ 失败 → return LaserSample.error(...)        ← 行为完全不变
      └─ 成功 → 继续
-  2. perfService.current24HGet(neId, reqEs, reqSes, reqUas)
-     三条记录 varargs 一次发出（cmdCode 0x0C07）
-     ├─ 成功 → 解析回包，rsErrorSec = ES + SES + UAS
+  2. perfService.current24HGet(neId, target.perfRequest())   ← 单条记录，cmdCode 0x0C07
+     tsOrderId/tsAttribute/performanceCode = 0xFFFF（全部时隙 + 全部性能码，一次全查）
+     ├─ 成功 → 按 PerfCodes(8194/8195/8196) 匹配回包，rsErrorSec = ES + SES + UAS
      └─ 失败 → rsErrorSec = null，errorInfo 追加 "性能采集失败(...): <原因>"
   3. 组装 LaserSample（光功率字段 + rsErrorSec + errorInfo）
 ```
 
-请求参数与激光器请求同源：`subcaseNo/slotId/portId` 从 `portOid` 解析，`portType/portSubType` 查 `portTypes`；`tsOrderId=0`、`tsAttribute=0`（物理端口本身，schema 注释口径，待真机验证）。
+请求参数与激光器请求同源：`subcaseNo/slotId/portId` 从 `portOid` 解析，`portType/portSubType` 查 `portTypes`；`tsOrderId/tsAttribute/performanceCode = 0xFFFF`（全查口径，原 0/0 逐码方案作废）。
 
-端口类型口径：dmeo 的 `type`（如 20008）经 Uniview `defobject(cid=5).deviceType` 拆分为 `(portType, portSubType)`（高位字节/低位字节，如 20008 → deviceType 515=0x0203 → `2/3`），兜底 `0xFF/0xFF`（defobject 查询失败时全量兜底、不中断巡检；单个类型 deviceType 为 -1/0 或缺行时该端口兜底）。
+端口类型口径：dmeo 的 `type`（如 20008）经 Uniview `defobject(cid=5).deviceType` 拆分为 `(portType, portSubType)`（高位字节/低位字节，如 20008 → deviceType 515=0x0203 → `2/3`），兜底 `0xFF/0xFF`（deviceType 为 -1/0 时该端口兜底）。
+**deviceType 随同步冗余写入 `dmeo.deviceType` 列——除同步外不查 MySQL 是本项目原则**，巡检 `loadPortTypes` 只读 SQLite；未重新同步的旧数据该列为 NULL，全端口兜底 `0xFF/0xFF` 直到下次同步（部署后需重新同步一次）。
 
 `IPerfService` / `PerfServiceImpl` 已由 codec 插件从 `perf.yaml` 自动生成，直接注入 `InspectionService` 使用。
 
@@ -80,8 +82,10 @@ collectPort(neId, portOid, portTypes)
 | `PerfCodes`（新增） | 三个性能编码常量 + 来源注释 |
 | `LaserSample` | 加 `rsErrorSec` 字段，工厂方法适配 |
 | `InspectionService.collectPort` | 追加性能查询段（超行数/复杂度则把回包解析拆私有静态方法） |
-| `DynamicSyncService.loadPortDeviceTypes`（新增） | 从 MySQL `defobject(cid=5)` 查 type→deviceType 映射（不吞异常，方法内归还连接池） |
-| `InspectionService.loadPortTypes` / `loadDeviceTypes` / `splitPortType` | `portTypes` 签名 `Map<String,Integer>` → `Map<String,int[]>`；dmeo.type 经 defobject.deviceType 拆成 (portType, portSubType)，查询失败/非法值兜底 `{0xFF, 0xFF}`（兜底数组每次新建） |
+| `DynamicSyncService` 同步 | defobject 查询带 `deviceType`，`(cid,type)` 映射随同步冗余写入新列 `dmeo.deviceType`（INSERT 12 列）；`loadPortDeviceTypes` 直查 MySQL 方法已删除 |
+| `SQLiteSchemaInitializer` | `dmeo` 增列 `deviceType INTEGER`（建表 + 非破坏迁移） |
+| `PortTarget`（新增 bean） | 要巡检的端口对象：OID 坐标（子架/槽位/端口号）+ portType/portSubType 不可变携带，`laserRequest()/perfRequest()` 自组装报文；`fromDeviceType` 高低位拆分、`fallback` 0xFF/0xFF 兜底 |
+| `InspectionService.loadPortTargets` | 读 `dmeo.deviceType` 构建 `Map<oid, PortTarget>`（仅作装载期索引，采集链路传对象集合 `Set<PortTarget>`，不再传 Map/int[]）；NULL/非法兜底；**只读 SQLite，不查 MySQL** |
 | `InspectionService.isCollected` / `sideAbnormal` | 采集成功判定由 error_info 改为 `sideCollected(moduleType, errorInfo)`（性能失败不再丢链路、不再计入异常） |
 | `InspectionService.buildSide` | `null` → `sample.rsErrorSec()` |
 
@@ -100,8 +104,8 @@ collectPort(neId, portOid, portTypes)
 
 ## 真机联调验收清单
 
-1. `performanceCode=18194` 发 0x0C07，回包编码一致、`performanceValue` 为合理秒数；确认回包 subcaseNo 低位子架号 < 0x40（bit6/bit7 与子架号同字节）
-2. `tsOrderId/tsAttribute=0` 是否命中物理端口
+1. 请求三选择器 `0xFFFF` 发 0x0C07，回包 RS-ES 编码应为 **8194**（defpmattr 18194−10000）且 `performanceValue` 为合理秒数；确认回包 subcaseNo 低位子架号 < 0x40（bit6/bit7 与子架号同字节）；确认回包是否存在同编码的多 `tsOrderId` 记录（存在时评估取舍）
+2. `tsOrderId/tsAttribute=0xFFFF` 是否命中（含物理端口在内的）全部性能
 3. bit6 是否实际出现（不出现则拼接分支仅为防御）
 4. 巡检跑一轮 → query 页 RS 列有数 → 导出 `RS(错误秒)` 列有数 → "仅看误码"筛选生效
 5. 确认设备对不支持/未知的 0x0C07 是立即回错误码还是 10s 静默超时；若存在静默场景，评估连续失败熔断或 `qx.perf.enabled` 开关
@@ -116,5 +120,8 @@ collectPort(neId, portOid, portTypes)
 - [x] 读取端适配：isCollected/sideAbnormal 改 sideCollected 口径（4 测试）
 - [x] buildSide 透传（3 测试）
 - [x] portType/portSubType defobject.deviceType 拆分（8 测试）
-- [x] 全量回归 205 绿
+- [x] 0xFFFF 单条全查 + 设备编码 = defpmattr−10000（实测口径，2026-09-27）
+- [x] deviceType 改同步冗余列（dmeo.deviceType），巡检不再直查 MySQL（原则修复，2026-09-27）
+- [x] 端口对象化：`PortTarget` bean 替代 Map<String,int[]>（坐标预解析、请求自组装，2026-09-27）
+- [x] 全量回归 211 绿
 - [ ] 真机联调验收（performanceCode=18194 回包核对、tsOrderId/tsAttribute、bit6、端到端一轮巡检、验收清单第 5 项超时行为）

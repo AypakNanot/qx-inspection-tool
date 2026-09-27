@@ -51,8 +51,8 @@ public class DynamicSyncService {
     private static final String KEY_SYNC_STATUS = "sync.status";
 
     private static final String INSERT_DMEO_SQL =
-            "INSERT INTO dmeo (oid, cid, type, name, defName, networkOid, networkName, neName, neTypeName, ipAddr, typeName) "
-                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+            "INSERT INTO dmeo (oid, cid, type, name, defName, networkOid, networkName, neName, neTypeName, ipAddr, typeName, deviceType) "
+                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
     private static final String INSERT_DMCONNECTION_SQL =
             "INSERT INTO dmconnection (oid, cid, name, aEnd, zEnd, createTime, creator, additionInfo, "
@@ -134,33 +134,6 @@ public class DynamicSyncService {
         }
     }
 
-    // ==================== defobject 映射 ====================
-
-    /**
-     * 从 MySQL defobject 读取端口类型定义（cid=5）：dmeo.type → deviceType。
-     * <p>defobject 未同步进 SQLite，巡检前按需查询；本方法不吞异常，由调用方决定兜底。</p>
-     *
-     * @return type → deviceType 映射（deviceType 非数值的行不入 map）
-     */
-    public Map<Integer, Integer> loadPortDeviceTypes() {
-        JdbcTemplate mysqlJdbc = mysqlConnectionManager.getJdbcTemplate();
-        try {
-            List<Map<String, Object>> rows = mysqlJdbc.queryForList(
-                    "SELECT type, deviceType FROM defobject WHERE cid = ?", CID_PORT);
-            Map<Integer, Integer> map = new HashMap<>();
-            for (Map<String, Object> row : rows) {
-                Object type = row.get("type");
-                Object deviceType = row.get("deviceType");
-                if (type instanceof Number typeNo && deviceType instanceof Number devNo) {
-                    map.put(typeNo.intValue(), devNo.intValue());
-                }
-            }
-            return map;
-        } finally {
-            mysqlConnectionManager.close();
-        }
-    }
-
     // ==================== 同步状态摘要 ====================
 
     public Map<String, Object> getSyncStatusSummary() {
@@ -219,7 +192,8 @@ public class DynamicSyncService {
                     mysqlJdbc.queryForList("SELECT * FROM emnecomm"),
                     mysqlJdbc.queryForList("SELECT * FROM portbandwidth"),
                     mysqlJdbc.queryForList("SELECT * FROM linkbandwidth WHERE dir = 1"),
-                    mysqlJdbc.queryForList("SELECT cid, type, cName FROM defobject WHERE cid IN (?, ?)",
+                    mysqlJdbc.queryForList(
+                            "SELECT cid, type, cName, deviceType FROM defobject WHERE cid IN (?, ?)",
                             CID_SLOT, CID_PORT));
 
             Set<String> targetNetworks = new HashSet<>(networkOids);
@@ -311,10 +285,14 @@ public class DynamicSyncService {
             index.neTypeNameMap.put(toStr(row.get("neType")), toStr(row.get("cName")));
         }
 
-        // (cid, type) → typeName（defobject 权威名，盘/端口类型统计展示用）
+        // (cid, type) → typeName / deviceType（defobject 权威名与报文编码，随同步冗余入库）
         for (Map<String, Object> row : allDefobject) {
-            index.typeNameMap.put(toStr(row.get("cid")) + ":" + toStr(row.get("type")),
-                    toStr(row.get("cName")));
+            String key = toStr(row.get("cid")) + ":" + toStr(row.get("type"));
+            index.typeNameMap.put(key, toStr(row.get("cName")));
+            Object deviceType = row.get("deviceType");
+            if (deviceType instanceof Number number) {
+                index.deviceTypeMap.put(key, number.intValue());
+            }
         }
 
         // neOid(oid) → ipAddr (emnecomm state=1)
@@ -360,7 +338,8 @@ public class DynamicSyncService {
                     neOid == null ? null : index.neNameMap.get(neOid),
                     index.neTypeNameOf(neOid),
                     neOid == null ? null : index.ipAddrMap.get(neOid),
-                    index.typeNameOf(cid, row.get("type"))
+                    index.typeNameOf(cid, row.get("type")),
+                    index.deviceTypeOf(cid, row.get("type"))
             });
         }
         return rows;
@@ -466,6 +445,8 @@ public class DynamicSyncService {
         private final Map<String, String> neTypeCache = new HashMap<>();
         /** (cid:type) → defobject 权威名（盘 cid=4 / 端口 cid=5） */
         private final Map<String, String> typeNameMap = new HashMap<>();
+        /** (cid:type) → defobject.deviceType（QX 报文 portType/portSubType 拆分源） */
+        private final Map<String, Integer> deviceTypeMap = new HashMap<>();
         private final Map<String, String> ipAddrMap = new HashMap<>();
         private final Map<String, String> portNameMap = new HashMap<>();
         private final Map<String, Map<String, Object>> bandwidthMap = new HashMap<>();
@@ -491,6 +472,11 @@ public class DynamicSyncService {
         /** (cid, type) → defobject 类型名（盘/端口），无映射返回 null 由统计侧回退 */
         String typeNameOf(int cid, Object type) {
             return type == null ? null : typeNameMap.get(cid + ":" + toStr(type));
+        }
+
+        /** (cid, type) → defobject.deviceType，无映射返回 null 由采集侧兜底 0xFF/0xFF */
+        Integer deviceTypeOf(int cid, Object type) {
+            return type == null ? null : deviceTypeMap.get(cid + ":" + toStr(type));
         }
 
         /**
