@@ -49,3 +49,6 @@ application-prod.yml
 
 # cc-connect
 .cc-connect/
+
+# git worktrees
+.worktrees/
