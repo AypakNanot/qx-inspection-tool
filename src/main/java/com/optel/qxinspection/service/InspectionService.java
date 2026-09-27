@@ -5,6 +5,7 @@ import com.optel.qxinspection.entity.sqlite.LinkInspectionResult;
 import com.optel.qxinspection.laser.LaserAttributeGetReq;
 import com.optel.qxinspection.laser.LaserAttributeGetRsp;
 import com.optel.qxinspection.laser.service.ILaserService;
+import com.optel.qxinspection.perf.PerfCurrent24HGetRsp;
 import com.optel.qxinspection.repository.sqlite.InspectionRoundRepository;
 import com.optel.qxinspection.repository.sqlite.LinkInspectionResultRepository;
 import com.optel.qxinspection.util.OidUtil;
@@ -882,6 +883,69 @@ public class InspectionService {
      */
     private static Double toOpticalPower(float rawPower) {
         return Float.isNaN(rawPower) ? null : (double) rawPower;
+    }
+
+    // ========== 性能采集（0x0C07） ==========
+
+    /** subcaseNo bit7：1 = Invalid PM，该记录无效 */
+    static final int PM_INVALID_BIT = 0x80;
+    /** subcaseNo bit6：1 = 高 32 位，0 = 低 32 位 */
+    static final int PM_HIGH_WORD_BIT = 0x40;
+
+    static final String PERF_FAIL_PREFIX = "性能采集失败(RS-ES/RS-SES/RS-UAS): ";
+    static final String PERF_NO_DATA = "性能采集失败: 设备未返回数据";
+    static final String PERF_ALL_INVALID = "性能采集失败: 设备返回无效数据";
+    static final String PERF_MISSING_FMT = "性能采集缺失(%s): 设备未返回";
+
+    /** 0x0C07 回包解析结果。rsErrorSec=null 表示整体失败；issue 非空时写入 error_info */
+    record PerfOutcome(Integer rsErrorSec, String issue) {
+    }
+
+    /**
+     * 解析 0x0C07 回包列表：跳过 bit7 无效记录，按 performanceCode 归桶，
+     * bit6 高 32 位与低 32 位拼接，RS错误秒 = RS-ES + RS-SES + RS-UAS。
+     * 缺某指标时相加已有项并在 issue 中标明；三项全缺/空列表为整体失败。
+     */
+    static PerfOutcome parsePerfResponses(List<PerfCurrent24HGetRsp> rsps) {
+        if (rsps == null || rsps.isEmpty()) {
+            return new PerfOutcome(null, PERF_NO_DATA);
+        }
+        Map<Integer, Integer> low = new HashMap<>();
+        Map<Integer, Integer> high = new HashMap<>();
+        for (PerfCurrent24HGetRsp rsp : rsps) {
+            if (rsp == null || rsp.getSubcaseNo() == null || rsp.getPerformanceCode() == null) {
+                continue;
+            }
+            if ((rsp.getSubcaseNo() & PM_INVALID_BIT) != 0) {
+                continue;
+            }
+            int value = rsp.getPerformanceValue() != null ? rsp.getPerformanceValue() : 0;
+            if ((rsp.getSubcaseNo() & PM_HIGH_WORD_BIT) != 0) {
+                high.put(rsp.getPerformanceCode(), value);
+            } else {
+                low.put(rsp.getPerformanceCode(), value);
+            }
+        }
+        long total = 0;
+        boolean anyPresent = false;
+        List<String> missing = new ArrayList<>();
+        for (int code : new int[]{PerfCodes.RS_ES, PerfCodes.RS_SES, PerfCodes.RS_UAS}) {
+            Integer lo = low.get(code);
+            if (lo == null) {
+                missing.add(PerfCodes.nameOf(code));
+                continue;
+            }
+            long hi = high.getOrDefault(code, 0);
+            total += (lo & 0xFFFFFFFFL) + (hi << 32);
+            anyPresent = true;
+        }
+        if (!anyPresent) {
+            return new PerfOutcome(null, PERF_ALL_INVALID);
+        }
+        int sum = total > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) total;
+        String issue = missing.isEmpty() ? null
+                : String.format(PERF_MISSING_FMT, String.join("/", missing));
+        return new PerfOutcome(sum, issue);
     }
 
     // ========== 小工具 ==========
