@@ -336,4 +336,33 @@ class InspectionServicePerfTest {
             assertEquals(7, req.getPortType());
         }
     }
+
+    @Test
+    void buildSide_PassesRsErrorSecThrough() {
+        Map<String, InspectionService.LaserSample> samples = Map.of(PORT_OID,
+                new InspectionService.LaserSample("1000BASE-SX", 1.5, -2.0, 13, null));
+        InspectionService.LinkEnd end = new InspectionService.LinkEnd(
+                PORT_OID, "ne1", "NE-001", "Type", "P1(1/11/2)", 63, 10);
+
+        InspectionService.SideData side = InspectionService.buildSide(end, samples, Map.of());
+
+        assertNotNull(side);
+        assertEquals(13, side.rsErrorSec());
+        assertEquals(ThresholdService.STATUS_NORMAL, side.txStatus());
+        assertEquals(15.9, side.bandwidthUsage(), 1e-9);
+        assertEquals("P1(1/11/2)", side.portName());
+    }
+
+    @Test
+    void buildSide_NullRsErrorSecStaysNull() {
+        Map<String, InspectionService.LaserSample> samples = Map.of(PORT_OID,
+                new InspectionService.LaserSample("1000BASE-SX", 1.5, -2.0, null, null));
+        InspectionService.LinkEnd end = new InspectionService.LinkEnd(
+                PORT_OID, "ne1", "NE-001", "Type", "P1(1/11/2)", 63, 10);
+
+        InspectionService.SideData side = InspectionService.buildSide(end, samples, Map.of());
+
+        assertNotNull(side);
+        assertNull(side.rsErrorSec());
+    }
 }

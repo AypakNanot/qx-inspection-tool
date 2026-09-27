@@ -818,7 +818,7 @@ public class InspectionService {
         return syncedPortName != null && !syncedPortName.isEmpty() ? syncedPortName : portOid;
     }
 
-    private static SideData buildSide(LinkEnd end, Map<String, LaserSample> samples,
+    static SideData buildSide(LinkEnd end, Map<String, LaserSample> samples,
                                       Map<String, ThresholdService.Range> ranges) {
         if (end == null) {
             return null;
@@ -833,7 +833,7 @@ public class InspectionService {
                 moduleType, txPower, rxPower,
                 ThresholdService.evaluateStatus(txPower, range.txLow(), range.txHigh()),
                 ThresholdService.evaluateStatus(rxPower, range.rxLow(), range.rxHigh()),
-                null, // RS错误秒：性能采集未接入，字段预留
+                sample != null ? sample.rsErrorSec() : null,
                 end.capacity(), end.used(), bandwidthUsage(end.used(), end.capacity()),
                 sample != null ? sample.errorInfo() : "未采集到端口数据");
     }
@@ -1035,12 +1035,12 @@ public class InspectionService {
     }
 
     /** 链路某一端的静态信息 */
-    private record LinkEnd(String portOid, String neId, String neName, String neTypeName, String portName,
+    record LinkEnd(String portOid, String neId, String neName, String neTypeName, String portName,
                            Integer capacity, Integer used) {
     }
 
     /** 组装后写入 link_inspection_result 的某一端数据 */
-    private record SideData(String neId, String neName, String neTypeName, String portOid, String portName,
+    record SideData(String neId, String neName, String neTypeName, String portOid, String portName,
                             String moduleType, Double txPower, Double rxPower, String txStatus, String rxStatus,
                             Integer rsErrorSec, Integer totalBandwidth, Integer usedBandwidth,
                             Double bandwidthUsage, String errorInfo) {
