@@ -289,7 +289,7 @@ public class DynamicSyncService {
             }
         }
 
-        // linkOid → linkbandwidth info (dir=1，双向链路级别带宽)
+        // linkOid → linkbandwidth info (dir=1，双向链路级别带宽；预留数据，前端表格/导出暂不展示)
         for (Map<String, Object> row : allLinkbandwidth) {
             index.linkBandwidthMap.put(toStr(row.get("oid")), row);
         }

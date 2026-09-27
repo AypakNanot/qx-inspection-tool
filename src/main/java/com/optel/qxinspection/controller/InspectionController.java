@@ -55,8 +55,8 @@ public class InspectionController {
     /** 导出：空白占位 */
     private static final String EMPTY_CELL = "--";
 
-    /** 导出：主表列数（序号 + 链路名称 + A端12列 + Z端12列 + 链路带宽2列） */
-    private static final int EXPORT_COLUMNS = 28;
+    /** 导出：主表列数（序号 + 链路名称 + A端12列 + Z端12列），与前端表格一致 */
+    private static final int EXPORT_COLUMNS = 26;
 
     private static final DateTimeFormatter FILE_TIME_FMT = DateTimeFormatter.ofPattern("yyyyMMddHHmm");
 
@@ -179,16 +179,14 @@ public class InspectionController {
         CellStyle bodyStyle = bodyStyle(workbook);
         CellStyle warnStyle = warnStyle(workbook);
 
-        // 第 1 行：序号 | 链路名称 | A端 | Z端 | 链路带宽
+        // 第 1 行：序号 | 链路名称 | A端 | Z端
         Row row0 = styledRow(sheet, 0, headStyle);
         row0.getCell(0).setCellValue("序号");
         row0.getCell(1).setCellValue("链路名称");
         row0.getCell(2).setCellValue("A端");
         row0.getCell(14).setCellValue("Z端");
-        row0.getCell(26).setCellValue("链路带宽");
         sheet.addMergedRegion(new CellRangeAddress(0, 0, 2, 13));
         sheet.addMergedRegion(new CellRangeAddress(0, 0, 14, 25));
-        sheet.addMergedRegion(new CellRangeAddress(0, 0, 26, 27));
         // 序号 / 链路名称 贯穿 3 行表头
         mergeVertically(sheet, 0, 2);
 
@@ -216,8 +214,7 @@ public class InspectionController {
                 "名称", "类型", "端口", "类型", "TX\n(dBm)", "RX\n(dBm)", "TX\n状态", "RX\n状态", "RS\n(错误秒)",
                 "总\n(Mbps)", "已用\n(Mbps)", "利用率",
                 "名称", "类型", "端口", "类型", "TX\n(dBm)", "RX\n(dBm)", "TX\n状态", "RX\n状态", "RS\n(错误秒)",
-                "总\n(Mbps)", "已用\n(Mbps)", "利用率",
-                "总\n(Mbps)", "已用\n(Mbps)"
+                "总\n(Mbps)", "已用\n(Mbps)", "利用率"
         };
         for (int i = 0; i < labels.length; i++) {
             if (labels[i] != null) {
@@ -241,9 +238,6 @@ public class InspectionController {
                     r.getZTxPower(), r.getZRxPower(), r.getZTxStatus(), r.getZRxStatus(),
                     r.getZRsErrorSec(), r.getZTotalBandwidth(), r.getZUsedBandwidth(),
                     r.getZBandwidthUsage(), warnStyle);
-            // 链路级别带宽
-            setNumberOrDash(row.getCell(26), r.getLinkTotalBandwidth());
-            setNumberOrDash(row.getCell(27), r.getLinkUsedBandwidth());
         }
 
         sheet.createFreezePane(0, 3);

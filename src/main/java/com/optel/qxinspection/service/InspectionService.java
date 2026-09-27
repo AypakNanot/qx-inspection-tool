@@ -750,26 +750,17 @@ public class InspectionService {
         return results;
     }
 
-    /** 读取链路某一端的静态信息（dmconnection 冗余字段），优先使用链路级别带宽 */
+    /** 读取链路某一端的静态信息（dmconnection 冗余字段），带宽取端口级（linkCapacity/linkUsed 为预留字段，不参与展示口径） */
     private static LinkEnd endOf(Map<String, Object> link, boolean aEnd) {
         String prefix = aEnd ? "a" : "z";
         String portOid = str(link, prefix + "End");
         if (portOid == null) {
             return null;
         }
-        // 优先使用链路级别带宽（linkCapacity/linkUsed），降级到端口级别（兼容旧数据）
-        int capacity = intOf(link.get("linkCapacity"));
-        int used = intOf(link.get("linkUsed"));
-        if (capacity == 0) {
-            capacity = intOf(link.get(prefix + "Capacity"));
-        }
-        if (used == 0) {
-            used = intOf(link.get(prefix + "Used"));
-        }
         return new LinkEnd(portOid, OidUtil.getNeOid(portOid),
                 str(link, prefix + "NeName"), stripNeTypePrefix(str(link, prefix + "NeTypeName")),
                 portNameOf(str(link, prefix + "PortName"), portOid),
-                capacity, used);
+                intOf(link.get(prefix + "Capacity")), intOf(link.get(prefix + "Used")));
     }
 
     /** 端口名称：同步已拼接好，缺失时回退为端口 OID */
