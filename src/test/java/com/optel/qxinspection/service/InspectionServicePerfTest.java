@@ -14,10 +14,12 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -254,9 +256,8 @@ class InspectionServicePerfTest {
         verify(perfService).current24HGet(eq("ne1"), captor.capture());
         PerfCurrent24HGetReq[] reqs = captor.getValue();
         assertEquals(3, reqs.length);
-        List<Integer> codes = List.of(reqs).stream()
-                .map(PerfCurrent24HGetReq::getPerformanceCode).sorted().toList();
-        assertEquals(List.of(PerfCodes.RS_ES, PerfCodes.RS_SES, PerfCodes.RS_UAS), codes);
+        assertThat(Arrays.stream(reqs).map(PerfCurrent24HGetReq::getPerformanceCode).toList())
+                .containsExactlyInAnyOrder(PerfCodes.RS_ES, PerfCodes.RS_SES, PerfCodes.RS_UAS);
         for (PerfCurrent24HGetReq req : reqs) {
             assertEquals(0, req.getTsOrderId());
             assertEquals(0, req.getTsAttribute());
@@ -294,5 +295,45 @@ class InspectionServicePerfTest {
 
         assertEquals(11, sample.rsErrorSec());
         assertTrue(sample.errorInfo().contains("RS-SES"));
+    }
+
+    @Test
+    void collectPort_LaserUnsupported_PerfNeverQueried() {
+        when(laserService.attributeGet(anyString(), any()))
+                .thenReturn(List.of(LaserAttributeGetRsp.builder().supportFlag(0).build()));
+
+        InspectionService.LaserSample sample = inspectionService.collectPort("ne1", PORT_OID, Map.of());
+
+        assertEquals("端口不支持光功率采集", sample.errorInfo());
+        assertNull(sample.rsErrorSec());
+        verifyNoInteractions(perfService);
+    }
+
+    @Test
+    void collectPort_PerfReturnsEmpty_NoDataErrorInfo() {
+        when(laserService.attributeGet(anyString(), any())).thenReturn(List.of(laserOk()));
+        when(perfService.current24HGet(anyString(), any(PerfCurrent24HGetReq[].class)))
+                .thenReturn(Collections.emptyList());
+
+        InspectionService.LaserSample sample = inspectionService.collectPort("ne1", PORT_OID, Map.of());
+
+        assertNull(sample.rsErrorSec());
+        assertEquals(InspectionService.PERF_NO_DATA, sample.errorInfo());
+        assertEquals(1.5, sample.txPower(), 1e-9);
+    }
+
+    @Test
+    void collectPort_PerfRequestUsesPortTypeFromMap() {
+        when(laserService.attributeGet(anyString(), any())).thenReturn(List.of(laserOk()));
+        when(perfService.current24HGet(anyString(), any(PerfCurrent24HGetReq[].class)))
+                .thenReturn(perfOk(0, 0, 0));
+
+        inspectionService.collectPort("ne1", PORT_OID, Map.of(PORT_OID, 7));
+
+        ArgumentCaptor<PerfCurrent24HGetReq[]> captor = ArgumentCaptor.forClass(PerfCurrent24HGetReq[].class);
+        verify(perfService).current24HGet(eq("ne1"), captor.capture());
+        for (PerfCurrent24HGetReq req : captor.getValue()) {
+            assertEquals(7, req.getPortType());
+        }
     }
 }

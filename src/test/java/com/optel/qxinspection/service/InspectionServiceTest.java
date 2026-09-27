@@ -1,14 +1,19 @@
 package com.optel.qxinspection.service;
 
+import com.optel.dc.ext.qx.service.QxCommandException;
 import com.optel.qxinspection.entity.sqlite.InspectionRound;
 import com.optel.qxinspection.entity.sqlite.LinkInspectionResult;
+import com.optel.qxinspection.laser.LaserAttributeGetRsp;
 import com.optel.qxinspection.laser.service.ILaserService;
+import com.optel.qxinspection.perf.PerfCurrent24HGetReq;
 import com.optel.qxinspection.perf.service.IPerfService;
 import com.optel.qxinspection.repository.sqlite.InspectionRoundRepository;
 import com.optel.qxinspection.repository.sqlite.LinkInspectionResultRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Captor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -31,6 +36,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -69,6 +75,9 @@ class InspectionServiceTest {
 
     @InjectMocks
     private InspectionService inspectionService;
+
+    @Captor
+    private ArgumentCaptor<List<LinkInspectionResult>> savedLinksCaptor;
 
     @BeforeEach
     void setUp() {
@@ -482,6 +491,86 @@ class InspectionServiceTest {
                 .when(sysConfigService).set(anyString(), anyString());
 
         assertDoesNotThrow(() -> inspectionService.updateCollectParams(10, 10, true, true, true));
+    }
+
+    // ========== 采集成功判定（moduleType，性能失败不改端口成败） ==========
+
+    /** 支持光功率的合法激光器回包 */
+    private static LaserAttributeGetRsp laserOk() {
+        return LaserAttributeGetRsp.builder()
+                .supportFlag(1).laserType(0x10).distance(0x11)
+                .tranLaserPower(1.5f).recvLaserPower(-2.0f)
+                .build();
+    }
+
+    /** 同步跑完一轮采集（executeInspection 本身同步），saveInvalid=false 是本组用例的前提 */
+    private InspectionRound runExecuteInspection(List<Map<String, Object>> links) {
+        ReflectionTestUtils.setField(inspectionService, "concurrency", 4);
+        ReflectionTestUtils.setField(inspectionService, "saveInvalid", false);
+        InspectionRound round = new InspectionRound();
+        round.setId(1L);
+        round.setStatus(InspectionRound.STATUS_RUNNING);
+        round.setStartTime(LocalDateTime.now());
+        ReflectionTestUtils.invokeMethod(inspectionService, "executeInspection", round, links);
+        return round;
+    }
+
+    @Test
+    void testExecuteInspection_PerfFailBothEnds_StillSaved() {
+        when(qxConnectionService.isConnected(anyString())).thenReturn(true);
+        when(laserService.attributeGet(anyString(), any())).thenReturn(List.of(laserOk()));
+        when(perfService.current24HGet(anyString(), any(PerfCurrent24HGetReq[].class)))
+                .thenThrow(new QxCommandException(1, "设备拒绝"));
+
+        InspectionRound round = runExecuteInspection(List.of(linkRow()));
+
+        // 性能失败只记 error_info，两端 moduleType 仍在 → 链路必须保存
+        verify(linkResultRepository).saveAll(savedLinksCaptor.capture());
+        assertEquals(1, savedLinksCaptor.getValue().size());
+        LinkInspectionResult saved = savedLinksCaptor.getValue().get(0);
+        assertNotNull(saved.getAModuleType());
+        assertNotNull(saved.getZModuleType());
+        assertTrue(saved.getAErrorInfo().startsWith(InspectionService.PERF_FAIL_PREFIX));
+        assertTrue(saved.getZErrorInfo().startsWith(InspectionService.PERF_FAIL_PREFIX));
+        assertEquals(1, round.getDoneCount());
+    }
+
+    @Test
+    void testExecuteInspection_LaserFailBothEnds_NotSaved() {
+        // 不 stub isConnected → connectSingle 返回 success=false → 网元采集失败，moduleType=null
+        InspectionRound round = runExecuteInspection(List.of(linkRow()));
+
+        verify(linkResultRepository, never()).saveAll(any());
+        assertEquals(0, round.getDoneCount());
+    }
+
+    @Test
+    void testGetSummary_PerfFailNotCountedAsAbnormal() {
+        InspectionRound latest = new InspectionRound();
+        latest.setId(7L);
+        when(inspectionRoundRepository.findFirstByOrderByStartTimeDesc()).thenReturn(Optional.of(latest));
+
+        LinkInspectionResult perfFailed = new LinkInspectionResult();
+        perfFailed.setAModuleType("1000BASE-LX");
+        perfFailed.setAErrorInfo(InspectionService.PERF_FAIL_PREFIX + "设备拒绝");
+        perfFailed.setATxStatus(ThresholdService.STATUS_NORMAL);
+        perfFailed.setARxStatus(ThresholdService.STATUS_NORMAL);
+        perfFailed.setZModuleType("1000BASE-LX");
+        perfFailed.setZErrorInfo(InspectionService.PERF_FAIL_PREFIX + "设备拒绝");
+        perfFailed.setZTxStatus(ThresholdService.STATUS_NORMAL);
+        perfFailed.setZRxStatus(ThresholdService.STATUS_NORMAL);
+        when(linkResultRepository.findByRoundId(7L)).thenReturn(List.of(perfFailed));
+
+        Map<String, Object> result = inspectionService.getSummary();
+
+        // 光功率门限全正常 → 性能失败不得把链路计入异常
+        assertEquals(1L, result.get("normalLinks"));
+        assertEquals(0L, result.get("abnormalLinks"));
+        assertTrue(((List<?>) result.get("topAnomalies")).isEmpty());
+        @SuppressWarnings("unchecked")
+        Map<String, Map<String, Object>> byModule = (Map<String, Map<String, Object>>) result.get("byModuleType");
+        assertEquals(2L, byModule.get("1000BASE-LX").get("count"));
+        assertEquals(0L, byModule.get("1000BASE-LX").get("abnormal"));
     }
 
     // ========== 静态工具 ==========

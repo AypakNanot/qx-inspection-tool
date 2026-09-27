@@ -59,14 +59,17 @@ collectPort(neId, portOid, portTypes)
 
 ## 失败分级
 
-| 场景 | rsErrorSec | error_info | 端口成败 |
+"端口成败"按 **moduleType 是否采到**（`sideCollected(moduleType, errorInfo)`，落库数据等价于 moduleType 非空）判定：光功率采到即成功，error_info 只记原因。
+
+| 场景 | rsErrorSec | error_info | 端口成败（moduleType 判定） |
 |---|---|---|---|
-| 光功率查询失败 | — | 照旧覆盖 | 失败（现有行为不变） |
-| 光功率 OK，0x0C07 发送失败 | null | 追加 `性能采集失败(RS-ES/RS-SES/RS-UAS): <原因>` | **成功** |
+| 光功率查询失败 | — | 照旧覆盖（moduleType=null） | **失败**（现有行为不变） |
+| 光功率 OK，0x0C07 发送失败 | null | 追加 `性能采集失败(RS-ES/RS-SES/RS-UAS): <原因>` | 成功 |
 | 光功率 OK，回包缺某指标 | 相加已有项 | 追加 `性能采集缺失(RS-UAS): 设备未返回` | 成功 |
 | 光功率 OK，三项全 Invalid | null | 追加 `性能采集失败: 设备返回无效数据` | 成功 |
 
-追加（非覆盖）保证光功率错误不被性能错误冲掉。error_info 空即采集成功的口径（`isCollected`）不变。
+追加（非覆盖）保证光功率错误不被性能错误冲掉。
+**"error_info 空即采集成功"的旧口径已被证伪**（性能失败会写 error_info 但端口算成功）：`isCollected` 保存过滤与 `sideAbnormal` 异常统计均改用 `sideCollected(moduleType, errorInfo)` 判定，error_info 仅作原因记录——性能失败既不丢链路（saveInvalid=false 仍保存），也不计入 abnormalLinks/异常明细。
 
 ## 改动文件
 
@@ -75,6 +78,7 @@ collectPort(neId, portOid, portTypes)
 | `PerfCodes`（新增） | 三个性能编码常量 + 来源注释 |
 | `LaserSample` | 加 `rsErrorSec` 字段，工厂方法适配 |
 | `InspectionService.collectPort` | 追加性能查询段（超行数/复杂度则把回包解析拆私有静态方法） |
+| `InspectionService.isCollected` / `sideAbnormal` | 采集成功判定由 error_info 改为 `sideCollected(moduleType, errorInfo)`（性能失败不再丢链路、不再计入异常） |
 | `InspectionService.buildSide` | `null` → `sample.rsErrorSec()` |
 
 **不改：** 表结构、实体、前端 query.js、Excel 导出、统计口径（全部已就位）；`perf.yaml` 及生成代码。

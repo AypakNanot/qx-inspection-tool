@@ -261,8 +261,10 @@ public class InspectionService {
     private Map<String, Map<String, Object>> groupByModuleType(List<LinkInspectionResult> links) {
         Map<String, long[]> counters = new LinkedHashMap<>();
         for (LinkInspectionResult r : links) {
-            countModuleType(counters, r.getAModuleType(), sideAbnormal(r.getATxStatus(), r.getARxStatus(), r.getAErrorInfo()));
-            countModuleType(counters, r.getZModuleType(), sideAbnormal(r.getZTxStatus(), r.getZRxStatus(), r.getZErrorInfo()));
+            countModuleType(counters, r.getAModuleType(),
+                    sideAbnormal(r.getATxStatus(), r.getARxStatus(), r.getAModuleType(), r.getAErrorInfo()));
+            countModuleType(counters, r.getZModuleType(),
+                    sideAbnormal(r.getZTxStatus(), r.getZRxStatus(), r.getZModuleType(), r.getZErrorInfo()));
         }
         Map<String, Map<String, Object>> result = new LinkedHashMap<>();
         counters.forEach((key, value) -> {
@@ -330,8 +332,9 @@ public class InspectionService {
     private void collectAnomalies(LinkInspectionResult r, boolean aEnd, List<Map<String, Object>> sink) {
         String txStatus = aEnd ? r.getATxStatus() : r.getZTxStatus();
         String rxStatus = aEnd ? r.getARxStatus() : r.getZRxStatus();
+        String moduleType = aEnd ? r.getAModuleType() : r.getZModuleType();
         String errorInfo = aEnd ? r.getAErrorInfo() : r.getZErrorInfo();
-        if (!sideAbnormal(txStatus, rxStatus, errorInfo)) {
+        if (!sideAbnormal(txStatus, rxStatus, moduleType, errorInfo)) {
             return;
         }
         Map<String, Object> item = new LinkedHashMap<>();
@@ -339,7 +342,7 @@ public class InspectionService {
         item.put("linkName", r.getLinkName());
         item.put("neName", aEnd ? r.getANeName() : r.getZNeName());
         item.put("portName", aEnd ? r.getAPortName() : r.getZPortName());
-        item.put("moduleType", aEnd ? r.getAModuleType() : r.getZModuleType());
+        item.put("moduleType", moduleType);
         item.put("txPower", aEnd ? r.getATxPower() : r.getZTxPower());
         item.put("rxPower", aEnd ? r.getARxPower() : r.getZRxPower());
         item.put("txStatus", txStatus);
@@ -357,8 +360,8 @@ public class InspectionService {
     }
 
     private boolean isAbnormal(LinkInspectionResult r) {
-        return sideAbnormal(r.getATxStatus(), r.getARxStatus(), r.getAErrorInfo())
-                || sideAbnormal(r.getZTxStatus(), r.getZRxStatus(), r.getZErrorInfo());
+        return sideAbnormal(r.getATxStatus(), r.getARxStatus(), r.getAModuleType(), r.getAErrorInfo())
+                || sideAbnormal(r.getZTxStatus(), r.getZRxStatus(), r.getZModuleType(), r.getZErrorInfo());
     }
 
     private boolean hasNoLight(LinkInspectionResult r) {
@@ -373,12 +376,12 @@ public class InspectionService {
                 || (r.getZRsErrorSec() != null && r.getZRsErrorSec() > 0);
     }
 
-    /** 采集失败，或门限判定为过高/过低/无光，均视为异常 */
-    private static boolean sideAbnormal(String txStatus, String rxStatus, String errorInfo) {
-        if (errorInfo != null && !errorInfo.isEmpty()) {
-            return true;
-        }
-        return isBadStatus(txStatus) || isBadStatus(rxStatus);
+    /**
+     * 光功率未采到，或门限判定为过高/过低/无光，均视为异常。
+     * 光功率已采到、error_info 里只有性能类原因时不算异常（原因已落库并在日志中体现）。
+     */
+    private static boolean sideAbnormal(String txStatus, String rxStatus, String moduleType, String errorInfo) {
+        return !sideCollected(moduleType, errorInfo) || isBadStatus(txStatus) || isBadStatus(rxStatus);
     }
 
     private static boolean isBadStatus(String status) {
@@ -688,12 +691,10 @@ public class InspectionService {
                     perfReq(portOid, portTypes, PerfCodes.RS_ES),
                     perfReq(portOid, portTypes, PerfCodes.RS_SES),
                     perfReq(portOid, portTypes, PerfCodes.RS_UAS)));
-            return new LaserSample(sample.moduleType(), sample.txPower(), sample.rxPower(),
-                    outcome.rsErrorSec(), outcome.issue());
+            return sample.withPerf(outcome.rsErrorSec(), outcome.issue());
         } catch (Exception e) {
-            log.debug("性能采集失败: ne={}, port={}, {}", neId, portOid, e.getMessage());
-            return new LaserSample(sample.moduleType(), sample.txPower(), sample.rxPower(),
-                    null, PERF_FAIL_PREFIX + e.getMessage());
+            log.debug("性能采集失败: ne={}, port={}", neId, portOid, e);
+            return sample.withPerf(null, PERF_FAIL_PREFIX + e.getMessage());
         }
     }
 
@@ -858,9 +859,19 @@ public class InspectionService {
         return value == null ? null : value.doubleValue();
     }
 
-    /** 至少一端采集到了数据 */
+    /** 至少一端光功率采到（保存过滤口径，见 sideCollected）；性能类 error_info 不等于采集失败 */
     private boolean isCollected(LinkInspectionResult r) {
-        return isNullOrEmpty(r.getAErrorInfo()) || isNullOrEmpty(r.getZErrorInfo());
+        return sideCollected(r.getAModuleType(), r.getAErrorInfo())
+                || sideCollected(r.getZModuleType(), r.getZErrorInfo());
+    }
+
+    /**
+     * 该端光功率是否采到——保存过滤（isCollected）与异常统计（sideAbnormal）共用的唯一口径。
+     * moduleType 非空即采到（toModuleTypeName 不会返回空）；error_info 为空兜底也视为采到。
+     * 落库数据中 moduleType 为空必有 error_info 原因，故该式等价于 moduleType 非空。
+     */
+    private static boolean sideCollected(String moduleType, String errorInfo) {
+        return !isNullOrEmpty(moduleType) || isNullOrEmpty(errorInfo);
     }
 
     private static boolean isNullOrEmpty(String value) {
@@ -1052,12 +1063,17 @@ public class InspectionService {
                     toModuleTypeName(ack.getLaserType(), ack.getDistance()),
                     toOpticalPower(ack.getTranLaserPower()),
                     toOpticalPower(ack.getRecvLaserPower()),
-                    null,
+                    null, /* rsErrorSec, errorInfo */
                     null);
         }
 
         static LaserSample error(String message) {
             return new LaserSample(null, null, null, null, message);
+        }
+
+        /** 保留光功率采集结果，只替换性能字段（rsErrorSec / errorInfo） */
+        LaserSample withPerf(Integer rsErrorSec, String errorInfo) {
+            return new LaserSample(moduleType, txPower, rxPower, rsErrorSec, errorInfo);
         }
     }
 }
