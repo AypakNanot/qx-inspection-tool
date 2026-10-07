@@ -154,10 +154,21 @@ public class ThresholdService {
 
     /**
      * 按模块类型取门限区间，未匹配时使用默认区间。
+     * moduleTypeKey 可能带波长后缀（如 "S4.1,1310nm"），匹配前截到逗号前的纯类型。
      */
     public static Range rangeFor(Map<String, Range> ranges, String moduleTypeKey) {
-        Range range = moduleTypeKey != null ? ranges.get(moduleTypeKey) : null;
+        String key = matchKey(moduleTypeKey);
+        Range range = key != null ? ranges.get(key) : null;
         return range != null ? range : DEFAULT_RANGE;
+    }
+
+    /** 门限匹配键 = 模块类型第一个逗号前的部分 */
+    static String matchKey(String moduleTypeKey) {
+        if (moduleTypeKey == null) {
+            return null;
+        }
+        int comma = moduleTypeKey.indexOf(',');
+        return comma >= 0 ? moduleTypeKey.substring(0, comma) : moduleTypeKey;
     }
 
     /**

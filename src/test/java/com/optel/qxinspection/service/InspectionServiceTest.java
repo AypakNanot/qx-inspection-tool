@@ -611,4 +611,47 @@ class InspectionServiceTest {
         assertEquals("V64.2", InspectionService.toModuleTypeName(4, 4));
         assertTrue(InspectionService.toModuleTypeName(1, 99).startsWith("Unknown"));
     }
+
+    // ========== 波长拼接（moduleType 展示名 = 类型,波长） ==========
+
+    @Test
+    void testWaveName() {
+        assertEquals("1310nm", InspectionService.LaserSample.waveName(1));
+        assertEquals("1550nm", InspectionService.LaserSample.waveName(2));
+        assertEquals("850nm", InspectionService.LaserSample.waveName(3));
+        assertNull(InspectionService.LaserSample.waveName(9));
+        assertNull(InspectionService.LaserSample.waveName(null));
+    }
+
+    @Test
+    void testWithWave() {
+        assertEquals("S4.1,1310nm", InspectionService.LaserSample.withWave("S4.1", "1310nm"));
+        assertEquals("S4.1", InspectionService.LaserSample.withWave("S4.1", null));
+        assertEquals("S4.1", InspectionService.LaserSample.withWave("S4.1", ""));
+        assertNull(InspectionService.LaserSample.withWave(null, "1310nm"));
+    }
+
+    @Test
+    void testLaserSampleOf_AppendsWave() {
+        LaserAttributeGetRsp ack = LaserAttributeGetRsp.builder()
+                .supportFlag(1).laserType(0x10).distance(0x11).laserWave(1)
+                .tranLaserPower(1.5f).recvLaserPower(-2.0f)
+                .build();
+
+        InspectionService.LaserSample sample = InspectionService.LaserSample.of(List.of(ack));
+
+        assertEquals("1000BASE-LX,1310nm", sample.moduleType());
+    }
+
+    @Test
+    void testLaserSampleOf_NoWave_KeepsTypeOnly() {
+        LaserAttributeGetRsp ack = LaserAttributeGetRsp.builder()
+                .supportFlag(1).laserType(0x10).distance(0x11)
+                .tranLaserPower(1.5f).recvLaserPower(-2.0f)
+                .build();
+
+        InspectionService.LaserSample sample = InspectionService.LaserSample.of(List.of(ack));
+
+        assertEquals(MODULE_LX, sample.moduleType());
+    }
 }

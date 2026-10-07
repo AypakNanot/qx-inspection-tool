@@ -1150,11 +1150,32 @@ public class InspectionService {
                 return error("端口不支持光功率采集");
             }
             return new LaserSample(
-                    toModuleTypeName(ack.getLaserType(), ack.getDistance()),
+                    withWave(toModuleTypeName(ack.getLaserType(), ack.getDistance()), waveName(ack.getLaserWave())),
                     toOpticalPower(ack.getTranLaserPower()),
                     toOpticalPower(ack.getRecvLaserPower()),
                     null, /* rsErrorSec, errorInfo */
                     null);
+        }
+
+        /** 模块类型展示名拼接波长，如 "S4.1,1310nm"；无波长信息时保持原类型名 */
+        static String withWave(String moduleType, String wave) {
+            if (moduleType == null || moduleType.isEmpty() || wave == null || wave.isEmpty()) {
+                return moduleType;
+            }
+            return moduleType + "," + wave;
+        }
+
+        /** bLaserWave 编码转波长文本；未知编码返回 null（不拼接） */
+        static String waveName(Integer laserWave) {
+            if (laserWave == null) {
+                return null;
+            }
+            return switch (laserWave) {
+                case 1 -> "1310nm";
+                case 2 -> "1550nm";
+                case 3 -> "850nm";
+                default -> null;
+            };
         }
 
         static LaserSample error(String message) {

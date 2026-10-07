@@ -150,6 +150,18 @@ class ThresholdServiceTest {
         assertEquals(3.0, ThresholdService.rangeFor(ranges, "UNKNOWN").txHigh());
     }
 
+    @Test
+    void testRangeFor_KeyWithWaveSuffix_StripsAfterComma() {
+        Map<String, ThresholdService.Range> ranges = Map.of("L16.1", new ThresholdService.Range(-15, -1, -28, -8));
+
+        ThresholdService.Range range = ThresholdService.rangeFor(ranges, "L16.1,1310nm");
+
+        assertEquals(-15.0, range.txLow());
+        assertEquals("L16.1", ThresholdService.matchKey("L16.1,1310nm"));
+        assertEquals("L16.1", ThresholdService.matchKey("L16.1"));
+        assertNull(ThresholdService.matchKey(null));
+    }
+
     // ========== evaluateStatus ==========
 
     @Test
