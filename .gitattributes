@@ -1,0 +1,2 @@
+# 批处理必须 CRLF，否则 cmd 解析会出错（详见 package.bat 头部注释）
+*.bat text eol=crlf

@@ -1,0 +1,21 @@
+# ============================================================
+# 目标机外置配置（只写需要改的项）
+# Spring Boot 启动时自动读取 ./config/application.yml，覆盖 jar 内同名配置
+# ============================================================
+
+server:
+  port: 38543         # 与目标机已占用端口冲突时修改
+
+app:
+  # 备份/恢复管理员认证令牌，留空则禁用该功能
+  admin-token: ""
+
+  # MySQL 老网管库（Uniview）——按需连接，连不上不影响应用启动，
+  # 仅设备发现/数据同步不可用。也可运行时在界面或 SQLite sys_config 中修改。
+  mysql:
+    host: "127.0.0.1"
+    port: 3306
+    database: "Uniview"
+    username: "sa"
+    # 密码优先级：环境变量 APP_MYSQL_PASSWORD > 此处配置 > jar 内默认值
+    password: "DB_Admin123"

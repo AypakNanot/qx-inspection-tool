@@ -29,6 +29,9 @@ Thumbs.db
 logs/
 *.log
 
+# 打包交付目录
+dist/
+
 # Spring Boot
 application-dev.yml
 application-prod.yml

@@ -3,7 +3,7 @@
  * 封装所有后端接口调用，统一处理请求/响应
  */
 
-export const API = '/qx-inspection/api';
+export const API = '/api';
 
 /** GET 请求 */
 export async function get(path) {

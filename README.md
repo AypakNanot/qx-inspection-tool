@@ -197,7 +197,7 @@
 
 ### 7.1 部署约束
 - **同机部署**：与老网管服务器部署在同一台机器上
-- **端口冲突**：Web端口自定（默认8080），避开已占用端口；UDP 9910不启用
+- **端口冲突**：Web端口自定（默认38543），避开已占用端口；UDP 9910不启用
 - **MySQL容器**：`mysql-uniview` Docker容器，端口3306，MySQL 5.6
 - **SQLite文件**：`./data/qx_inspection.db`，与进程同目录
 
@@ -707,7 +707,7 @@ mvn clean package -DskipTests
 java -jar target/qx-inspection-tool-1.0.0-SNAPSHOT.jar
 
 # 访问
-http://localhost:8080/qx-inspection
+http://localhost:38543/
 ```
 
 **前置条件**：
