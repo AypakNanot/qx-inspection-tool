@@ -7,7 +7,7 @@
 
     <groupId>com.optel</groupId>
     <artifactId>qx-inspection-tool</artifactId>
-    <version>1.0.0-SNAPSHOT</version>
+    <version>1.0.0</version>
     <packaging>jar</packaging>
 
     <name>QX设备直连巡检工具</name>
@@ -111,6 +111,8 @@
     </dependencies>
 
     <build>
+        <!-- 打包产物固定为 mstp-inspect-<version>.jar（与 artifactId 解耦） -->
+        <finalName>mstp-inspect-${project.version}</finalName>
         <plugins>
             <plugin>
                 <groupId>org.springframework.boot</groupId>

@@ -15,9 +15,9 @@ rem ============================================================
 cd /d "%~dp0"
 
 set "JAR="
-for %%f in ("%~dp0qx-inspection-tool*.jar") do if exist "%%f" set "JAR=%%f"
+for %%f in ("%~dp0mstp-inspect*.jar") do if exist "%%f" set "JAR=%%f"
 if not defined JAR (
-    echo [ERROR] qx-inspection-tool*.jar not found. Run package.bat first.
+    echo [ERROR] mstp-inspect*.jar not found. Run package.bat first.
     pause
     exit /b 1
 )

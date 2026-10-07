@@ -704,7 +704,7 @@ app:
 mvn clean package -DskipTests
 
 # 运行
-java -jar target/qx-inspection-tool-1.0.0-SNAPSHOT.jar
+java -jar target/mstp-inspect-1.0.0.jar
 
 # 访问
 http://localhost:38543/

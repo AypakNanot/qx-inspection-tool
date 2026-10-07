@@ -9,5 +9,5 @@ echo Driver: com.mysql.jdbc.Driver
 echo.
 echo 正在启动应用...
 cd /d D:\ai-workspace\mtp\qx-inspection-tool
-java --enable-preview -jar target\qx-inspection-tool-1.0.0-SNAPSHOT.jar --spring.profiles.active=dev
+java --enable-preview -jar target\mstp-inspect-1.0.0.jar --spring.profiles.active=dev
 pause

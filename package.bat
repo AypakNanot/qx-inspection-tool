@@ -1,7 +1,7 @@
 @echo off
 rem ============================================================
 rem  QX Inspection Tool - one-click package:
-rem  mvn clean package (with tests) then assemble dist\qx-inspection\
+rem  mvn clean package (with tests) then assemble dist\mstp-inspect\
 rem
 rem  ENCODING RULE: THIS FILE MUST BE PURE ASCII + CRLF.
 rem  On Chinese Windows, cmd reads batch files as GBK/DBCS. UTF-8 Chinese
@@ -27,7 +27,7 @@ if errorlevel 1 (
     exit /b 1
 )
 
-set "DIST=dist\qx-inspection"
+set "DIST=dist\mstp-inspect"
 echo [2/2] Assembling %DIST%\ ...
 if exist "%DIST%" rmdir /s /q "%DIST%"
 mkdir "%DIST%\config"
@@ -35,7 +35,7 @@ mkdir "%DIST%\data"
 mkdir "%DIST%\logs"
 
 set "JAR="
-for %%f in ("target\qx-inspection-tool-*.jar") do if exist "%%f" set "JAR=%%f"
+for %%f in ("target\mstp-inspect-*.jar") do if exist "%%f" set "JAR=%%f"
 if not defined JAR (
     echo [ERROR] jar not found in target\
     pause

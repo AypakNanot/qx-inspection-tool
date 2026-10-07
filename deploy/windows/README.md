@@ -12,7 +12,7 @@
 
 ## 2. 部署步骤
 
-1. 将整个交付目录拷贝到目标机，例如 `C:\opt\qx-inspection\`
+1. 将整个交付目录拷贝到目标机，例如 `C:\opt\mstp-inspect\`
 2. 编辑 `config\application.yml`：
    - `app.mysql.password`（或用环境变量 `APP_MYSQL_PASSWORD` 注入，优先级更高）
    - `server.port`（如与本机已占用端口冲突）
@@ -23,8 +23,8 @@
 ## 3. 目录结构
 
 ```
-qx-inspection/
-├── qx-inspection-tool-*.jar   # 应用本体（含前端页面）
+mstp-inspect/
+├── mstp-inspect-*.jar   # 应用本体（含前端页面）
 ├── start.bat                  # 启动
 ├── stop.bat / stop.ps1        # 停止
 ├── config/application.yml     # 目标机外置配置（覆盖 jar 内默认值）
@@ -48,10 +48,10 @@ qx-inspection/
 
 ```bat
 nssm install QxInspection "C:\Program Files\Java\jdk-17\bin\java.exe" ^
-    -jar C:\opt\qx-inspection\qx-inspection-tool-1.0.0-SNAPSHOT.jar
-nssm set QxInspection AppDirectory C:\opt\qx-inspection
-nssm set QxInspection AppStdout   C:\opt\qx-inspection\logs\stdout.log
-nssm set QxInspection AppStderr   C:\opt\qx-inspection\logs\stderr.log
+    -jar C:\opt\mstp-inspect\mstp-inspect-1.0.0.jar
+nssm set QxInspection AppDirectory C:\opt\mstp-inspect
+nssm set QxInspection AppStdout   C:\opt\mstp-inspect\logs\stdout.log
+nssm set QxInspection AppStderr   C:\opt\mstp-inspect\logs\stderr.log
 nssm set QxInspection Start SERVICE_AUTO_START
 nssm start QxInspection
 ```
