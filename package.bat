@@ -48,6 +48,23 @@ copy /y deploy\windows\stop.ps1 "%DIST%\" >nul
 copy /y deploy\windows\config\application.yml "%DIST%\config\" >nul
 copy /y deploy\windows\README.md "%DIST%\" >nul
 
+rem Bundled JRE: extract deploy\windows\jre17-win-x64.zip into %DIST%\jre.
+rem The zip is committed to the repo, so any clone can build a full delivery
+rem package - target machine needs no Java install, customer JDK 8 untouched.
+set "JRE_ZIP=deploy\windows\jre17-win-x64.zip"
+if not exist "%JRE_ZIP%" (
+    echo [WARN] %JRE_ZIP% not found - target machine will need Java 17+ on PATH
+    goto jre_done
+)
+powershell -NoProfile -Command "Expand-Archive -Force -Path '%JRE_ZIP%' -DestinationPath '%DIST%\jre'" >nul
+if not exist "%DIST%\jre\bin\java.exe" (
+    echo [ERROR] JRE extraction failed from %JRE_ZIP%
+    pause
+    exit /b 1
+)
+echo [INFO] JRE extracted to %DIST%\jre\
+:jre_done
+
 echo.
 echo [OK] Dist ready: %DIST%\
 echo     1. Copy the whole folder to the target machine

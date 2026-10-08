@@ -32,6 +32,9 @@ logs/
 # 打包交付目录
 dist/
 
+# 便携版 JRE（43MB 二进制不进仓库，放 deploy\windows\jre 后由 package.bat 打进交付包）
+deploy/windows/jre/
+
 # Spring Boot
 application-dev.yml
 application-prod.yml

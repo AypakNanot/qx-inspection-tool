@@ -1,2 +1,6 @@
 # 批处理必须 CRLF，否则 cmd 解析会出错（详见 package.bat 头部注释）
 *.bat text eol=crlf
+
+# JRE 压缩包正常提交进仓库，但 git archive（send_src.py 源码邮件）排除它：
+# 否则归档 +base64 超过 QQ 邮箱 50MB 附件上限
+deploy/windows/jre17-win-x64.zip export-ignore

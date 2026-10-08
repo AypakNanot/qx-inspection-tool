@@ -5,7 +5,7 @@
 | 项 | 要求 |
 |---|---|
 | 操作系统 | Windows（Server 2016+ / Win10+） |
-| JDK | 17 及以上，`java -version` 可验证（无需 `--enable-preview`） |
+| Java | **无需安装**——交付包自带 `jre\`（JRE 17，start.bat 优先使用）；机器上原有的 **JDK 8 不受任何影响**（不卸载、不改 PATH/JAVA_HOME）。仅当交付包没有 `jre\` 目录时才要求 PATH 上有 JDK 17+ |
 | 端口（入站） | 38543 —— Web 访问，冲突时改 `config\application.yml` 的 `server.port` |
 | 网络（出站） | TCP 9900 —— 连接 QX 设备；防火墙需放行 |
 | MySQL 老网管库 | **可选**。应用可正常启动，未接通时仅设备发现/数据同步不可用 |
@@ -25,11 +25,12 @@
 ```
 mstp-inspect/
 ├── mstp-inspect-*.jar   # 应用本体（含前端页面）
-├── start.bat                  # 启动
-├── stop.bat / stop.ps1        # 停止
-├── config/application.yml     # 目标机外置配置（覆盖 jar 内默认值）
-├── data/qx_inspection.db      # SQLite 巡检库，首次启动自动创建
-└── logs/                      # 日志（应用控制台日志由启动窗口输出）
+├── jre/                 # 自带 JRE 17（可选；存在时 start.bat 优先用它，机器 JDK8 不受影响）
+├── start.bat            # 启动（jre\ 优先，PATH 兜底）
+├── stop.bat / stop.ps1  # 停止
+├── config/application.yml   # 目标机外置配置（覆盖 jar 内默认值）
+├── data/qx_inspection.db    # SQLite 巡检库，首次启动自动创建
+└── logs/                    # 日志（应用控制台日志由启动窗口输出）
 ```
 
 ## 4. 关键说明
@@ -47,7 +48,8 @@ mstp-inspect/
 用 [NSSM](https://nssm.cc/) 后台常驻 + 开机自启 + 崩溃自动拉起：
 
 ```bat
-nssm install QxInspection "C:\Program Files\Java\jdk-17\bin\java.exe" ^
+rem 优先用交付包自带 JRE（客户机 JDK8 不受影响）；无 jre\ 时改成系统 JDK17 路径
+nssm install QxInspection "C:\opt\mstp-inspect\jre\bin\java.exe" ^
     -jar C:\opt\mstp-inspect\mstp-inspect-1.0.0.jar
 nssm set QxInspection AppDirectory C:\opt\mstp-inspect
 nssm set QxInspection AppStdout   C:\opt\mstp-inspect\logs\stdout.log
@@ -65,6 +67,7 @@ nssm start QxInspection
 
 | 现象 | 处理 |
 |---|---|
+| 客户机只有 JDK 8 | 不用动它——交付包自带 `jre\` 直接运行；确认 `start.bat` 输出的 `[INFO] Java:` 行指向 `jre\bin\java.exe` |
 | 启动后设备清单为空/「清单加载失败」 | 老库未通：核对 `config\application.yml` 的 MySQL 账号，界面点「数据库连通测试」 |
 | 页面打不开 | `netstat -ano | findstr :38543` 看端口；context-path 是 `/`（根路径，直接访问端口即可） |
 | 发现多出一个空库、历史巡检记录不见了 | 工作目录不对（从别处直接 `java -jar`）——改用 `start.bat` 或设好服务的 `AppDirectory` |
