@@ -11,11 +11,12 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * 门限判定服务。
  * <p>
- * 每个模块类型预置标准默认门限值，用户只能修改，不能添加或删除。
+ * 每个模块类型预置标准默认门限值（STM-1/4/16 按 ITU-T G.957 Table 2/3/4），用户只能修改，不能添加或删除。
  * 门限在查询时实时计算，不持久化到巡检记录中。
  * </p>
  */
@@ -52,17 +53,30 @@ public class ThresholdService {
     private static final String RATE_STM64 = "STM-64";
     private static final String RATE_GE = "GE";
 
+    /*
+     * STM-1/4/16 值取自 ITU-T G.957 Table 2/3/4（应用参数表）：
+     * 发送 = 源输出功率 min/max，接收 = [灵敏度, 过载]。
+     * matchKey 沿用设备侧 toModuleTypeName 生成的键（非标准连字符码），
+     * 标准应用码写在 description。STM-64/GE 不在 G.957 范围
+     * （分别见 G.691 / IEEE 802.3），维持原值。
+     */
     private static final List<Preset> PRESETS = List.of(
-            new Preset(RATE_STM1, "I1.1", "155M+I档(短距)", -10.0, 0.0, -28.0, -8.0),
-            new Preset(RATE_STM1, "S1.1", "155M+S档(中距)", -15.0, -1.0, -28.0, -8.0),
-            new Preset(RATE_STM1, "L1.1", "155M+L档(长距)", -15.0, -1.0, -28.0, -8.0),
-            new Preset(RATE_STM4, "I4.1", "622M+I档(短距)", -10.0, 0.0, -28.0, -8.0),
-            new Preset(RATE_STM4, "S4.1", "622M+S档(中距)", -15.0, -1.0, -28.0, -8.0),
-            new Preset(RATE_STM4, "L4.1", "622M+L档(长距)", -15.0, -1.0, -28.0, -8.0),
-            new Preset(RATE_STM16, "I16.1", "2.5G+I档(短距)", -10.0, 0.0, -28.0, -8.0),
-            new Preset(RATE_STM16, "S16.1", "2.5G+S档(中距)", -15.0, -1.0, -28.0, -8.0),
-            new Preset(RATE_STM16, "L16.1", "2.5G+L档(长距)", -15.0, -1.0, -28.0, -8.0),
-            new Preset(RATE_STM16, "V16.1", "2.5G+V档(超长距)", -15.0, -1.0, -28.0, -8.0),
+            // ITU-T G.957 Table 2 -- STM-1
+            new Preset(RATE_STM1, "I1.1", "155M+I档(短距,G.957 I-1)", -15.0, -8.0, -23.0, -8.0),
+            new Preset(RATE_STM1, "S1.1", "155M+S档(中距,G.957 S-1.1/S-1.2)", -15.0, -8.0, -28.0, -8.0),
+            new Preset(RATE_STM1, "L1.1", "155M+L档(长距,G.957 L-1.1~L-1.3)", -5.0, 0.0, -34.0, -10.0),
+            new Preset(RATE_STM1, "L1.2", "155M+V档(超长距,G.957 L-1.2)", -5.0, 0.0, -34.0, -10.0),
+            // ITU-T G.957 Table 3 -- STM-4
+            new Preset(RATE_STM4, "I4.1", "622M+I档(短距,G.957 I-4)", -15.0, -8.0, -23.0, -8.0),
+            new Preset(RATE_STM4, "S4.1", "622M+S档(中距,G.957 S-4.1/S-4.2)", -15.0, -8.0, -28.0, -8.0),
+            new Preset(RATE_STM4, "L4.1", "622M+L档(长距,G.957 L-4.1~L-4.3)", -3.0, 2.0, -28.0, -8.0),
+            new Preset(RATE_STM4, "L4.2", "622M+V档(超长距,G.957 L-4.2)", -3.0, 2.0, -28.0, -8.0),
+            // ITU-T G.957 Table 4 -- STM-16
+            new Preset(RATE_STM16, "I16.1", "2.5G+I档(短距,G.957 I-16)", -10.0, -3.0, -18.0, -3.0),
+            new Preset(RATE_STM16, "S16.1", "2.5G+S档(中距,G.957 S-16.1/S-16.2)", -5.0, 0.0, -18.0, 0.0),
+            new Preset(RATE_STM16, "L16.1", "2.5G+L档(长距,G.957 L-16.1)", -2.0, 3.0, -27.0, -9.0),
+            new Preset(RATE_STM16, "L16.2", "2.5G+V档(超长距,G.957 L-16.2)", -2.0, 3.0, -28.0, -9.0),
+            // G.957 不覆盖的类型，维持原值
             new Preset(RATE_STM64, "S64.2b", "10G+S档(中距)", -10.0, 0.0, -18.0, -1.0),
             new Preset(RATE_STM64, "L64.2", "10G+L档(长距)", -10.0, 0.0, -18.0, -1.0),
             new Preset(RATE_STM64, "V64.2", "10G+V档(超长距)", -10.0, 0.0, -18.0, -1.0),
@@ -70,16 +84,41 @@ public class ThresholdService {
             new Preset(RATE_GE, "1000BASE-LX", "GE+LX(单模)", -10.0, 0.0, -17.0, -3.0)
     );
 
+    /**
+     * 按 G.957 整改前的旧预置值，仅用于存量库迁移比对：
+     * 行内四个数值与之完全一致的视为未被人工修改，初始化时刷新为标准值。
+     */
+    private static final Map<String, Range> LEGACY_PRESETS = Map.ofEntries(
+            Map.entry("I1.1", new Range(-10.0, 0.0, -28.0, -8.0)),
+            Map.entry("S1.1", new Range(-15.0, -1.0, -28.0, -8.0)),
+            Map.entry("L1.1", new Range(-15.0, -1.0, -28.0, -8.0)),
+            Map.entry("I4.1", new Range(-10.0, 0.0, -28.0, -8.0)),
+            Map.entry("S4.1", new Range(-15.0, -1.0, -28.0, -8.0)),
+            Map.entry("L4.1", new Range(-15.0, -1.0, -28.0, -8.0)),
+            Map.entry("I16.1", new Range(-10.0, 0.0, -18.0, -1.0)),
+            Map.entry("S16.1", new Range(-15.0, -1.0, -18.0, -1.0)),
+            Map.entry("L16.1", new Range(-15.0, -1.0, -28.0, -8.0)));
+
+    /** G.957 中不存在、设备侧也永不生成的死键（旧版误加），初始化时清理 */
+    private static final String DEAD_KEY = "V16.1";
+
     private final ThresholdRuleRepository thresholdRuleRepository;
 
     /**
-     * 初始化预置默认门限规则（仅插入数据库中不存在的）
+     * 初始化预置默认门限规则。
+     * <p>
+     * 1) 缺失的键补插（含按 G.957 新增的 L1.2/L4.2/L16.2）；
+     * 2) 存量行数值与旧预置完全一致的（视为未人工修改）刷新为 G.957 标准值；
+     * 3) 清理设备永不生成的死键 V16.1。
+     * </p>
      */
     @Transactional
     public void initPresetThresholds() {
         int inserted = 0;
+        int migrated = 0;
         for (Preset preset : PRESETS) {
-            if (thresholdRuleRepository.findByMatchKey(preset.matchKey()).isEmpty()) {
+            Optional<ThresholdRule> existing = thresholdRuleRepository.findByMatchKey(preset.matchKey());
+            if (existing.isEmpty()) {
                 ThresholdRule rule = new ThresholdRule();
                 rule.setMatchKey(preset.matchKey());
                 rule.setTxLow(preset.txLow());
@@ -89,11 +128,38 @@ public class ThresholdService {
                 rule.setDescription(preset.description());
                 thresholdRuleRepository.save(rule);
                 inserted++;
+                continue;
+            }
+            ThresholdRule rule = existing.get();
+            Range legacy = LEGACY_PRESETS.get(preset.matchKey());
+            if (legacy != null && matchesLegacy(rule, legacy)) {
+                rule.setTxLow(preset.txLow());
+                rule.setTxHigh(preset.txHigh());
+                rule.setRxLow(preset.rxLow());
+                rule.setRxHigh(preset.rxHigh());
+                thresholdRuleRepository.save(rule);
+                migrated++;
             }
         }
-        if (inserted > 0) {
-            log.info("已初始化 {} 条预置门限规则", inserted);
+        int removed = 0;
+        for (ThresholdRule rule : thresholdRuleRepository.findAll()) {
+            if (DEAD_KEY.equals(rule.getMatchKey())) {
+                thresholdRuleRepository.delete(rule);
+                removed++;
+            }
         }
+        if (inserted > 0 || migrated > 0 || removed > 0) {
+            log.info("预置门限初始化: 新增 {} 条, 迁移为 G.957 标准值 {} 条, 删除死键 {} 条",
+                    inserted, migrated, removed);
+        }
+    }
+
+    /** 四个数值与旧预置完全一致才视为未被人工修改 */
+    private static boolean matchesLegacy(ThresholdRule rule, Range legacy) {
+        return rule.getTxLow() != null && rule.getTxLow() == legacy.txLow()
+                && rule.getTxHigh() != null && rule.getTxHigh() == legacy.txHigh()
+                && rule.getRxLow() != null && rule.getRxLow() == legacy.rxLow()
+                && rule.getRxHigh() != null && rule.getRxHigh() == legacy.rxHigh();
     }
 
     /** 查询全部门限规则（含预置值信息） */

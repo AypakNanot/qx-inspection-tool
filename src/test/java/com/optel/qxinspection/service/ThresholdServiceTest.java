@@ -26,7 +26,7 @@ import static org.mockito.Mockito.*;
 class ThresholdServiceTest {
 
     /** 预置门限条目数（ThresholdService.PRESETS） */
-    private static final int PRESET_COUNT = 15;
+    private static final int PRESET_COUNT = 17;
 
     @Mock
     private ThresholdRuleRepository thresholdRuleRepository;
@@ -62,21 +62,68 @@ class ThresholdServiceTest {
         verify(thresholdRuleRepository, times(PRESET_COUNT)).save(captor.capture());
         ThresholdRule first = captor.getAllValues().get(0);
         assertEquals("I1.1", first.getMatchKey());
-        assertEquals(-10.0, first.getTxLow());
-        assertEquals(0.0, first.getTxHigh());
-        assertEquals(-28.0, first.getRxLow());
+        assertEquals(-15.0, first.getTxLow());
+        assertEquals(-8.0, first.getTxHigh());
+        assertEquals(-23.0, first.getRxLow());
         assertEquals(-8.0, first.getRxHigh());
-        assertEquals("155M+I档(短距)", first.getDescription());
+        assertEquals("155M+I档(短距,G.957 I-1)", first.getDescription());
     }
 
     @Test
-    void testInitPresetThresholds_SkipsExisting() {
+    void testInitPresetThresholds_SkipsExisting_WhenValuesAlreadyCurrent() {
+        // 所有键都已存在且值为 G.957 新预置值 → 不插入、不迁移
         when(thresholdRuleRepository.findByMatchKey(anyString()))
-                .thenReturn(Optional.of(rule("I1.1", -10.0, 0.0, -28.0, -8.0)));
+                .thenReturn(Optional.of(rule("I1.1", -15.0, -8.0, -23.0, -8.0)));
 
         thresholdService.initPresetThresholds();
 
         verify(thresholdRuleRepository, never()).save(any(ThresholdRule.class));
+        verify(thresholdRuleRepository, never()).delete(any(ThresholdRule.class));
+    }
+
+    @Test
+    void testInitPresetThresholds_MigratesLegacyRow_ToG957Values() {
+        // I1.1 存量值等于旧预置 → 视为未人工修改，刷新为 G.957 标准值
+        when(thresholdRuleRepository.findByMatchKey(anyString())).thenReturn(Optional.empty());
+        when(thresholdRuleRepository.findByMatchKey("I1.1"))
+                .thenReturn(Optional.of(rule("I1.1", -10.0, 0.0, -28.0, -8.0)));
+
+        thresholdService.initPresetThresholds();
+
+        ArgumentCaptor<ThresholdRule> captor = ArgumentCaptor.forClass(ThresholdRule.class);
+        verify(thresholdRuleRepository, times(PRESET_COUNT)).save(captor.capture());
+        ThresholdRule migrated = captor.getAllValues().stream()
+                .filter(r -> "I1.1".equals(r.getMatchKey()))
+                .findFirst().orElseThrow();
+        assertEquals(-15.0, migrated.getTxLow());
+        assertEquals(-8.0, migrated.getTxHigh());
+        assertEquals(-23.0, migrated.getRxLow());
+        assertEquals(-8.0, migrated.getRxHigh());
+    }
+
+    @Test
+    void testInitPresetThresholds_PreservesUserModifiedRow() {
+        // I1.1 数值与旧预置不完全一致（人工改过）→ 保持不动
+        when(thresholdRuleRepository.findByMatchKey(anyString())).thenReturn(Optional.empty());
+        when(thresholdRuleRepository.findByMatchKey("I1.1"))
+                .thenReturn(Optional.of(rule("I1.1", -10.0, 0.0, -28.0, -5.0)));
+
+        thresholdService.initPresetThresholds();
+
+        ArgumentCaptor<ThresholdRule> captor = ArgumentCaptor.forClass(ThresholdRule.class);
+        verify(thresholdRuleRepository, times(PRESET_COUNT - 1)).save(captor.capture());
+        assertTrue(captor.getAllValues().stream().noneMatch(r -> "I1.1".equals(r.getMatchKey())));
+    }
+
+    @Test
+    void testInitPresetThresholds_DeletesDeadKeyV16() {
+        when(thresholdRuleRepository.findByMatchKey(anyString())).thenReturn(Optional.empty());
+        ThresholdRule dead = rule("V16.1", -15.0, -1.0, -28.0, -8.0);
+        when(thresholdRuleRepository.findAll()).thenReturn(List.of(dead));
+
+        thresholdService.initPresetThresholds();
+
+        verify(thresholdRuleRepository).delete(dead);
     }
 
     // ========== listRules ==========
@@ -98,22 +145,30 @@ class ThresholdServiceTest {
 
         assertEquals(PRESET_COUNT, ranges.size());
         ThresholdService.Range s16 = ranges.get("S16.1");
-        assertEquals(-15.0, s16.txLow());
-        assertEquals(-1.0, s16.txHigh());
-        assertEquals(-28.0, s16.rxLow());
-        assertEquals(-8.0, s16.rxHigh());
+        assertEquals(-5.0, s16.txLow());
+        assertEquals(0.0, s16.txHigh());
+        assertEquals(-18.0, s16.rxLow());
+        assertEquals(0.0, s16.rxHigh());
+        // 按 G.957 Table 4 新增的 80km 档
+        ThresholdService.Range l162 = ranges.get("L16.2");
+        assertEquals(-2.0, l162.txLow());
+        assertEquals(3.0, l162.txHigh());
+        assertEquals(-28.0, l162.rxLow());
+        assertEquals(-9.0, l162.rxHigh());
+        // 死键不在预置中
+        assertNull(ranges.get("V16.1"));
     }
 
     @Test
     void testLoadRangeMap_DbRuleOverridesPreset_WithNullFallback() {
-        // txHigh 为 null → 回退到预置的 -1.0
+        // txHigh 为 null → 回退到预置的 0.0（G.957 S-16.1 发送上限）
         when(thresholdRuleRepository.findAll())
                 .thenReturn(List.of(rule("S16.1", -6.0, null, -28.0, -8.0)));
 
         ThresholdService.Range range = thresholdService.loadRangeMap().get("S16.1");
 
         assertEquals(-6.0, range.txLow());
-        assertEquals(-1.0, range.txHigh());
+        assertEquals(0.0, range.txHigh());
         assertEquals(-28.0, range.rxLow());
         assertEquals(-8.0, range.rxHigh());
     }
@@ -263,7 +318,7 @@ class ThresholdServiceTest {
         assertEquals(PRESET_COUNT, views.size());
         assertEquals("STM-1", views.get(0).rate());
         assertEquals("I1.1", views.get(0).matchKey());
-        assertEquals(-10.0, views.get(0).range().txLow());
+        assertEquals(-15.0, views.get(0).range().txLow());
         assertEquals("GE", views.get(PRESET_COUNT - 1).rate());
         assertEquals("1000BASE-LX", views.get(PRESET_COUNT - 1).matchKey());
     }
