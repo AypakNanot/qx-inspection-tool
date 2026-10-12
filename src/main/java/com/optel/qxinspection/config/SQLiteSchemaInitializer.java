@@ -28,11 +28,15 @@ public class SQLiteSchemaInitializer {
         )
     """;
 
+    /** sys_config 键：threshold_rule 已切换为覆盖层模式的标记 */
+    private static final String KEY_THRESHOLD_OVERLAY = "threshold.overlay.version";
+    private static final String OVERLAY_VERSION = "1";
+
     private final JdbcTemplate sqliteJdbc;
 
     @PostConstruct
     public void init() {
-        // 门限规则表：旧结构含 level_type 列，检测到即迁移旧行（用户改过的门限值必须保留）
+        // 门限规则表：旧结构含 level_type 列，检测到即迁移行结构（行数据随后由覆盖层迁移一次性清空）
         if (columnExists("threshold_rule", "level_type")) {
             migrateLegacyThresholdRule();
         }
@@ -64,6 +68,7 @@ public class SQLiteSchemaInitializer {
                 config_value VARCHAR(512)
             )
         """);
+        migrateThresholdRuleToOverlay();
 
         createTableIfNotExists("conn_profile", """
             CREATE TABLE IF NOT EXISTS conn_profile (
@@ -244,6 +249,30 @@ public class SQLiteSchemaInitializer {
         dropTableIfExists("port_watched");
 
         log.info("SQLite 表结构初始化完成");
+    }
+
+    /**
+     * threshold_rule 从"全量镜像预置值"切换为"仅存用户覆盖"：一次性清空存量行。
+     * <p>
+     * 存量行是旧逻辑按当时的预置值种下的镜像，切到覆盖层后会被当成用户修改而永久钉住旧标准；
+     * 开发阶段不保留存量（含人工改动），清空后由用户重新保存的覆盖行才会入库。
+     * 标记写入 sys_config 后不再执行，后续启动不会清掉用户新保存的覆盖行。
+     * </p>
+     */
+    private void migrateThresholdRuleToOverlay() {
+        if (columnExists("threshold_rule", "level_type")) {
+            // 旧结构迁移没走完（如遗留中转表），行要留着供人工恢复，跳过本次清空
+            return;
+        }
+        List<String> marked = sqliteJdbc.queryForList(
+                "SELECT config_value FROM sys_config WHERE config_key = ?", String.class, KEY_THRESHOLD_OVERLAY);
+        if (marked.contains(OVERLAY_VERSION)) {
+            return;
+        }
+        int cleared = sqliteJdbc.update("DELETE FROM threshold_rule");
+        sqliteJdbc.update("INSERT OR REPLACE INTO sys_config (config_key, config_value) VALUES (?, ?)",
+                KEY_THRESHOLD_OVERLAY, OVERLAY_VERSION);
+        log.info("门限表切换为覆盖层模式, 清空存量行 {} 条", cleared);
     }
 
     /**

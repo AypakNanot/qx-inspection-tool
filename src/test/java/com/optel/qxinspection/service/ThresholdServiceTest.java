@@ -17,7 +17,6 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
 /**
@@ -39,7 +38,7 @@ class ThresholdServiceTest {
         thresholdService = new ThresholdService(thresholdRuleRepository, fixtureProperties());
     }
 
-    /** 精简预置集：S1.1 覆盖常规刷新、L64.2 覆盖历史快照迁移、I64.1 覆盖无历史快照的新键 */
+    /** 精简预置集：S1.1 常规类型、L64.2 预置值与覆盖行、I64.1 仅预置无覆盖行 */
     private static ThresholdPresetProperties fixtureProperties() {
         return propertiesOf(
                 item("STM-1", "S1.1", "155M+S档", -15.0, -8.0, -28.0, -8.0),
@@ -128,103 +127,79 @@ class ThresholdServiceTest {
                         item("STM-1", "S1.1", null, -15.0, -8.0, -28.0, -8.0))));
     }
 
-    // ========== initPresetThresholds ==========
+    // ========== removeStaleRules ==========
 
     @Test
-    void testInitPresetThresholds_InsertsAllMissing() {
-        when(thresholdRuleRepository.findByMatchKey(anyString())).thenReturn(Optional.empty());
-
-        thresholdService.initPresetThresholds();
-
-        ArgumentCaptor<ThresholdRule> captor = ArgumentCaptor.forClass(ThresholdRule.class);
-        verify(thresholdRuleRepository, times(PRESET_COUNT)).save(captor.capture());
-        ThresholdRule first = captor.getAllValues().get(0);
-        assertEquals("S1.1", first.getMatchKey());
-        assertEquals(-15.0, first.getTxLow());
-        assertEquals(-8.0, first.getTxHigh());
-        assertEquals(-28.0, first.getRxLow());
-        assertEquals(-8.0, first.getRxHigh());
-        assertEquals("155M+S档", first.getDescription());
-    }
-
-    @Test
-    void testInitPresetThresholds_SkipsExisting_WhenValuesAlreadyCurrent() {
-        when(thresholdRuleRepository.findByMatchKey("S1.1"))
-                .thenReturn(Optional.of(rule("S1.1", -15.0, -8.0, -28.0, -8.0)));
-        when(thresholdRuleRepository.findByMatchKey("L64.2"))
-                .thenReturn(Optional.of(rule("L64.2", -2.0, 2.0, -26.0, -9.0)));
-        when(thresholdRuleRepository.findByMatchKey("I64.1"))
-                .thenReturn(Optional.of(rule("I64.1", -6.0, -1.0, -11.0, -1.0)));
-
-        thresholdService.initPresetThresholds();
-
-        verify(thresholdRuleRepository, never()).save(any(ThresholdRule.class));
-        verify(thresholdRuleRepository, never()).delete(any(ThresholdRule.class));
-    }
-
-    @Test
-    void testInitPresetThresholds_MigratesHistoricalRow_ToConfiguredValues() {
-        // L64.2 存量值为 G.957 时代预置值 → 视为未人工修改，刷新为配置值（说明保持不动）
-        when(thresholdRuleRepository.findByMatchKey(anyString())).thenReturn(Optional.empty());
-        ThresholdRule historical = rule("L64.2", -10.0, 0.0, -18.0, -1.0);
-        historical.setDescription("10G+L档(长距)");
-        when(thresholdRuleRepository.findByMatchKey("L64.2")).thenReturn(Optional.of(historical));
-
-        thresholdService.initPresetThresholds();
-
-        ArgumentCaptor<ThresholdRule> captor = ArgumentCaptor.forClass(ThresholdRule.class);
-        verify(thresholdRuleRepository, times(PRESET_COUNT)).save(captor.capture());
-        ThresholdRule migrated = captor.getAllValues().stream()
-                .filter(r -> "L64.2".equals(r.getMatchKey()))
-                .findFirst().orElseThrow();
-        assertEquals(-2.0, migrated.getTxLow());
-        assertEquals(2.0, migrated.getTxHigh());
-        assertEquals(-26.0, migrated.getRxLow());
-        assertEquals(-9.0, migrated.getRxHigh());
-        assertEquals("10G+L档(长距)", migrated.getDescription());
-    }
-
-    @Test
-    void testInitPresetThresholds_PreservesUserModifiedRow() {
-        // L64.2 数值与任何历史快照都不一致（人工改过）→ 保持不动
-        when(thresholdRuleRepository.findByMatchKey(anyString())).thenReturn(Optional.empty());
-        when(thresholdRuleRepository.findByMatchKey("L64.2"))
-                .thenReturn(Optional.of(rule("L64.2", -10.0, 0.0, -18.0, -5.0)));
-
-        thresholdService.initPresetThresholds();
-
-        ArgumentCaptor<ThresholdRule> captor = ArgumentCaptor.forClass(ThresholdRule.class);
-        verify(thresholdRuleRepository, times(PRESET_COUNT - 1)).save(captor.capture());
-        assertTrue(captor.getAllValues().stream().noneMatch(r -> "L64.2".equals(r.getMatchKey())));
-    }
-
-    @Test
-    void testInitPresetThresholds_DeletesUnconfiguredKeys() {
-        // 配置外的键（历史死键/已废弃模块类型）清理，配置内的键保留
+    void testRemoveStaleRules_DeletesRowsNotInPresets() {
+        // 配置外的键（历史死键/已废弃模块类型）清理，配置内的覆盖行保留
         ThresholdRule deadKey = rule("V16.1", -15.0, -1.0, -28.0, -8.0);
         ThresholdRule droppedType = rule("I1.1", -15.0, -8.0, -28.0, -8.0);
-        ThresholdRule geType = rule("1000BASE-SX", -10.0, 0.0, -17.0, -3.0);
-        ThresholdRule kept = rule("S1.1", -15.0, -8.0, -28.0, -8.0);
-        when(thresholdRuleRepository.findByMatchKey(anyString())).thenReturn(Optional.empty());
-        when(thresholdRuleRepository.findByMatchKey("S1.1")).thenReturn(Optional.of(kept));
-        when(thresholdRuleRepository.findAll())
-                .thenReturn(List.of(deadKey, droppedType, geType, kept));
+        ThresholdRule kept = rule("S1.1", -6.0, 0.0, -20.0, -5.0);
+        when(thresholdRuleRepository.findAll()).thenReturn(List.of(deadKey, droppedType, kept));
 
-        thresholdService.initPresetThresholds();
+        thresholdService.removeStaleRules();
 
         verify(thresholdRuleRepository).delete(deadKey);
         verify(thresholdRuleRepository).delete(droppedType);
-        verify(thresholdRuleRepository).delete(geType);
         verify(thresholdRuleRepository, never()).delete(kept);
     }
 
-    // ========== listRules ==========
+    @Test
+    void testRemoveStaleRules_AllRowsConfigured_NoDelete() {
+        when(thresholdRuleRepository.findAll()).thenReturn(List.of(
+                rule("S1.1", -6.0, 0.0, -20.0, -5.0),
+                rule("L64.2", -2.0, 2.0, -26.0, -9.0),
+                rule("I64.1", -6.0, -1.0, -11.0, -1.0)));
+
+        thresholdService.removeStaleRules();
+
+        verify(thresholdRuleRepository, never()).delete(any(ThresholdRule.class));
+    }
+
+    // ========== listRulesWithPresets ==========
 
     @Test
-    void testListRules_Empty() {
+    void testListRulesWithPresets_EmptyDb_ShowsAllPresets() {
+        // 库里没有任何覆盖行 → 全部展示预置默认值
         when(thresholdRuleRepository.findAll()).thenReturn(Collections.emptyList());
 
-        assertTrue(thresholdService.listRules().isEmpty());
+        List<Map<String, Object>> rules = thresholdService.listRulesWithPresets();
+
+        assertEquals(PRESET_COUNT, rules.size());
+        Map<String, Object> s11 = rules.get(0);
+        assertEquals("S1.1", s11.get("matchKey"));
+        assertNull(s11.get("id"), "无覆盖行时 id 应为空");
+        assertEquals(-15.0, ((Double) s11.get("txLow")).doubleValue());
+        assertEquals(-8.0, ((Double) s11.get("rxHigh")).doubleValue());
+        assertEquals("155M+S档", s11.get("description"));
+        assertEquals(-15.0, ((Double) s11.get("presetTxLow")).doubleValue());
+    }
+
+    @Test
+    void testListRulesWithPresets_OverrideCoversFieldByField() {
+        // 覆盖行只改部分字段 → 有值用行值，null 字段回落预置值，预置字段保持标准值
+        ThresholdRule override = rule("S1.1", -6.0, null, -20.0, -5.0);
+        override.setDescription("现场改过的");
+        when(thresholdRuleRepository.findAll()).thenReturn(List.of(override));
+
+        Map<String, Object> s11 = thresholdService.listRulesWithPresets().get(0);
+
+        assertEquals(1L, s11.get("id"));
+        assertEquals(-6.0, ((Double) s11.get("txLow")).doubleValue());
+        assertEquals(-8.0, ((Double) s11.get("txHigh")).doubleValue());
+        assertEquals(-15.0, ((Double) s11.get("presetTxLow")).doubleValue(), "预置字段始终是标准值");
+        assertEquals("现场改过的", s11.get("description"));
+    }
+
+    @Test
+    void testListRulesWithPresets_BlankOverrideDescription_FallsBackToPreset() {
+        ThresholdRule override = rule("S1.1", -6.0, 0.0, -20.0, -5.0);
+        override.setDescription("  ");
+        when(thresholdRuleRepository.findAll()).thenReturn(List.of(override));
+
+        Map<String, Object> s11 = thresholdService.listRulesWithPresets().get(0);
+
+        assertEquals("155M+S档", s11.get("description"));
     }
 
     // ========== loadRangeMap ==========
@@ -343,61 +318,131 @@ class ThresholdServiceTest {
     // ========== updateRule ==========
 
     @Test
-    void testUpdateRule_Success() {
-        ThresholdRule existing = rule("L16.1", -15.0, -1.0, -28.0, -8.0);
-        when(thresholdRuleRepository.findByMatchKey("L16.1")).thenReturn(Optional.of(existing));
-        when(thresholdRuleRepository.save(existing)).thenReturn(existing);
+    void testUpdateRule_ModifiedValues_CreatesRowWhenAbsent() {
+        // 覆盖层为空时的首次修改 → 直接建行；说明留空视为用默认说明，不入库
+        when(thresholdRuleRepository.findByMatchKey("S1.1")).thenReturn(Optional.empty());
+        when(thresholdRuleRepository.save(any(ThresholdRule.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
 
-        ThresholdRule changes = rule("L16.1", -6.0, 0.0, -28.0, -8.0);
-        ThresholdRule updated = thresholdService.updateRule("L16.1", changes);
+        ThresholdRule changes = rule("S1.1", -6.0, 0.0, -20.0, -5.0);
+        changes.setDescription("   ");
+        ThresholdRule saved = thresholdService.updateRule("S1.1", changes);
 
-        assertEquals(-6.0, updated.getTxLow());
-        assertEquals(0.0, updated.getTxHigh());
-        assertEquals("自定义", updated.getDescription());
+        ArgumentCaptor<ThresholdRule> captor = ArgumentCaptor.forClass(ThresholdRule.class);
+        verify(thresholdRuleRepository).save(captor.capture());
+        ThresholdRule row = captor.getValue();
+        assertEquals("S1.1", row.getMatchKey());
+        assertNull(row.getId(), "新行 id 由数据库分配");
+        assertNull(row.getDescription(), "说明等于默认时不入库");
+        assertEquals(-6.0, row.getTxLow().doubleValue());
+        assertEquals(-5.0, row.getRxHigh().doubleValue());
+        assertEquals(-6.0, saved.getTxLow().doubleValue());
     }
 
     @Test
-    void testUpdateRule_BlankDescriptionKeepsExisting() {
-        ThresholdRule existing = rule("L16.1", -15.0, -1.0, -28.0, -8.0);
-        existing.setDescription("原始说明");
-        when(thresholdRuleRepository.findByMatchKey("L16.1")).thenReturn(Optional.of(existing));
+    void testUpdateRule_ModifiedValues_UpdatesExistingRow() {
+        ThresholdRule existing = rule("S1.1", -15.0, -8.0, -28.0, -8.0);
+        when(thresholdRuleRepository.findByMatchKey("S1.1")).thenReturn(Optional.of(existing));
         when(thresholdRuleRepository.save(existing)).thenReturn(existing);
 
-        ThresholdRule changes = rule("L16.1", -6.0, 0.0, -28.0, -8.0);
-        changes.setDescription("   ");
+        ThresholdRule changes = rule("S1.1", -6.0, 0.0, -20.0, -5.0);
+        changes.setDescription("现场改过的说明");
+        ThresholdRule updated = thresholdService.updateRule("S1.1", changes);
 
-        assertEquals("原始说明", thresholdService.updateRule("L16.1", changes).getDescription());
+        assertEquals(-6.0, existing.getTxLow().doubleValue());
+        assertEquals("现场改过的说明", existing.getDescription());
+        assertSame(existing, updated);
+        verify(thresholdRuleRepository, never()).delete(any(ThresholdRule.class));
+    }
+
+    @Test
+    void testUpdateRule_BackToDefault_DeletesRow() {
+        // 改回与预置完全一致（说明留空 = 默认说明）→ 删行，恢复默认即删行
+        ThresholdRule existing = rule("S1.1", -6.0, 0.0, -20.0, -5.0);
+        existing.setDescription("现场改过的说明");
+        when(thresholdRuleRepository.findByMatchKey("S1.1")).thenReturn(Optional.of(existing));
+
+        ThresholdRule changes = rule("S1.1", -15.0, -8.0, -28.0, -8.0);
+        changes.setDescription(null);
+        ThresholdRule view = thresholdService.updateRule("S1.1", changes);
+
+        verify(thresholdRuleRepository).delete(existing);
+        verify(thresholdRuleRepository, never()).save(any(ThresholdRule.class));
+        assertEquals(-15.0, view.getTxLow().doubleValue());
+        assertEquals("155M+S档", view.getDescription());
+    }
+
+    @Test
+    void testUpdateRule_DefaultValues_NoRow_WritesNothing() {
+        // 已经是默认值且库里无行 → 不落库（无差异可存）
+        when(thresholdRuleRepository.findByMatchKey("S1.1")).thenReturn(Optional.empty());
+
+        ThresholdRule changes = rule("S1.1", -15.0, -8.0, -28.0, -8.0);
+        changes.setDescription("155M+S档");
+        ThresholdRule view = thresholdService.updateRule("S1.1", changes);
+
+        verify(thresholdRuleRepository, never()).save(any(ThresholdRule.class));
+        verify(thresholdRuleRepository, never()).delete(any(ThresholdRule.class));
+        assertEquals("155M+S档", view.getDescription());
+    }
+
+    @Test
+    void testUpdateRule_OnlyDescriptionDiffers_StoresRow() {
+        // 数值全是默认、只改说明 → 依然要存行，否则自定义说明会丢
+        when(thresholdRuleRepository.findByMatchKey("S1.1")).thenReturn(Optional.empty());
+        when(thresholdRuleRepository.save(any(ThresholdRule.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        ThresholdRule changes = rule("S1.1", -15.0, -8.0, -28.0, -8.0);
+        changes.setDescription("只改说明");
+        thresholdService.updateRule("S1.1", changes);
+
+        ArgumentCaptor<ThresholdRule> captor = ArgumentCaptor.forClass(ThresholdRule.class);
+        verify(thresholdRuleRepository).save(captor.capture());
+        assertEquals("只改说明", captor.getValue().getDescription());
+        assertEquals(-15.0, captor.getValue().getTxLow().doubleValue());
+    }
+
+    @Test
+    void testUpdateRule_PresetDescriptionDiffersFromRow_NotStored() {
+        // 保存的说明与预置说明相同 → 说明字段不入库（覆盖层只存差异）
+        when(thresholdRuleRepository.findByMatchKey("S1.1")).thenReturn(Optional.empty());
+        when(thresholdRuleRepository.save(any(ThresholdRule.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        ThresholdRule changes = rule("S1.1", -6.0, 0.0, -20.0, -5.0);
+        changes.setDescription("155M+S档");
+        thresholdService.updateRule("S1.1", changes);
+
+        ArgumentCaptor<ThresholdRule> captor = ArgumentCaptor.forClass(ThresholdRule.class);
+        verify(thresholdRuleRepository).save(captor.capture());
+        assertNull(captor.getValue().getDescription());
+        assertEquals(-6.0, captor.getValue().getTxLow().doubleValue());
     }
 
     @Test
     void testUpdateRule_UnknownMatchKey_Throws() {
-        when(thresholdRuleRepository.findByMatchKey("NEW_TYPE")).thenReturn(Optional.empty());
-
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
                 () -> thresholdService.updateRule("NEW_TYPE", rule("NEW_TYPE", -10.0, 0.0, -10.0, 0.0)));
         assertTrue(ex.getMessage().contains("不允许新增"));
+        verify(thresholdRuleRepository, never()).save(any(ThresholdRule.class));
     }
 
     @Test
     void testUpdateRule_InvalidRange_Throws() {
-        ThresholdRule existing = rule("L16.1", -15.0, -1.0, -28.0, -8.0);
-        when(thresholdRuleRepository.findByMatchKey("L16.1")).thenReturn(Optional.of(existing));
-
-        ThresholdRule lowAboveHigh = rule("L16.1", 0.0, -6.0, -28.0, -8.0);
+        ThresholdRule lowAboveHigh = rule("S1.1", 0.0, -6.0, -28.0, -8.0);
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-                () -> thresholdService.updateRule("L16.1", lowAboveHigh));
+                () -> thresholdService.updateRule("S1.1", lowAboveHigh));
         assertTrue(ex.getMessage().contains("低门限必须小于高门限"));
         verify(thresholdRuleRepository, never()).save(any(ThresholdRule.class));
     }
 
     @Test
     void testUpdateRule_NullThreshold_Throws() {
-        ThresholdRule existing = rule("L16.1", -15.0, -1.0, -28.0, -8.0);
-        when(thresholdRuleRepository.findByMatchKey("L16.1")).thenReturn(Optional.of(existing));
-
-        ThresholdRule nullRxHigh = rule("L16.1", -6.0, 0.0, -28.0, null);
+        ThresholdRule nullRxHigh = rule("S1.1", -6.0, 0.0, -28.0, null);
         assertThrows(IllegalArgumentException.class,
-                () -> thresholdService.updateRule("L16.1", nullRxHigh));
+                () -> thresholdService.updateRule("S1.1", nullRxHigh));
+        verify(thresholdRuleRepository, never()).save(any(ThresholdRule.class));
     }
 
     // ========== listRuleViews ==========

@@ -4,7 +4,8 @@ import jakarta.persistence.*;
 import lombok.Data;
 
 /**
- * 光功率门限规则（按模块类型）
+ * 光功率门限覆盖行（按模块类型）。
+ * <p>只保存用户改出来的差异：没有该行的类型直接用 application.yml 的预置默认值。</p>
  */
 @Data
 @Entity

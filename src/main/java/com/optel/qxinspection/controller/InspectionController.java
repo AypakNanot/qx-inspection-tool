@@ -490,7 +490,7 @@ public class InspectionController {
     }
 
     /**
-     * 更新门限规则（只允许修改，不允许新增或删除）
+     * 更新门限规则（只能改预置中存在的模块类型；保存值等于默认时不落库，已存在的覆盖行会被删除）
      */
     @PostMapping("/thresholds")
     public ThresholdRule saveThreshold(@RequestBody ThresholdRule rule) {

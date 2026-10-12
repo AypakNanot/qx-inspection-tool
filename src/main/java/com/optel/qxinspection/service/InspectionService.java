@@ -104,7 +104,7 @@ public class InspectionService {
 
     @jakarta.annotation.PostConstruct
     public void init() {
-        thresholdService.initPresetThresholds();
+        thresholdService.removeStaleRules();
         // 从数据库加载采集参数（覆盖@Value默认值）
         concurrency = Integer.parseInt(sysConfigService.get(KEY_CONCURRENCY, String.valueOf(concurrency)));
         maxRounds = Integer.parseInt(sysConfigService.get(KEY_MAX_ROUNDS, String.valueOf(maxRounds)));

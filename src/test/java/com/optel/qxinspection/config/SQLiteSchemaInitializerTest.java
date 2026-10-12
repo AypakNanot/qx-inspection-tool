@@ -8,7 +8,6 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -22,6 +21,8 @@ class SQLiteSchemaInitializerTest {
 
     private static final String DMCONNECTION = "dmconnection";
     private static final String THRESHOLD_RULE = "threshold_rule";
+    private static final String OVERLAY_KEY = "threshold.overlay.version";
+    private static final String OVERLAY_VERSION = "1";
 
     private static final String INSERT_LINK_SQL =
             "INSERT INTO dmconnection (oid, cid, name, aEnd, zEnd, createTime, creator, additionInfo, "
@@ -103,21 +104,38 @@ class SQLiteSchemaInitializerTest {
     }
 
     @Test
-    void init_LegacyThresholdRule_PreservesUserMaintainedThresholdValues() {
+    void init_LegacyThresholdRule_RebuiltThenClearedForOverlayMode() {
         createLegacyThresholdRule();
         jdbc.update("INSERT INTO threshold_rule (level_type, match_key, rx_low, rx_high, tx_low, tx_high, description) "
                 + "VALUES ('GLOBAL', 'GLOBAL', -20.0, -5.0, -3.0, 2.0, '全局门限')");
 
         newInitializer();
 
-        assertEquals(1, countOf(THRESHOLD_RULE), "迁移必须保留用户改过的门限值");
+        // 结构迁移完成后，存量镜像行由覆盖层迁移一次性清空（开发阶段不保留存量）
         assertFalse(columnsOf(THRESHOLD_RULE).contains("level_type"));
         assertFalse(tableExists("threshold_rule_legacy"), "迁移成功后应清掉中转表");
+        assertEquals(0, countOf(THRESHOLD_RULE), "覆盖层模式首次启动应清空存量行");
+        assertEquals(OVERLAY_VERSION, overlayMarker(), "应写入覆盖层标记");
+    }
 
-        Map<String, Object> row = jdbc.queryForMap("SELECT * FROM threshold_rule WHERE match_key = 'GLOBAL'");
-        assertEquals(-20.0, ((Number) row.get("rx_low")).doubleValue(), 1e-9);
-        assertEquals(2.0, ((Number) row.get("tx_high")).doubleValue(), 1e-9);
-        assertEquals("全局门限", row.get("description"));
+    @Test
+    void init_ExistingMirrorRowsWithoutMarker_ClearedOnce() {
+        // 现状最常见的现场：新结构 + 旧版全量镜像行、还没有覆盖层标记
+        newInitializer();
+        jdbc.update("DELETE FROM sys_config WHERE config_key = ?", OVERLAY_KEY);
+        jdbc.update("INSERT INTO threshold_rule (match_key, rx_low, rx_high, tx_low, tx_high) "
+                + "VALUES ('S1.1', -28.0, -8.0, -15.0, -8.0)");
+
+        newInitializer();
+
+        assertEquals(0, countOf(THRESHOLD_RULE), "无标记的存量镜像行应被清空");
+        assertEquals(OVERLAY_VERSION, overlayMarker(), "清空后应补写标记");
+
+        // 标记已写入 → 再次启动不再清空（用户新保存的覆盖行不丢）
+        jdbc.update("INSERT INTO threshold_rule (match_key, rx_low, rx_high, tx_low, tx_high) "
+                + "VALUES ('S1.1', -20.0, -5.0, -6.0, 0.0)");
+        newInitializer();
+        assertEquals(1, countOf(THRESHOLD_RULE), "有标记后启动不能再清用户覆盖行");
     }
 
     @Test
@@ -161,6 +179,13 @@ class SQLiteSchemaInitializerTest {
                 """);
     }
 
+    /** sys_config 中的覆盖层切换标记（未写入时返回 null） */
+    private String overlayMarker() {
+        List<String> marked = jdbc.queryForList(
+                "SELECT config_value FROM sys_config WHERE config_key = ?", String.class, OVERLAY_KEY);
+        return marked.isEmpty() ? null : marked.get(0);
+    }
+
     private boolean tableExists(String table) {
         Long count = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?", Long.class, table);
@@ -170,6 +195,9 @@ class SQLiteSchemaInitializerTest {
     @Test
     void init_RunTwice_PreservesUserMaintainedData() {
         newInitializer();
+        // 用户保存的门限覆盖行（标记已写入，不能被清掉）
+        jdbc.update("INSERT INTO threshold_rule (match_key, rx_low, rx_high, tx_low, tx_high) "
+                + "VALUES ('S1.1', -20.0, -5.0, -6.0, 0.0)");
         jdbc.update("INSERT INTO device_access_config (ne_id, ne_name, ip_addr) VALUES ('101', 'NE101', '1.1.1.1')");
         jdbc.update("INSERT INTO sys_config (config_key, config_value) VALUES ('mysql.username', 'root')");
         insertNewShapeLink();
@@ -177,7 +205,9 @@ class SQLiteSchemaInitializerTest {
         newInitializer();
 
         assertEquals(1, countOf("device_access_config"));
-        assertEquals(1, countOf("sys_config"));
+        assertEquals(1, countOf(THRESHOLD_RULE), "第二次启动不能清掉用户覆盖行");
+        assertEquals(1L, jdbc.queryForObject(
+                "SELECT COUNT(*) FROM sys_config WHERE config_key = 'mysql.username'", Long.class).longValue());
         assertEquals(1, countOf(DMCONNECTION), "已是新结构时不应被重建");
     }
 
@@ -185,7 +215,6 @@ class SQLiteSchemaInitializerTest {
         Long count = switch (table) {
             case DMCONNECTION -> jdbc.queryForObject("SELECT COUNT(*) FROM dmconnection", Long.class);
             case THRESHOLD_RULE -> jdbc.queryForObject("SELECT COUNT(*) FROM threshold_rule", Long.class);
-            case "sys_config" -> jdbc.queryForObject("SELECT COUNT(*) FROM sys_config", Long.class);
             case "device_access_config" -> jdbc.queryForObject("SELECT COUNT(*) FROM device_access_config", Long.class);
             default -> throw new IllegalArgumentException("未支持的表: " + table);
         };

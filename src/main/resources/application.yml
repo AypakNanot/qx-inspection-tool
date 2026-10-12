@@ -65,7 +65,7 @@ app:
     concurrency: 10
     max-rounds: 10
   # 门限预置值（单位 dBm）。type 为设备侧模块类型键（toModuleTypeName 输出）。
-  # 初始化/刷新目标值；用户在界面改过的值以数据库为准，不受此表影响。
+  # 标准默认值的唯一权威：查询时打底，数据库只存用户改过的覆盖行，改回默认即删行。
   threshold:
     presets:
       # ---- STM-1 ----
