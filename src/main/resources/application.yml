@@ -64,3 +64,109 @@ app:
   inspection:
     concurrency: 10
     max-rounds: 10
+  # 门限预置值（单位 dBm）。type 为设备侧模块类型键（toModuleTypeName 输出）。
+  # 初始化/刷新目标值；用户在界面改过的值以数据库为准，不受此表影响。
+  threshold:
+    presets:
+      # ---- STM-1 ----
+      - rate: STM-1
+        type: S1.1
+        tx-high: -8
+        tx-low: -15
+        rx-high: -8
+        rx-low: -28
+        description: "155M+S档(中距,G.957 S-1.1/S-1.2)"
+      - rate: STM-1
+        type: L1.1
+        tx-high: 0
+        tx-low: -5
+        rx-high: -10
+        rx-low: -34
+        description: "155M+L档(长距,G.957 L-1.1~L-1.3)"
+      - rate: STM-1
+        type: L1.2
+        tx-high: 0
+        tx-low: -5
+        rx-high: -10
+        rx-low: -34
+        description: "155M+V档(超长距,G.957 L-1.2)"
+      # ---- STM-4 ----
+      - rate: STM-4
+        type: S4.1
+        tx-high: -8
+        tx-low: -15
+        rx-high: -8
+        rx-low: -28
+        description: "622M+S档(中距,G.957 S-4.1/S-4.2)"
+      - rate: STM-4
+        type: L4.1
+        tx-high: 2
+        tx-low: -3
+        rx-high: -8
+        rx-low: -28
+        description: "622M+L档(长距,G.957 L-4.1~L-4.3)"
+      - rate: STM-4
+        type: L4.2
+        tx-high: 2
+        tx-low: -3
+        rx-high: -8
+        rx-low: -28
+        description: "622M+V档(超长距,G.957 L-4.2)"
+      # ---- STM-16 ----
+      - rate: STM-16
+        type: I16.1
+        tx-high: -3
+        tx-low: -10
+        rx-high: -3
+        rx-low: -18
+        description: "2.5G+I档(短距,G.957 I-16)"
+      - rate: STM-16
+        type: S16.1
+        tx-high: 0
+        tx-low: -5
+        rx-high: 0
+        rx-low: -18
+        description: "2.5G+S档(中距,G.957 S-16.1/S-16.2)"
+      - rate: STM-16
+        type: L16.1
+        tx-high: 3
+        tx-low: -2
+        rx-high: -9
+        rx-low: -27
+        description: "2.5G+L档(长距,G.957 L-16.1)"
+      - rate: STM-16
+        type: L16.2
+        tx-high: 3
+        tx-low: -2
+        rx-high: -9
+        rx-low: -28
+        description: "2.5G+V档(超长距,G.957 L-16.2)"
+      # ---- STM-64 ----
+      - rate: STM-64
+        type: I64.1
+        tx-high: -1
+        tx-low: -6
+        rx-high: -1
+        rx-low: -11
+        description: "10G+I档(短距,G.691 I-64.1)"
+      - rate: STM-64
+        type: S64.2b
+        tx-high: 2
+        tx-low: -1
+        rx-high: -1
+        rx-low: -14
+        description: "10G+S档(中距,G.691 S-64.2b)"
+      - rate: STM-64
+        type: L64.2          # 设备键 L64.2，取 G.691 L-64.2a 的值
+        tx-high: 2
+        tx-low: -2
+        rx-high: -9
+        rx-low: -26
+        description: "10G+L档(长距,G.691 L-64.2a)"
+      - rate: STM-64
+        type: V64.2          # 设备键 V64.2，取 G.691 L-64.2c 的值
+        tx-high: 2
+        tx-low: -2
+        rx-high: -9
+        rx-low: -26
+        description: "10G+V档(超长距,G.691 L-64.2c)"

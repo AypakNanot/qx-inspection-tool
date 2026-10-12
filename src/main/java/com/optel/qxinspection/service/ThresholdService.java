@@ -1,28 +1,32 @@
 package com.optel.qxinspection.service;
 
+import com.optel.qxinspection.config.ThresholdPresetProperties;
 import com.optel.qxinspection.entity.sqlite.ThresholdRule;
 import com.optel.qxinspection.repository.sqlite.ThresholdRuleRepository;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * 门限判定服务。
  * <p>
- * 每个模块类型预置标准默认门限值（STM-1/4/16 按 ITU-T G.957 Table 2/3/4），用户只能修改，不能添加或删除。
- * 门限在查询时实时计算，不持久化到巡检记录中。
+ * 每个模块类型的预置默认门限值来自 application.yml 的 app.threshold.presets
+ * （STM-1/4/16 取 ITU-T G.957 Table 2/3/4，STM-64 取 ITU-T G.691 应用参数），
+ * 用户只能修改，不能添加或删除。门限在查询时实时计算，不持久化到巡检记录中。
  * </p>
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class ThresholdService {
 
     /** 光功率状态：正常 */
@@ -43,132 +47,167 @@ public class ThresholdService {
     private static final Range DEFAULT_RANGE =
             new Range(DEFAULT_TX_LOW, DEFAULT_TX_HIGH, DEFAULT_RX_LOW, DEFAULT_RX_HIGH);
 
-    /**
-     * 预置门限配置 —— 唯一的预置数据来源。
-     * 用户只能修改数值，不能新增或删除模块类型。
-     */
-    private static final String RATE_STM1 = "STM-1";
-    private static final String RATE_STM4 = "STM-4";
-    private static final String RATE_STM16 = "STM-16";
-    private static final String RATE_STM64 = "STM-64";
-    private static final String RATE_GE = "GE";
-
-    /*
-     * STM-1/4/16 值取自 ITU-T G.957 Table 2/3/4（应用参数表）：
-     * 发送 = 源输出功率 min/max，接收 = [灵敏度, 过载]。
-     * matchKey 沿用设备侧 toModuleTypeName 生成的键（非标准连字符码），
-     * 标准应用码写在 description。STM-64/GE 不在 G.957 范围
-     * （分别见 G.691 / IEEE 802.3），维持原值。
-     */
-    private static final List<Preset> PRESETS = List.of(
-            // ITU-T G.957 Table 2 -- STM-1
-            new Preset(RATE_STM1, "I1.1", "155M+I档(短距,G.957 I-1)", -15.0, -8.0, -23.0, -8.0),
-            new Preset(RATE_STM1, "S1.1", "155M+S档(中距,G.957 S-1.1/S-1.2)", -15.0, -8.0, -28.0, -8.0),
-            new Preset(RATE_STM1, "L1.1", "155M+L档(长距,G.957 L-1.1~L-1.3)", -5.0, 0.0, -34.0, -10.0),
-            new Preset(RATE_STM1, "L1.2", "155M+V档(超长距,G.957 L-1.2)", -5.0, 0.0, -34.0, -10.0),
-            // ITU-T G.957 Table 3 -- STM-4
-            new Preset(RATE_STM4, "I4.1", "622M+I档(短距,G.957 I-4)", -15.0, -8.0, -23.0, -8.0),
-            new Preset(RATE_STM4, "S4.1", "622M+S档(中距,G.957 S-4.1/S-4.2)", -15.0, -8.0, -28.0, -8.0),
-            new Preset(RATE_STM4, "L4.1", "622M+L档(长距,G.957 L-4.1~L-4.3)", -3.0, 2.0, -28.0, -8.0),
-            new Preset(RATE_STM4, "L4.2", "622M+V档(超长距,G.957 L-4.2)", -3.0, 2.0, -28.0, -8.0),
-            // ITU-T G.957 Table 4 -- STM-16
-            new Preset(RATE_STM16, "I16.1", "2.5G+I档(短距,G.957 I-16)", -10.0, -3.0, -18.0, -3.0),
-            new Preset(RATE_STM16, "S16.1", "2.5G+S档(中距,G.957 S-16.1/S-16.2)", -5.0, 0.0, -18.0, 0.0),
-            new Preset(RATE_STM16, "L16.1", "2.5G+L档(长距,G.957 L-16.1)", -2.0, 3.0, -27.0, -9.0),
-            new Preset(RATE_STM16, "L16.2", "2.5G+V档(超长距,G.957 L-16.2)", -2.0, 3.0, -28.0, -9.0),
-            // G.957 不覆盖的类型，维持原值
-            new Preset(RATE_STM64, "S64.2b", "10G+S档(中距)", -10.0, 0.0, -18.0, -1.0),
-            new Preset(RATE_STM64, "L64.2", "10G+L档(长距)", -10.0, 0.0, -18.0, -1.0),
-            new Preset(RATE_STM64, "V64.2", "10G+V档(超长距)", -10.0, 0.0, -18.0, -1.0),
-            new Preset(RATE_GE, "1000BASE-SX", "GE+SX(多模)", -10.0, 0.0, -17.0, -3.0),
-            new Preset(RATE_GE, "1000BASE-LX", "GE+LX(单模)", -10.0, 0.0, -17.0, -3.0)
-    );
+    /** 配置前缀（校验报错消息用） */
+    private static final String CONFIG_PREFIX = "app.threshold.presets";
 
     /**
-     * 按 G.957 整改前的旧预置值，仅用于存量库迁移比对：
-     * 行内四个数值与之完全一致的视为未被人工修改，初始化时刷新为标准值。
+     * 历史发布过的预置值快照，仅用于存量库迁移比对：
+     * 行内四个数值与任一快照完全一致的视为未被人工修改，初始化时刷新为当前配置值。
+     * <p>
+     * 维护规则：以后修改 app.threshold.presets 中某 type 的数值时，必须把旧值追加到此表，
+     * 否则存量库中停在旧值的行会被当作人工修改而永不刷新。
+     * </p>
      */
-    private static final Map<String, Range> LEGACY_PRESETS = Map.ofEntries(
-            Map.entry("I1.1", new Range(-10.0, 0.0, -28.0, -8.0)),
-            Map.entry("S1.1", new Range(-15.0, -1.0, -28.0, -8.0)),
-            Map.entry("L1.1", new Range(-15.0, -1.0, -28.0, -8.0)),
-            Map.entry("I4.1", new Range(-10.0, 0.0, -28.0, -8.0)),
-            Map.entry("S4.1", new Range(-15.0, -1.0, -28.0, -8.0)),
-            Map.entry("L4.1", new Range(-15.0, -1.0, -28.0, -8.0)),
-            Map.entry("I16.1", new Range(-10.0, 0.0, -18.0, -1.0)),
-            Map.entry("S16.1", new Range(-15.0, -1.0, -18.0, -1.0)),
-            Map.entry("L16.1", new Range(-15.0, -1.0, -28.0, -8.0)));
-
-    /** G.957 中不存在、设备侧也永不生成的死键（旧版误加），初始化时清理 */
-    private static final String DEAD_KEY = "V16.1";
+    private static final Map<String, List<Range>> HISTORICAL_SNAPSHOTS = Map.ofEntries(
+            // 预 G.957 时代的旧值
+            Map.entry("S1.1", List.of(new Range(-15.0, -1.0, -28.0, -8.0))),
+            Map.entry("L1.1", List.of(new Range(-15.0, -1.0, -28.0, -8.0))),
+            Map.entry("S4.1", List.of(new Range(-15.0, -1.0, -28.0, -8.0))),
+            Map.entry("L4.1", List.of(new Range(-15.0, -1.0, -28.0, -8.0))),
+            Map.entry("I16.1", List.of(new Range(-10.0, 0.0, -18.0, -1.0))),
+            Map.entry("S16.1", List.of(new Range(-15.0, -1.0, -18.0, -1.0))),
+            Map.entry("L16.1", List.of(new Range(-15.0, -1.0, -28.0, -8.0))),
+            // G.957 时代的 STM-64 值（本次改为 G.691 值）
+            Map.entry("S64.2b", List.of(new Range(-10.0, 0.0, -18.0, -1.0))),
+            Map.entry("L64.2", List.of(new Range(-10.0, 0.0, -18.0, -1.0))),
+            Map.entry("V64.2", List.of(new Range(-10.0, 0.0, -18.0, -1.0))));
 
     private final ThresholdRuleRepository thresholdRuleRepository;
+
+    /** 预置门限（YAML 顺序，界面/导出顺序） */
+    private final List<Preset> presets;
+
+    public ThresholdService(ThresholdRuleRepository thresholdRuleRepository,
+                            ThresholdPresetProperties thresholdPresetProperties) {
+        this.thresholdRuleRepository = thresholdRuleRepository;
+        this.presets = buildPresets(thresholdPresetProperties.getPresets());
+    }
+
+    /** 校验配置并构建预置列表（启动即失败，避免坏配置带到巡检时才暴露） */
+    private static List<Preset> buildPresets(List<ThresholdPresetProperties.PresetItem> items) {
+        if (items == null || items.isEmpty()) {
+            throw new IllegalStateException(CONFIG_PREFIX + " 配置不能为空");
+        }
+        Set<String> seen = new HashSet<>();
+        List<Preset> result = new ArrayList<>();
+        for (ThresholdPresetProperties.PresetItem item : items) {
+            validateItem(item);
+            if (!seen.add(item.getType())) {
+                throw new IllegalStateException(CONFIG_PREFIX + " 存在重复 type: " + item.getType());
+            }
+            result.add(new Preset(item.getRate(), item.getType(), item.getDescription(),
+                    item.getTxLow(), item.getTxHigh(), item.getRxLow(), item.getRxHigh()));
+        }
+        return List.copyOf(result);
+    }
+
+    private static void validateItem(ThresholdPresetProperties.PresetItem item) {
+        if (isBlank(item.getRate()) || isBlank(item.getType()) || isBlank(item.getDescription())) {
+            throw new IllegalStateException(CONFIG_PREFIX + " 的 rate/type/description 不能为空: " + item.getType());
+        }
+        if (item.getTxLow() == null || item.getTxHigh() == null
+                || item.getRxLow() == null || item.getRxHigh() == null) {
+            throw new IllegalStateException(CONFIG_PREFIX + "[" + item.getType() + "] 门限不能为空");
+        }
+        try {
+            validateRange("发送", item.getTxLow(), item.getTxHigh());
+            validateRange("接收", item.getRxLow(), item.getRxHigh());
+        } catch (IllegalArgumentException e) {
+            throw new IllegalStateException(CONFIG_PREFIX + "[" + item.getType() + "] " + e.getMessage(), e);
+        }
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
+    }
 
     /**
      * 初始化预置默认门限规则。
      * <p>
-     * 1) 缺失的键补插（含按 G.957 新增的 L1.2/L4.2/L16.2）；
-     * 2) 存量行数值与旧预置完全一致的（视为未人工修改）刷新为 G.957 标准值；
-     * 3) 清理设备永不生成的死键 V16.1。
+     * 1) 缺失的键按配置补插；
+     * 2) 存量行数值命中历史快照的（视为未被人工修改）刷新为配置值，人工改过的不动；
+     * 3) 清理 matchKey 不在配置列表中的行（历史死键与已废弃模块类型）。
      * </p>
      */
     @Transactional
     public void initPresetThresholds() {
         int inserted = 0;
         int migrated = 0;
-        for (Preset preset : PRESETS) {
+        for (Preset preset : presets) {
             Optional<ThresholdRule> existing = thresholdRuleRepository.findByMatchKey(preset.matchKey());
             if (existing.isEmpty()) {
-                ThresholdRule rule = new ThresholdRule();
-                rule.setMatchKey(preset.matchKey());
-                rule.setTxLow(preset.txLow());
-                rule.setTxHigh(preset.txHigh());
-                rule.setRxLow(preset.rxLow());
-                rule.setRxHigh(preset.rxHigh());
-                rule.setDescription(preset.description());
-                thresholdRuleRepository.save(rule);
+                thresholdRuleRepository.save(newRule(preset));
                 inserted++;
-                continue;
-            }
-            ThresholdRule rule = existing.get();
-            Range legacy = LEGACY_PRESETS.get(preset.matchKey());
-            if (legacy != null && matchesLegacy(rule, legacy)) {
-                rule.setTxLow(preset.txLow());
-                rule.setTxHigh(preset.txHigh());
-                rule.setRxLow(preset.rxLow());
-                rule.setRxHigh(preset.rxHigh());
-                thresholdRuleRepository.save(rule);
+            } else if (refreshIfUntouched(existing.get(), preset)) {
                 migrated++;
             }
         }
-        int removed = 0;
-        for (ThresholdRule rule : thresholdRuleRepository.findAll()) {
-            if (DEAD_KEY.equals(rule.getMatchKey())) {
-                thresholdRuleRepository.delete(rule);
-                removed++;
-            }
-        }
+        int removed = deleteUnconfiguredRules();
         if (inserted > 0 || migrated > 0 || removed > 0) {
-            log.info("预置门限初始化: 新增 {} 条, 迁移为 G.957 标准值 {} 条, 删除死键 {} 条",
-                    inserted, migrated, removed);
+            log.info("预置门限初始化: 新增 {} 条, 迁移刷新 {} 条, 清理未配置键 {} 条", inserted, migrated, removed);
         }
     }
 
-    /** 四个数值与旧预置完全一致才视为未被人工修改 */
-    private static boolean matchesLegacy(ThresholdRule rule, Range legacy) {
-        return rule.getTxLow() != null && rule.getTxLow() == legacy.txLow()
-                && rule.getTxHigh() != null && rule.getTxHigh() == legacy.txHigh()
-                && rule.getRxLow() != null && rule.getRxLow() == legacy.rxLow()
-                && rule.getRxHigh() != null && rule.getRxHigh() == legacy.rxHigh();
+    private static ThresholdRule newRule(Preset preset) {
+        ThresholdRule rule = new ThresholdRule();
+        rule.setMatchKey(preset.matchKey());
+        rule.setTxLow(preset.txLow());
+        rule.setTxHigh(preset.txHigh());
+        rule.setRxLow(preset.rxLow());
+        rule.setRxHigh(preset.rxHigh());
+        rule.setDescription(preset.description());
+        return rule;
+    }
+
+    /**
+     * 数值已等于当前配置 → 不动；数值命中历史快照（视为未被人工修改）→ 刷新为配置值。
+     * 只刷新四个数值，不覆盖说明（说明可能被单独改过）。
+     *
+     * @return true 表示已刷新
+     */
+    private boolean refreshIfUntouched(ThresholdRule rule, Preset preset) {
+        Range current = rangeOf(rule);
+        if (preset.range().equals(current)) {
+            return false;
+        }
+        List<Range> history = HISTORICAL_SNAPSHOTS.get(preset.matchKey());
+        if (history == null || !history.contains(current)) {
+            return false;
+        }
+        rule.setTxLow(preset.txLow());
+        rule.setTxHigh(preset.txHigh());
+        rule.setRxLow(preset.rxLow());
+        rule.setRxHigh(preset.rxHigh());
+        thresholdRuleRepository.save(rule);
+        return true;
+    }
+
+    /** 删除 matchKey 不在当前预置列表中的行（历史死键与已废弃模块类型） */
+    private int deleteUnconfiguredRules() {
+        Set<String> configured = presets.stream().map(Preset::matchKey).collect(Collectors.toSet());
+        List<ThresholdRule> stale = thresholdRuleRepository.findAll().stream()
+                .filter(rule -> !configured.contains(rule.getMatchKey()))
+                .toList();
+        stale.forEach(thresholdRuleRepository::delete);
+        return stale.size();
+    }
+
+    /** 取行内四个数值组成的区间；任一为空返回 null（与任何快照都不相等） */
+    private static Range rangeOf(ThresholdRule rule) {
+        if (rule.getTxLow() == null || rule.getTxHigh() == null
+                || rule.getRxLow() == null || rule.getRxHigh() == null) {
+            return null;
+        }
+        return new Range(rule.getTxLow(), rule.getTxHigh(), rule.getRxLow(), rule.getRxHigh());
     }
 
     /** 查询全部门限规则（含预置值信息） */
     public List<Map<String, Object>> listRulesWithPresets() {
         Map<String, Preset> presetMap = new HashMap<>();
-        for (Preset preset : PRESETS) {
+        for (Preset preset : presets) {
             presetMap.put(preset.matchKey(), preset);
         }
-        List<Map<String, Object>> result = new java.util.ArrayList<>();
+        List<Map<String, Object>> result = new ArrayList<>();
         for (ThresholdRule rule : thresholdRuleRepository.findAll()) {
             Map<String, Object> entry = new LinkedHashMap<>();
             entry.put("id", rule.getId());
@@ -201,7 +240,7 @@ public class ThresholdService {
      */
     public Map<String, Range> loadRangeMap() {
         Map<String, Range> ranges = new HashMap<>();
-        for (Preset preset : PRESETS) {
+        for (Preset preset : presets) {
             ranges.put(preset.matchKey(), preset.range());
         }
         for (ThresholdRule rule : thresholdRuleRepository.findAll()) {
@@ -293,7 +332,7 @@ public class ThresholdService {
      */
     public List<RuleView> listRuleViews() {
         Map<String, Range> ranges = loadRangeMap();
-        return PRESETS.stream()
+        return presets.stream()
                 .map(p -> new RuleView(p.rate(), p.matchKey(), p.description(), ranges.get(p.matchKey())))
                 .toList();
     }

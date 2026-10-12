@@ -1,5 +1,6 @@
 package com.optel.qxinspection.service;
 
+import com.optel.qxinspection.config.ThresholdPresetProperties;
 import com.optel.qxinspection.entity.sqlite.ThresholdRule;
 import com.optel.qxinspection.repository.sqlite.ThresholdRuleRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -20,13 +21,13 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
 /**
- * 门限服务单元测试（唯一预置源 + 实时判定）
+ * 门限服务单元测试（配置预置 + 实时判定）
  */
 @ExtendWith(MockitoExtension.class)
 class ThresholdServiceTest {
 
-    /** 预置门限条目数（ThresholdService.PRESETS） */
-    private static final int PRESET_COUNT = 17;
+    /** fixture 预置条目数（S1.1 / L64.2 / I64.1） */
+    private static final int PRESET_COUNT = 3;
 
     @Mock
     private ThresholdRuleRepository thresholdRuleRepository;
@@ -35,7 +36,35 @@ class ThresholdServiceTest {
 
     @BeforeEach
     void setUp() {
-        thresholdService = new ThresholdService(thresholdRuleRepository);
+        thresholdService = new ThresholdService(thresholdRuleRepository, fixtureProperties());
+    }
+
+    /** 精简预置集：S1.1 覆盖常规刷新、L64.2 覆盖历史快照迁移、I64.1 覆盖无历史快照的新键 */
+    private static ThresholdPresetProperties fixtureProperties() {
+        return propertiesOf(
+                item("STM-1", "S1.1", "155M+S档", -15.0, -8.0, -28.0, -8.0),
+                item("STM-64", "L64.2", "10G+L档(长距,G.691 L-64.2a)", -2.0, 2.0, -26.0, -9.0),
+                item("STM-64", "I64.1", "10G+I档(短距,G.691 I-64.1)", -6.0, -1.0, -11.0, -1.0));
+    }
+
+    private static ThresholdPresetProperties propertiesOf(ThresholdPresetProperties.PresetItem... items) {
+        ThresholdPresetProperties properties = new ThresholdPresetProperties();
+        properties.setPresets(List.of(items));
+        return properties;
+    }
+
+    private static ThresholdPresetProperties.PresetItem item(String rate, String type, String description,
+                                                             double txLow, double txHigh,
+                                                             double rxLow, double rxHigh) {
+        ThresholdPresetProperties.PresetItem item = new ThresholdPresetProperties.PresetItem();
+        item.setRate(rate);
+        item.setType(type);
+        item.setDescription(description);
+        item.setTxLow(txLow);
+        item.setTxHigh(txHigh);
+        item.setRxLow(rxLow);
+        item.setRxHigh(rxHigh);
+        return item;
     }
 
     private static ThresholdRule rule(String matchKey, Double txLow, Double txHigh, Double rxLow, Double rxHigh) {
@@ -50,6 +79,55 @@ class ThresholdServiceTest {
         return rule;
     }
 
+    // ========== 构造校验 ==========
+
+    @Test
+    void testConstructor_EmptyPresets_Throws() {
+        assertThrows(IllegalStateException.class,
+                () -> new ThresholdService(thresholdRuleRepository, propertiesOf()));
+    }
+
+    @Test
+    void testConstructor_DuplicateType_Throws() {
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> new ThresholdService(thresholdRuleRepository, propertiesOf(
+                        item("STM-1", "S1.1", "a", -15.0, -8.0, -28.0, -8.0),
+                        item("STM-1", "S1.1", "b", -5.0, 0.0, -30.0, -10.0))));
+        assertTrue(ex.getMessage().contains("重复"));
+    }
+
+    @Test
+    void testConstructor_InvalidRange_Throws() {
+        // 发送低门限 >= 高门限
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> new ThresholdService(thresholdRuleRepository, propertiesOf(
+                        item("STM-1", "S1.1", "a", -8.0, -15.0, -28.0, -8.0))));
+        assertTrue(ex.getMessage().contains("S1.1"));
+    }
+
+    @Test
+    void testConstructor_NullThreshold_Throws() {
+        ThresholdPresetProperties.PresetItem nullRxHigh =
+                item("STM-1", "S1.1", "a", -15.0, -8.0, -28.0, -8.0);
+        nullRxHigh.setRxHigh(null);
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> new ThresholdService(thresholdRuleRepository, propertiesOf(nullRxHigh)));
+        assertTrue(ex.getMessage().contains("S1.1"));
+    }
+
+    @Test
+    void testConstructor_BlankRateTypeDescription_Throws() {
+        assertThrows(IllegalStateException.class,
+                () -> new ThresholdService(thresholdRuleRepository, propertiesOf(
+                        item(" ", "S1.1", "a", -15.0, -8.0, -28.0, -8.0))));
+        assertThrows(IllegalStateException.class,
+                () -> new ThresholdService(thresholdRuleRepository, propertiesOf(
+                        item("STM-1", " ", "a", -15.0, -8.0, -28.0, -8.0))));
+        assertThrows(IllegalStateException.class,
+                () -> new ThresholdService(thresholdRuleRepository, propertiesOf(
+                        item("STM-1", "S1.1", null, -15.0, -8.0, -28.0, -8.0))));
+    }
+
     // ========== initPresetThresholds ==========
 
     @Test
@@ -61,19 +139,22 @@ class ThresholdServiceTest {
         ArgumentCaptor<ThresholdRule> captor = ArgumentCaptor.forClass(ThresholdRule.class);
         verify(thresholdRuleRepository, times(PRESET_COUNT)).save(captor.capture());
         ThresholdRule first = captor.getAllValues().get(0);
-        assertEquals("I1.1", first.getMatchKey());
+        assertEquals("S1.1", first.getMatchKey());
         assertEquals(-15.0, first.getTxLow());
         assertEquals(-8.0, first.getTxHigh());
-        assertEquals(-23.0, first.getRxLow());
+        assertEquals(-28.0, first.getRxLow());
         assertEquals(-8.0, first.getRxHigh());
-        assertEquals("155M+I档(短距,G.957 I-1)", first.getDescription());
+        assertEquals("155M+S档", first.getDescription());
     }
 
     @Test
     void testInitPresetThresholds_SkipsExisting_WhenValuesAlreadyCurrent() {
-        // 所有键都已存在且值为 G.957 新预置值 → 不插入、不迁移
-        when(thresholdRuleRepository.findByMatchKey(anyString()))
-                .thenReturn(Optional.of(rule("I1.1", -15.0, -8.0, -23.0, -8.0)));
+        when(thresholdRuleRepository.findByMatchKey("S1.1"))
+                .thenReturn(Optional.of(rule("S1.1", -15.0, -8.0, -28.0, -8.0)));
+        when(thresholdRuleRepository.findByMatchKey("L64.2"))
+                .thenReturn(Optional.of(rule("L64.2", -2.0, 2.0, -26.0, -9.0)));
+        when(thresholdRuleRepository.findByMatchKey("I64.1"))
+                .thenReturn(Optional.of(rule("I64.1", -6.0, -1.0, -11.0, -1.0)));
 
         thresholdService.initPresetThresholds();
 
@@ -82,48 +163,59 @@ class ThresholdServiceTest {
     }
 
     @Test
-    void testInitPresetThresholds_MigratesLegacyRow_ToG957Values() {
-        // I1.1 存量值等于旧预置 → 视为未人工修改，刷新为 G.957 标准值
+    void testInitPresetThresholds_MigratesHistoricalRow_ToConfiguredValues() {
+        // L64.2 存量值为 G.957 时代预置值 → 视为未人工修改，刷新为配置值（说明保持不动）
         when(thresholdRuleRepository.findByMatchKey(anyString())).thenReturn(Optional.empty());
-        when(thresholdRuleRepository.findByMatchKey("I1.1"))
-                .thenReturn(Optional.of(rule("I1.1", -10.0, 0.0, -28.0, -8.0)));
+        ThresholdRule historical = rule("L64.2", -10.0, 0.0, -18.0, -1.0);
+        historical.setDescription("10G+L档(长距)");
+        when(thresholdRuleRepository.findByMatchKey("L64.2")).thenReturn(Optional.of(historical));
 
         thresholdService.initPresetThresholds();
 
         ArgumentCaptor<ThresholdRule> captor = ArgumentCaptor.forClass(ThresholdRule.class);
         verify(thresholdRuleRepository, times(PRESET_COUNT)).save(captor.capture());
         ThresholdRule migrated = captor.getAllValues().stream()
-                .filter(r -> "I1.1".equals(r.getMatchKey()))
+                .filter(r -> "L64.2".equals(r.getMatchKey()))
                 .findFirst().orElseThrow();
-        assertEquals(-15.0, migrated.getTxLow());
-        assertEquals(-8.0, migrated.getTxHigh());
-        assertEquals(-23.0, migrated.getRxLow());
-        assertEquals(-8.0, migrated.getRxHigh());
+        assertEquals(-2.0, migrated.getTxLow());
+        assertEquals(2.0, migrated.getTxHigh());
+        assertEquals(-26.0, migrated.getRxLow());
+        assertEquals(-9.0, migrated.getRxHigh());
+        assertEquals("10G+L档(长距)", migrated.getDescription());
     }
 
     @Test
     void testInitPresetThresholds_PreservesUserModifiedRow() {
-        // I1.1 数值与旧预置不完全一致（人工改过）→ 保持不动
+        // L64.2 数值与任何历史快照都不一致（人工改过）→ 保持不动
         when(thresholdRuleRepository.findByMatchKey(anyString())).thenReturn(Optional.empty());
-        when(thresholdRuleRepository.findByMatchKey("I1.1"))
-                .thenReturn(Optional.of(rule("I1.1", -10.0, 0.0, -28.0, -5.0)));
+        when(thresholdRuleRepository.findByMatchKey("L64.2"))
+                .thenReturn(Optional.of(rule("L64.2", -10.0, 0.0, -18.0, -5.0)));
 
         thresholdService.initPresetThresholds();
 
         ArgumentCaptor<ThresholdRule> captor = ArgumentCaptor.forClass(ThresholdRule.class);
         verify(thresholdRuleRepository, times(PRESET_COUNT - 1)).save(captor.capture());
-        assertTrue(captor.getAllValues().stream().noneMatch(r -> "I1.1".equals(r.getMatchKey())));
+        assertTrue(captor.getAllValues().stream().noneMatch(r -> "L64.2".equals(r.getMatchKey())));
     }
 
     @Test
-    void testInitPresetThresholds_DeletesDeadKeyV16() {
+    void testInitPresetThresholds_DeletesUnconfiguredKeys() {
+        // 配置外的键（历史死键/已废弃模块类型）清理，配置内的键保留
+        ThresholdRule deadKey = rule("V16.1", -15.0, -1.0, -28.0, -8.0);
+        ThresholdRule droppedType = rule("I1.1", -15.0, -8.0, -28.0, -8.0);
+        ThresholdRule geType = rule("1000BASE-SX", -10.0, 0.0, -17.0, -3.0);
+        ThresholdRule kept = rule("S1.1", -15.0, -8.0, -28.0, -8.0);
         when(thresholdRuleRepository.findByMatchKey(anyString())).thenReturn(Optional.empty());
-        ThresholdRule dead = rule("V16.1", -15.0, -1.0, -28.0, -8.0);
-        when(thresholdRuleRepository.findAll()).thenReturn(List.of(dead));
+        when(thresholdRuleRepository.findByMatchKey("S1.1")).thenReturn(Optional.of(kept));
+        when(thresholdRuleRepository.findAll())
+                .thenReturn(List.of(deadKey, droppedType, geType, kept));
 
         thresholdService.initPresetThresholds();
 
-        verify(thresholdRuleRepository).delete(dead);
+        verify(thresholdRuleRepository).delete(deadKey);
+        verify(thresholdRuleRepository).delete(droppedType);
+        verify(thresholdRuleRepository).delete(geType);
+        verify(thresholdRuleRepository, never()).delete(kept);
     }
 
     // ========== listRules ==========
@@ -144,31 +236,32 @@ class ThresholdServiceTest {
         Map<String, ThresholdService.Range> ranges = thresholdService.loadRangeMap();
 
         assertEquals(PRESET_COUNT, ranges.size());
-        ThresholdService.Range s16 = ranges.get("S16.1");
-        assertEquals(-5.0, s16.txLow());
-        assertEquals(0.0, s16.txHigh());
-        assertEquals(-18.0, s16.rxLow());
-        assertEquals(0.0, s16.rxHigh());
-        // 按 G.957 Table 4 新增的 80km 档
-        ThresholdService.Range l162 = ranges.get("L16.2");
-        assertEquals(-2.0, l162.txLow());
-        assertEquals(3.0, l162.txHigh());
-        assertEquals(-28.0, l162.rxLow());
-        assertEquals(-9.0, l162.rxHigh());
-        // 死键不在预置中
+        ThresholdService.Range s11 = ranges.get("S1.1");
+        assertEquals(-15.0, s11.txLow());
+        assertEquals(-8.0, s11.txHigh());
+        assertEquals(-28.0, s11.rxLow());
+        assertEquals(-8.0, s11.rxHigh());
+        // G.691 值（表中 L64.2a 行）
+        ThresholdService.Range l642 = ranges.get("L64.2");
+        assertEquals(-2.0, l642.txLow());
+        assertEquals(2.0, l642.txHigh());
+        assertEquals(-26.0, l642.rxLow());
+        assertEquals(-9.0, l642.rxHigh());
+        // 死键/废弃键不在预置中
         assertNull(ranges.get("V16.1"));
+        assertNull(ranges.get("1000BASE-SX"));
     }
 
     @Test
     void testLoadRangeMap_DbRuleOverridesPreset_WithNullFallback() {
-        // txHigh 为 null → 回退到预置的 0.0（G.957 S-16.1 发送上限）
+        // txHigh 为 null → 回退到预置值
         when(thresholdRuleRepository.findAll())
-                .thenReturn(List.of(rule("S16.1", -6.0, null, -28.0, -8.0)));
+                .thenReturn(List.of(rule("S1.1", -6.0, null, -28.0, -8.0)));
 
-        ThresholdService.Range range = thresholdService.loadRangeMap().get("S16.1");
+        ThresholdService.Range range = thresholdService.loadRangeMap().get("S1.1");
 
         assertEquals(-6.0, range.txLow());
-        assertEquals(0.0, range.txHigh());
+        assertEquals(-8.0, range.txHigh());
         assertEquals(-28.0, range.rxLow());
         assertEquals(-8.0, range.rxHigh());
     }
@@ -317,19 +410,19 @@ class ThresholdServiceTest {
 
         assertEquals(PRESET_COUNT, views.size());
         assertEquals("STM-1", views.get(0).rate());
-        assertEquals("I1.1", views.get(0).matchKey());
+        assertEquals("S1.1", views.get(0).matchKey());
         assertEquals(-15.0, views.get(0).range().txLow());
-        assertEquals("GE", views.get(PRESET_COUNT - 1).rate());
-        assertEquals("1000BASE-LX", views.get(PRESET_COUNT - 1).matchKey());
+        assertEquals("STM-64", views.get(PRESET_COUNT - 1).rate());
+        assertEquals("I64.1", views.get(PRESET_COUNT - 1).matchKey());
     }
 
     @Test
     void testListRuleViews_ReflectsDbOverride() {
         when(thresholdRuleRepository.findAll())
-                .thenReturn(List.of(rule("L16.1", -6.0, 0.0, -28.0, -8.0)));
+                .thenReturn(List.of(rule("L64.2", -6.0, 0.0, -28.0, -8.0)));
 
         ThresholdService.RuleView view = thresholdService.listRuleViews().stream()
-                .filter(v -> "L16.1".equals(v.matchKey()))
+                .filter(v -> "L64.2".equals(v.matchKey()))
                 .findFirst()
                 .orElseThrow();
 
