@@ -40,14 +40,14 @@ const HEADER_ROWS = [
         { text: 'TX\n状态', className: 'query-th-a', center: true }, { text: 'RX\n状态', className: 'query-th-a', center: true },
         { text: 'RS', unit: '错误秒', className: 'query-th-a', center: true },
         { text: '总', unit: 'Mbps', className: 'query-th-a', center: true }, { text: '已用', unit: 'Mbps', className: 'query-th-a', center: true },
-        { text: '利用率', className: 'query-th-a', center: true },
+        { text: '利用率', unit: '%', className: 'query-th-a', center: true },
         { text: '名称', className: 'query-th-z' }, { text: '类型', className: 'query-th-z' }, { text: '端口', className: 'query-th-z' },
         { text: '类型', className: 'query-th-z', center: true },
         { text: 'TX', unit: 'dBm', className: 'query-th-z', center: true }, { text: 'RX', unit: 'dBm', className: 'query-th-z', center: true },
         { text: 'TX\n状态', className: 'query-th-z', center: true }, { text: 'RX\n状态', className: 'query-th-z', center: true },
         { text: 'RS', unit: '错误秒', className: 'query-th-z', center: true },
         { text: '总', unit: 'Mbps', className: 'query-th-z', center: true }, { text: '已用', unit: 'Mbps', className: 'query-th-z', center: true },
-        { text: '利用率', className: 'query-th-z', center: true }
+        { text: '利用率', unit: '%', className: 'query-th-z', center: true }
     ]
 ];
 
@@ -74,7 +74,7 @@ function truncCell(text, className) {
     return td;
 }
 
-/** 功率单元格：正常显示一位小数，异常标背景色 */
+/** 功率单元格：保留两位小数，异常标背景色 */
 function powerCell(value, status) {
     const td = document.createElement('td');
     td.className = 'center-cell';
@@ -83,7 +83,7 @@ function powerCell(value, status) {
         td.style.color = '#9ca3af';
         return td;
     }
-    td.textContent = value.toFixed(1);
+    td.textContent = value.toFixed(2);
     if (status && status !== '正常' && status !== '--') {
         if (status === '无光') td.className = 'status-no-light';
         else if (status === '过高') td.className = 'status-high';
@@ -120,18 +120,26 @@ function numberCell(value, className) {
     return td;
 }
 
-/** 利用率单元格：保留2位小数，带 % 后缀 */
-function usageCell(value) {
+/** 小数单元格：保留2位小数，空值显示 -- */
+function decimalCell(value, className) {
     const td = document.createElement('td');
-    td.className = 'center-cell';
+    if (className) td.className = className;
     if (value == null) {
         td.textContent = '--';
         td.style.color = '#9ca3af';
         return td;
     }
-    td.textContent = value.toFixed(2) + '%';
-    if (value >= 90) td.classList.add('status-high');
-    else if (value >= 70) td.classList.add('status-warn');
+    td.textContent = value.toFixed(2);
+    return td;
+}
+
+/** 利用率单元格：保留2位小数，不带 % 后缀（单位只写在表头），超阈值标色 */
+function usageCell(value) {
+    const td = decimalCell(value, 'center-cell');
+    if (value != null) {
+        if (value >= 90) td.classList.add('status-high');
+        else if (value >= 70) td.classList.add('status-warn');
+    }
     return td;
 }
 
@@ -315,8 +323,9 @@ function appendSide(row, r, prefix) {
     row.appendChild(statusCell(r[prefix + 'TxStatus']));
     row.appendChild(statusCell(r[prefix + 'RxStatus']));
     row.appendChild(numberCell(r[prefix + 'RsErrorSec'], 'center-cell'));
-    row.appendChild(numberCell(r[prefix + 'TotalBandwidth'], 'center-cell'));
-    row.appendChild(numberCell(r[prefix + 'UsedBandwidth'], 'center-cell'));
+    // 带宽是 VC-12 折算的 Mbps（如 129.02），保留两位小数
+    row.appendChild(decimalCell(r[prefix + 'TotalBandwidth'], 'center-cell'));
+    row.appendChild(decimalCell(r[prefix + 'UsedBandwidth'], 'center-cell'));
     row.appendChild(usageCell(r[prefix + 'BandwidthUsage']));
 }
 

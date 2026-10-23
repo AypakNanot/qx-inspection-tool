@@ -210,8 +210,8 @@ function renderTopAnomalies(anomalies) {
         tr.appendChild(createTextCell(a.neName || ''));
         tr.appendChild(createTextCell(a.portName || ''));
         tr.appendChild(createTextCell(a.moduleType || '--'));
-        tr.appendChild(createTextCell(a.txPower != null ? a.txPower.toFixed(1) : '--'));
-        tr.appendChild(createTextCell(a.rxPower != null ? a.rxPower.toFixed(1) : '--'));
+        tr.appendChild(createTextCell(a.txPower != null ? a.txPower.toFixed(2) : '--'));
+        tr.appendChild(createTextCell(a.rxPower != null ? a.rxPower.toFixed(2) : '--'));
         const statusText = [a.txStatus, a.rxStatus].filter(s => s && s !== '正常');
         const stTd = createTextCell(statusText.length > 0 ? statusText.join('，') : '正常');
         if (statusText.length > 0) stTd.style.color = '#dc2626';

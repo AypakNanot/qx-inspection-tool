@@ -192,6 +192,8 @@ public class InspectionController {
         CellStyle headStyle = headerStyle(workbook);
         CellStyle bodyStyle = bodyStyle(workbook);
         CellStyle warnStyle = warnStyle(workbook);
+        CellStyle decimalStyle = decimalStyle(workbook);
+        SheetStyles styles = new SheetStyles(warnStyle, decimalStyle);
 
         // 第 1 行：序号 | 链路名称 | A端 | Z端
         Row row0 = styledRow(sheet, 0, headStyle);
@@ -226,9 +228,9 @@ public class InspectionController {
         String[] labels = {
                 null, null,
                 "名称", "类型", "端口", "类型", "TX\n(dBm)", "RX\n(dBm)", "TX\n状态", "RX\n状态", "RS\n(错误秒)",
-                "总\n(Mbps)", "已用\n(Mbps)", "利用率",
+                "总\n(Mbps)", "已用\n(Mbps)", "利用率\n(%)",
                 "名称", "类型", "端口", "类型", "TX\n(dBm)", "RX\n(dBm)", "TX\n状态", "RX\n状态", "RS\n(错误秒)",
-                "总\n(Mbps)", "已用\n(Mbps)", "利用率"
+                "总\n(Mbps)", "已用\n(Mbps)", "利用率\n(%)"
         };
         for (int i = 0; i < labels.length; i++) {
             if (labels[i] != null) {
@@ -244,14 +246,8 @@ public class InspectionController {
             }
             row.getCell(0).setCellValue(r.getSeqNo() != null ? r.getSeqNo() : 0);
             row.getCell(1).setCellValue(nullToEmpty(r.getLinkName()));
-            writeSide(row, 2, r.getANeName(), r.getANeTypeName(), r.getAPortName(), r.getAModuleType(),
-                    r.getATxPower(), r.getARxPower(), r.getATxStatus(), r.getARxStatus(),
-                    r.getARsErrorSec(), r.getATotalBandwidth(), r.getAUsedBandwidth(),
-                    r.getABandwidthUsage(), warnStyle);
-            writeSide(row, 14, r.getZNeName(), r.getZNeTypeName(), r.getZPortName(), r.getZModuleType(),
-                    r.getZTxPower(), r.getZRxPower(), r.getZTxStatus(), r.getZRxStatus(),
-                    r.getZRsErrorSec(), r.getZTotalBandwidth(), r.getZUsedBandwidth(),
-                    r.getZBandwidthUsage(), warnStyle);
+            writeSide(row, 2, sideValues(r, false), styles);
+            writeSide(row, 14, sideValues(r, true), styles);
         }
 
         sheet.createFreezePane(0, 3);
@@ -261,23 +257,45 @@ public class InspectionController {
     /**
      * 写入一端（A端/Z端）的 12 列数据。
      */
-    private void writeSide(Row row, int start, String neName, String neTypeName, String portName,
-                           String moduleType, Double txPower, Double rxPower, String txStatus,
-                           String rxStatus, Integer rsErrorSec, Double totalBandwidth,
-                           Double usedBandwidth, Double bandwidthUsage, CellStyle warnStyle) {
-        row.getCell(start).setCellValue(nullToEmpty(neName));
-        setNeType(row.getCell(start + 1), neTypeName);
-        row.getCell(start + 2).setCellValue(nullToEmpty(portName));
-        row.getCell(start + 3).setCellValue(nullToEmpty(moduleType));
-        setNumberOrDash(row.getCell(start + 4), txPower);
-        setNumberOrDash(row.getCell(start + 5), rxPower);
-        setStatus(row.getCell(start + 6), txStatus, warnStyle);
-        setStatus(row.getCell(start + 7), rxStatus, warnStyle);
-        setIntegerOrDash(row.getCell(start + 8), rsErrorSec);
-        // 带宽对外是 Mbps，带小数，不能用整数单元格
-        setNumberOrDash(row.getCell(start + 9), totalBandwidth);
-        setNumberOrDash(row.getCell(start + 10), usedBandwidth);
-        setNumberOrDash(row.getCell(start + 11), bandwidthUsage);
+    private void writeSide(Row row, int start, SideValues v, SheetStyles styles) {
+        row.getCell(start).setCellValue(nullToEmpty(v.neName()));
+        setNeType(row.getCell(start + 1), v.neTypeName());
+        row.getCell(start + 2).setCellValue(nullToEmpty(v.portName()));
+        row.getCell(start + 3).setCellValue(nullToEmpty(v.moduleType()));
+        // 收发光功率保留两位小数
+        setNumberOrDash(row.getCell(start + 4), v.txPower(), styles.decimal());
+        setNumberOrDash(row.getCell(start + 5), v.rxPower(), styles.decimal());
+        setStatus(row.getCell(start + 6), v.txStatus(), styles.warn());
+        setStatus(row.getCell(start + 7), v.rxStatus(), styles.warn());
+        setIntegerOrDash(row.getCell(start + 8), v.rsErrorSec());
+        // 带宽对外是 VC-12 折算的 Mbps（如 129.02），保留两位小数，与页面一致
+        setNumberOrDash(row.getCell(start + 9), v.totalBandwidth(), styles.decimal());
+        setNumberOrDash(row.getCell(start + 10), v.usedBandwidth(), styles.decimal());
+        // 利用率是百分比数值：单位写在表头，单元格保留两位小数且不带 %
+        setNumberOrDash(row.getCell(start + 11), v.bandwidthUsage(), styles.decimal());
+    }
+
+    /** 一端（A端或Z端）的 12 个展示字段 */
+    private static SideValues sideValues(LinkInspectionResult r, boolean zSide) {
+        if (zSide) {
+            return new SideValues(r.getZNeName(), r.getZNeTypeName(), r.getZPortName(), r.getZModuleType(),
+                    r.getZTxPower(), r.getZRxPower(), r.getZTxStatus(), r.getZRxStatus(),
+                    r.getZRsErrorSec(), r.getZTotalBandwidth(), r.getZUsedBandwidth(), r.getZBandwidthUsage());
+        }
+        return new SideValues(r.getANeName(), r.getANeTypeName(), r.getAPortName(), r.getAModuleType(),
+                r.getATxPower(), r.getARxPower(), r.getATxStatus(), r.getARxStatus(),
+                r.getARsErrorSec(), r.getATotalBandwidth(), r.getAUsedBandwidth(), r.getABandwidthUsage());
+    }
+
+    /** 一端的 12 个展示字段，与表格 12 列一一对应 */
+    private record SideValues(String neName, String neTypeName, String portName, String moduleType,
+                              Double txPower, Double rxPower, String txStatus, String rxStatus,
+                              Integer rsErrorSec, Double totalBandwidth, Double usedBandwidth,
+                              Double bandwidthUsage) {
+    }
+
+    /** 结果 Sheet 用到的非通用样式 */
+    private record SheetStyles(CellStyle warn, CellStyle decimal) {
     }
 
     private void writeThresholdSheet(Workbook workbook) {
@@ -367,12 +385,14 @@ public class InspectionController {
         cell.setCellStyle(warnStyle);
     }
 
-    private static void setNumberOrDash(Cell cell, Double value) {
-        if (value == null) {
-            cell.setCellValue(EMPTY_CELL);
-        } else {
+    /** 写入按样式格式化的数值（空值写占位符） */
+    private static void setNumberOrDash(Cell cell, Double value, CellStyle style) {
+        if (value != null) {
             cell.setCellValue(value);
+        } else {
+            cell.setCellValue(EMPTY_CELL);
         }
+        cell.setCellStyle(style);
     }
 
     private static void setIntegerOrDash(Cell cell, Integer value) {
@@ -405,6 +425,13 @@ public class InspectionController {
         Font font = workbook.createFont();
         font.setColor(IndexedColors.RED.getIndex());
         style.setFont(font);
+        return style;
+    }
+
+    /** 数值单元格统一两位小数显示（光模块收发光功率、总/已用带宽、带宽利用率） */
+    private static CellStyle decimalStyle(Workbook workbook) {
+        CellStyle style = bordered(workbook);
+        style.setDataFormat(workbook.createDataFormat().getFormat("0.00"));
         return style;
     }
 
